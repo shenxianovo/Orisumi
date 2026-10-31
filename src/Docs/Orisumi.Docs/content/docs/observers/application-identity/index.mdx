@@ -90,7 +90,7 @@ Mac A 和 Mac B 上的 QQ 是两个本机应用，它们的描述都提到 `com.
 
 ### 模型 [#model]
 
-应用识别 Observer 调用 OpenAI 的 API，型号由[配置](#configuration)给出，记在 Observer 的描述中，所以每条判断都能查到用的模型。请求用结构化输出限定回答的格式。
+应用识别 Observer 调用 OpenAI 的 API，型号由[配置](#configuration)给出，记在 Observer 的描述中，所以每条判断都能查到用的模型。
 
 发送的内容：
 
@@ -104,15 +104,17 @@ Mac A 和 Mac B 上的 QQ 是两个本机应用，它们的描述都提到 `com.
 | 这条线索被否定过的结论 | 不属于 QQ |
 | 判断标准 | [Application Product · 粒度](./application-product.mdx#granularity) |
 
-模型从三种结果中选一种：
+判断分两步。第一步用 Decisions API 选一项：选项是产品目录中的每个产品，再加上“新的产品”和“未知”，被否定过的产品不在选项中。Decisions API 返回各选项的概率，应用识别 Observer 取概率最高的一项：
 
-| 结果 | 内容 |
+| 结果 | 处理 |
 | --- | --- |
-| 属于已有的产品 | 产品的 EntityId，必须是目录中的一个 |
-| 新的产品 | 产品的名称 |
-| 未知 | 无 |
+| 属于已有的产品 | 写入指向这个产品的线索归属 |
+| 新的产品 | 第二步用 Responses API 的结构化输出问出产品的名称，再新建产品 |
+| 未知 | 不写入 |
 
-结果为未知时，应用识别 Observer 不写入，在内存中记下这条线索，以及当时拥有它的本机应用和收集到的名称。之后的轮次中，这两项都没有变化时跳过这条线索；出现新的本机应用或新的名称时，重新交给模型。进程重启后，这些记录清空，未知的线索重新交给模型。
+产品目录超过 255 个产品时，第一步只放入名称与收集到的名称最接近的 253 个产品。
+
+结果为未知时，应用识别 Observer 在内存中记下这条线索，以及当时拥有它的本机应用和收集到的名称。之后的轮次中，这两项都没有变化时跳过这条线索；出现新的本机应用或新的名称时，重新交给模型。进程重启后，这些记录清空，未知的线索重新交给模型。
 
 ### 失败 [#failures]
 
@@ -122,7 +124,7 @@ Mac A 和 Mac B 上的 QQ 是两个本机应用，它们的描述都提到 `com.
 | --- | --- |
 | 没有配置 API Key | 写入自己的描述，不调用模型，每轮报告诊断 |
 | 本机应用描述的业务类型还没有声明 | 这一轮没有线索 |
-| 模型的请求失败或超时；回答不符合格式，或指向目录中没有的产品 | 这条线索不写入，下一轮重试 |
+| 模型的请求失败或超时；回答不符合格式，或新产品的名称为空 | 这条线索不写入，下一轮重试 |
 | 读取时后端不可用 | 结束这一轮，下一轮重试 |
 | 写入被拒绝或后端不可用 | 报告诊断，跳过这条线索，下一轮重试 |
 
@@ -135,7 +137,8 @@ Mac A 和 Mac B 上的 QQ 是两个本机应用，它们的描述都提到 `com.
 | 配置 | 来源 | 含义 |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Runtime 的环境变量 | OpenAI 的 API Key |
-| `model` | 设置 | 调用的 OpenAI 模型，省略时为默认模型 |
+| `model` | 设置 | 第二步调用的 OpenAI 模型，省略时为 `gpt-6.1-terra` |
+| `decisionModel` | 设置 | 第一步调用的模型，省略时为 `gpt-6-luna` |
 | `intervalSeconds` | 设置 | 两轮之间的间隔，默认 60 |
 
 ## 写入 [#submission]
@@ -158,12 +161,11 @@ Mac A 和 Mac B 上的 QQ 是两个本机应用，它们的描述都提到 `com.
 
 ## 实现 [#implementation]
 
-识别的业务代码在 `src/Observers/Orisumi.Observer.ApplicationIdentity/`，用 .NET 编写，使用 .NET SDK，发布为 `linux-x64` 等服务器平台的安装包。它调用 OpenAI 的 Responses API，默认模型是 `gpt-6.1-terra`。
+识别的业务代码在 `src/Observers/Orisumi.Observer.ApplicationIdentity/`，用 .NET 编写，使用 .NET SDK，发布为 `linux-x64` 等服务器平台的安装包。它调用 OpenAI 的 Decisions API 和 Responses API。
 
 测试 Case：[应用识别](../../testing/observers/application-identity.mdx)。
 
 ## 待定 [#open]
 
 - 更换模型后什么时候重新判断全部线索，由谁触发。
-- 产品目录很大时，只发送一部分候选。
 - OpenAI 以外的模型供应商。

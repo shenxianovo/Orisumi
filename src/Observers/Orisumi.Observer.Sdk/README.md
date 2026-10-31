@@ -8,13 +8,15 @@
 await using var data = DataClient.Connect();
 await data.UseAsync(definitions, observerSchemaId, new { programVersion = data.PackageVersion });
 
-await data.WriteAsync(new(temperatureSchemaId, new { celsius = 21.5 }, Time: FactTime.Point(now, zone)));
+await data.WriteAsync(new(temperatureSchemaId, new { celsius = 21.5 }, "direct", Time: FactTime.Point(now, zone)));
 ```
 
+- `UseAsync` 声明用到的业务类型，并写下这个 Observer 的描述；之后的写入引用当时的描述。
+- 每次写入声明[形成方式](../../Docs/Orisumi.Docs/content/docs/core/model/observation.mdx#formation)，程序直接读到的是 `direct`。
 - `Connect` 在受托管时从运行上下文读取地址，见 [Hosting · 运行上下文](../../Docs/Orisumi.Docs/content/docs/hosting/index.mdx#context)。直接运行时传入后端地址和用识别依据写的 Observer。
 - `data.Stopping` 在标准输入关闭时取消。业务代码据此结束并写入进行中的事实，然后退出。
 - `data.Direct` 连后端地址，同步得到写入结果；被拒绝时抛出 `WriteRejectedException`。写给本地转发时，收下就返回。
 - 内容中的 `binary` 字段写 `BinaryContent`，SDK 先上传字节，再发送写入。
-- 用到设备时，声明 `DeviceContext.Definition`，写入 `data.Device.Write`，用 `data.Device.Ref` 引用它。
+- 用到设备时，声明 `DeviceContext.Definitions`，写入 `data.Device.Writes(...)` 给出设备的描述和名字，内容里用 `data.Device.Ref` 提到它。设备是事物，第一次被提到时由后端创建。
 - 业务类型的声明保存为嵌入资源的 JSON，用 `SchemaDefinition.Load` 读取。
 - 日志和采集诊断写入标准错误。

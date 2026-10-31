@@ -44,7 +44,7 @@ internal sealed partial class PostgresEntityTransaction
                 ((List<RecognitionKey>)things[reader.GetGuid(0)].Keys).Add(new(reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2), reader.GetString(3)));
         // UNDERSTANDING-9: fetch names for the complete page in one query.
         await using (var command = Command($"""
-            SELECT DISTINCT ON (v.content->>'thingId') (v.content->>'thingId')::uuid, v.content->>'name'
+            SELECT DISTINCT ON (v.content->>'thingId') (v.content->>'thingId')::uuid, v.content->>'name', v.version_id
             FROM observations o JOIN versions v ON v.version_id = o.version_id
             JOIN things author ON author.entity_id = v.observer_id
             WHERE o.schema_id = $2 AND (v.content->>'thingId')::uuid = ANY($1) AND {CurrentStanding("o.entity_id")}
@@ -52,7 +52,7 @@ internal sealed partial class PostgresEntityTransaction
             """, [values, BuiltInSchemas.Name.Value, BuiltInSchemas.Person.Value]))
         await using (var reader = await command.ExecuteReaderAsync(token))
             while (await reader.ReadAsync(token))
-                if (things.TryGetValue(reader.GetGuid(0), out var thing)) things[reader.GetGuid(0)] = thing with { Name = reader.GetString(1) };
+                if (things.TryGetValue(reader.GetGuid(0), out var thing)) things[reader.GetGuid(0)] = thing with { Name = reader.GetString(1), NameVersionId = new(reader.GetGuid(2)) };
         return ids.Where(id => things.ContainsKey(id.Value)).Select(id => things[id.Value]).ToArray();
     }
 }

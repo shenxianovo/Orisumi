@@ -14,7 +14,13 @@
         },
         "model": {
           "type": "string",
-          "description": "判断时调用的模型，写作供应商和型号，例如 openai/gpt-5-mini",
+          "description": "第二步调用的模型，例如 openai/gpt-6.1-terra",
+          "nullable": false,
+          "required": true
+        },
+        "decisionModel": {
+          "type": "string",
+          "description": "第一步选择产品的模型，例如 openai/gpt-6-luna",
           "nullable": false,
           "required": true
         }

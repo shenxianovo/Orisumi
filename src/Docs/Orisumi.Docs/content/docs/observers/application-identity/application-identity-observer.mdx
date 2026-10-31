@@ -21,7 +21,7 @@ EntityId 由托管方保存，重启和升级后沿用，见 [OBSERVER-4](../../
 | --- | --- |
 | SchemaId | `019e1bbb-ec00-7000-8000-000000000005` |
 | 显示名称 | 应用识别 Observer |
-| 说明 | 描述一个应用识别 Observer 程序实例：它的程序版本和调用的模型。 |
+| 说明 | 描述一个应用识别 Observer 程序实例：它的程序版本和两步判断调用的模型。 |
 | 资源名 | `application-identity-observers` |
 | `kind` | `observation` |
 | `immutable` | `false` |
@@ -29,13 +29,15 @@ EntityId 由托管方保存，重启和升级后沿用，见 [OBSERVER-4](../../
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
 | `programVersion` | `string` | 是 | 否 | 程序的版本 |
-| `model` | `string` | 是 | 否 | 判断时调用的模型，写作供应商和型号，例如 openai/gpt-5-mini |
+| `decisionModel` | `string` | 是 | 否 | 在选项中选择时调用的模型，写作供应商和型号，例如 openai/gpt-6-luna |
+| `model` | `string` | 是 | 否 | 给新产品起名时调用的模型，写作供应商和型号，例如 openai/gpt-6.1-terra |
 
 ## 示例 [#example]
 
 ```json
 {
   "programVersion": "0.1.0",
+  "decisionModel": "openai/gpt-6-luna",
   "model": "openai/gpt-6.1-terra"
 }
 ```

@@ -18,6 +18,7 @@ description: "前台应用时段与窗口标题时段"
 | [Foreground State Observer](./foreground-state-observer.mdx) | 程序实例的描述 | `foreground-state-observers` |
 | [Local Application](./local-application.mdx) | 事物：设备上的一个应用安装，以及它的描述 | `local-applications`、`local-application-descriptions` |
 | [Device](../device-state/device.mdx) | 事物：应用所在的设备，以及它的描述 | `devices`、`device-descriptions` |
+| [Name](../../core/rules/understanding.mdx#name) | 观测：本机应用的名称，见 [Local Application · 名字](./local-application.mdx#name) | `names` |
 | [Foreground Application Period](./foreground-application-period.mdx) | 观测：应用处于前台的一个时段 | `foreground-application-periods` |
 | [Foreground Window Title](./foreground-window-title.mdx) | 观测：窗口标题的一个时段 | 待定 |
 
@@ -27,6 +28,7 @@ flowchart LR
   C -->|localApplicationId| A[Local Application]
   L[本机应用描述] -->|localApplicationId| A
   L -->|deviceId| D[Device]
+  N[Name] -->|thingId| A
   T[Foreground Window Title] -->|observerId| R
   T -->|foregroundApplicationPeriodVersionId| C
   click R "/observers/foreground-state/foreground-state-observer"
@@ -34,6 +36,7 @@ flowchart LR
   click A "/observers/foreground-state/local-application"
   click L "/observers/foreground-state/local-application#description"
   click D "/observers/device-state/device"
+  click N "/core/rules/understanding#name"
   click T "/observers/foreground-state/foreground-window-title"
 ```
 
@@ -70,7 +73,7 @@ macOS 唤醒后立即重新读取。休眠、读取失败等情况下时段怎�
 | 切换应用，或应用名称、时区变化 | 写入当前时段，开始新的一段 |
 | 读取失败、停止采集或其他中断 | 当前时段结束于最后一次确认，写入它 |
 
-一个时段是一个请求：先写入本机应用描述，带识别依据；再写入时段，提到本机应用，带时间和图标，代码的形状见 [SDK · 引用和识别依据](../../api/sdk.mdx#references)。两次写入都不查询后端，所以断网时照常，见 [Runtime · 本地转发](../../hosting/runtime.mdx#forwarding)。
+一个时段是一个请求：先写入本机应用描述，带识别依据；读到名称时再写入本机应用的名字；最后写入时段，提到本机应用，带时间和图标，代码的形状见 [SDK · 引用和识别依据](../../api/sdk.mdx#references)。这些写入都不查询后端，所以断网时照常，见 [Runtime · 本地转发](../../hosting/runtime.mdx#forwarding)。
 
 程序异常退出时，进行中的时段随之丢失；程序实例的身份不变，新的读数开始新的时段。以后要让进行中的这一段可读，只改写入的时机：见 [API · 一次写入](../../api/writing.mdx#write)。
 

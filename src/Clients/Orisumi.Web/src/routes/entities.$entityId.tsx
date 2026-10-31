@@ -4,11 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Copy } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isEntitySchema, type EntitySchema, type Version } from "@/api/types";
+import { isEntitySchema, isObservation, isThing, type EntitySchema, type Item, type Version } from "@/api/types";
 import { Content } from "@/components/entity/Content";
 import { coreKind } from "@/components/entity/kinds";
 import { DeleteDialog, VersionList } from "@/components/entity/Panels";
 import { ReferenceMap } from "@/components/entity/ReferenceMap";
+import { Reviews } from "@/components/entity/Reviews";
 import { InfoMark } from "@/components/token/Token";
 import { Button, Card, Message, Mono, SectionTitle } from "@/components/ui";
 import { useEntity, useEntityVersions } from "@/hooks/queries";
@@ -36,13 +37,15 @@ function EntityPage() {
   const queryClient = useQueryClient();
   const now = useNow(30_000);
   const entity = useEntity(entityId);
-  const chain = useEntityVersions(entity.data ? entityId : null);
+  // 事物只有身份，没有版本。
+  const thing = entity.data && isThing(entity.data) ? entity.data : null;
+  const chain = useEntityVersions(entity.data && !thing ? entityId : null);
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const versions = chain.data ?? (entity.data ? [entity.data] : []);
-  const selected = versions.find((v) => v.versionId === search.version) ?? entity.data;
+  const versions: Version[] = thing ? [] : (chain.data ?? (entity.data ? [entity.data as Version] : []));
+  const selected: Item | undefined = thing ?? versions.find((v) => v.versionId === search.version) ?? entity.data;
   const { info } = useDescribe(selected);
 
   if (entity.isPending) return <Message title="读取中" mascot />;
@@ -58,16 +61,18 @@ function EntityPage() {
   }
   if (!selected) return null;
 
-  const number = versionNumber(versions, selected.versionId);
-  const recordedAt = parseTime(selected.recordedAt);
+  const version = isThing(selected) ? null : selected;
+  const number = version ? versionNumber(versions, version.versionId) : null;
+  const recordedAt = version ? parseTime(version.recordedAt) : null;
   const schema = isEntitySchema(selected) ? (selected as Version<EntitySchema>) : null;
   const title = info?.title ?? "…";
   const typeKey =
-    selected.category === "business"
-      ? info?.schema?.content.resourceName
+    selected.category === "input_set"
+      ? "input_set"
       : selected.category === "entity_schema"
         ? undefined
-        : selected.category;
+        : info?.schema?.content.resourceName;
+  const label = number === null ? "v?" : versionLabel(number, versions.length);
   const typeName = info?.typeName ?? "…";
   const mark = (size: "lg" | "xl") =>
     info ? (
@@ -98,7 +103,7 @@ function EntityPage() {
     <article>
       <nav aria-label="位置" className="text-fg-3 mb-3 flex items-center gap-1 text-xs">
         <Link to="/entities" className="hover:text-fg">
-          实体
+          原始记录
         </Link>
         <ChevronRight className="size-3" />
         {typeKey ? (
@@ -108,8 +113,12 @@ function EntityPage() {
         ) : (
           <span>{typeName}</span>
         )}
-        <ChevronRight className="size-3" />
-        <span className="text-fg-2">{number === null ? "?" : versionLabel(number, versions.length)}</span>
+        {version && (
+          <>
+            <ChevronRight className="size-3" />
+            <span className="text-fg-2">{label}</span>
+          </>
+        )}
       </nav>
 
       <header className="bg-card border-line shadow-card mb-4 rounded-2xl border p-4 sm:p-5">
@@ -120,26 +129,30 @@ function EntityPage() {
             <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] break-all">{title}</h1>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
               <CopyId id={entityId} />
-              <span className="text-fg-2 text-xs">
-                {number === null ? "v?" : versionLabel(number, versions.length)}
-                {versions.length > 1 && number === versions.length && ` · 共 ${versions.length} 版`}
-              </span>
-              <span className="text-fg-3 text-xs" title={recordedAt === null ? undefined : dateTime(recordedAt)}>
-                {recordedAt === null ? selected.recordedAt : `${ago(now - recordedAt)}记录`}
-              </span>
+              {version && (
+                <>
+                  <span className="text-fg-2 text-xs">
+                    {label}
+                    {versions.length > 1 && number === versions.length && ` · 共 ${versions.length} 版`}
+                  </span>
+                  <span className="text-fg-3 text-xs" title={recordedAt === null ? undefined : dateTime(recordedAt)}>
+                    {recordedAt === null ? version.recordedAt : `${ago(now - recordedAt)}记录`}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <Button onClick={() => setDeleting(true)}>删除</Button>
         </div>
-        {!schema && coreKind(selected.category) && (
-          <p className="text-fg-2 border-line mt-3 border-t pt-2.5 text-[13px]">{coreKind(selected.category)!.hint}</p>
+        {version && !schema && coreKind(version.category) && (
+          <p className="text-fg-2 border-line mt-3 border-t pt-2.5 text-[13px]">{coreKind(version.category)!.hint}</p>
         )}
       </header>
 
       <Card className="mb-4">
         <SectionTitle>引用</SectionTitle>
         <ReferenceMap
-          version={selected}
+          item={selected}
           fields={info?.schema?.content.fields}
           title={`这个${title}`}
           center={
@@ -147,27 +160,37 @@ function EntityPage() {
               {mark("lg")}
               <span className="min-w-0">
                 <span className="block truncate text-[13px] font-medium">{title}</span>
-                <span className="text-fg-3 block text-[11px]">这个实体 · {number === null ? "v?" : `v${number}`}</span>
+                <span className="text-fg-3 block text-[11px]">
+                  这个实体{version ? ` · ${number === null ? "v?" : `v${number}`}` : ""}
+                </span>
               </span>
             </>
           }
         />
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
+      <div className={version ? "grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]" : "grid gap-4"}>
         <Card>
-          <SectionTitle>{schema ? "字段" : "内容"}</SectionTitle>
-          <Content version={selected} />
+          <SectionTitle>{schema ? "字段" : thing ? "识别依据" : "内容"}</SectionTitle>
+          <Content item={selected} />
         </Card>
-        <Card className="md:self-start">
-          <SectionTitle>版本{versions.length > 1 ? ` · ${versions.length}` : ""}</SectionTitle>
-          <VersionList
-            chain={versions}
-            selected={selected.versionId}
-            onSelect={(version) => navigate({ search: { version }, replace: true })}
-          />
-        </Card>
+        {version && (
+          <Card className="md:self-start">
+            <SectionTitle>版本{versions.length > 1 ? ` · ${versions.length}` : ""}</SectionTitle>
+            <VersionList
+              chain={versions}
+              selected={version.versionId}
+              onSelect={(next) => navigate({ search: { version: next }, replace: true })}
+            />
+          </Card>
+        )}
       </div>
+
+      {isObservation(selected) && (
+        <Card className="mt-4">
+          <Reviews observation={selected} />
+        </Card>
+      )}
 
       {schema && <Instances schema={schema} />}
 

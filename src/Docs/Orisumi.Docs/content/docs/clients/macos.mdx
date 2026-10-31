@@ -10,7 +10,7 @@ macOS 客户端常驻在菜单栏，通过 [Runtime](../hosting/runtime.mdx) 托
 | Observer | 内容 | 专用视图 |
 | --- | --- | --- |
 | [Foreground State](../observers/foreground-state/index.mdx) | 前台应用时段 | [今天的前台应用](#today) |
-| [Assistant Sessions](../observers/assistant-sessions/index.mdx) | Claude Code 与 Codex 会话中的交互 | 无，在 [Web 控制台的会话页](./web.mdx#sessions)查看 |
+| [Assistant Sessions](../observers/assistant-sessions/index.mdx) | Claude Code 与 Codex 会话中的交互 | 无，在 [Web 控制台会话的档案](./web.mdx#sessions)查看 |
 
 ## 菜单栏 [#menu-bar]
 
@@ -84,12 +84,12 @@ Observer 停用或出了问题时，侧栏中它的视图旁有标记；其他�
 
 ## 今天的前台应用 [#today]
 
-前台状态 Observer 的专用视图。客户端用 [`GET /observations`](/api/listObservations) 按这个实例、今天和前台应用时段的类型读完全部分页，再用 [`POST /versions/read`](/api/readVersions) 读取时段的内容、它引用的本机应用版本和应用的标识。应用的图标是时段中的 `icon`，用 [`GET /contents/{digest}`](/api/getContent) 读取；应用列表用这个应用今天最晚一段带图标的时段。时段没有图标时用通用的应用图标。
+前台状态 Observer 的专用视图。客户端用 [`GET /observations`](/api/listObservations) 按这个实例、今天和前台应用时段的类型读完全部分页。每段时段带着读到的名字、图标和它提到的本机应用，同一个本机应用的时段合并为一个应用。应用的图标是时段中的 `icon`，用 [`GET /contents/{digest}`](/api/getContent) 读取；应用列表用这个应用今天最晚一段带图标的时段。时段没有图标时用通用的应用图标。
 
 视图顶部是今天的前台总时长。下面左边是 24 个小时的柱状图，每小时的前台时长按应用堆叠；右边是应用列表，列出每个应用的时长和占今天总时长的比例。选中一个应用后，图表突出它，下方只列出它的时段；不选时列出全部时段，按时间倒序。
 
 - 时长按已确认的结束边界计算，不随客户端的时钟延长。
-- 被引用的内容和本机应用每次刷新都重新读取。后端已删除的不再显示。
+- 每次刷新都重新读取，后端已删除的时段随之消失。
 - 后端不可用或还没有接入时，视图说明读不到数据。
 
 ## 实现 [#implementation]

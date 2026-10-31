@@ -19,16 +19,20 @@ internal sealed class ForegroundStore(DataClient data, DeviceContext device, Act
     }
     private void Write(ForegroundCapture capture)
     {
-        WriteItem[] writes = [
+        var writes = new List<WriteItem> {
             new(Guid.Parse("019e1bbb-ec00-7000-8000-000000000014"),
                 new ApplicationContent(Ref.Recognize(ForegroundRegistration.ApplicationSchemaId, capture.Application.Key), device.Ref,
                     capture.Application.Identifiers.Where(i => i.Scheme == "macos.bundle-id")
                         .Select(i => Ref.Recognize(Guid.Parse("019e1bbb-ec00-7000-8000-000000000015"), new(null, i.Scheme, i.Value))).ToArray(),
                     capture.Application.Identifiers.SingleOrDefault(i => i.Scheme == "macos.executable-path")?.Value),
                 "direct", capture.Application.Key with { Scheme = "macos.installation-description" }),
-            new(ForegroundRegistration.PeriodSchemaId,
+        };
+        if (capture.Content.Name is { } name) writes.Add(new(CommonSchemas.Name,
+            new { thingId = Ref.Recognize(ForegroundRegistration.ApplicationSchemaId, capture.Application.Key), name },
+            "direct", capture.Application.Key with { Scheme = "macos.installation-name" }));
+        writes.Add(new(ForegroundRegistration.PeriodSchemaId,
                 new PeriodContent(Ref.Recognize(ForegroundRegistration.ApplicationSchemaId, capture.Application.Key), capture.Content.Name, capture.Content.Icon),
-                "direct", Time: new(capture.StartAt, capture.EndAt, capture.TimeZone)) ];
+                "direct", Time: new(capture.StartAt, capture.EndAt, capture.TimeZone)));
         try { data.WriteAllAsync(writes).GetAwaiter().GetResult(); }
         catch (HttpRequestException exception)
         { diagnostic($"The {capture.Content.Name ?? "foreground"} period was not saved: {exception.Message}"); }

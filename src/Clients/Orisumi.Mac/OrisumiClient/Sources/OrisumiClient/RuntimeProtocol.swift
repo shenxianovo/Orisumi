@@ -102,34 +102,20 @@ public struct PackageVersion: Comparable, Sendable {
     }
 }
 
-/// A version as the API returns it. Only the fields the client reads are decoded.
-public struct RuntimeVersion<Content: Decodable & Sendable>: Decodable, Sendable {
+/// An Observation version as the API returns it: its fact time and its business fields. Only the fields the client
+/// reads are decoded.
+public struct RuntimeObservation<Content: Decodable & Sendable>: Decodable, Sendable {
     public var versionId: UUID
     public var entityId: UUID
+    public var startAt: Date?
+    public var endAt: Date?
     public var content: Content
 }
 
 /// One page of `GET /observations`.
 public struct ReadResult<Content: Decodable & Sendable>: Decodable, Sendable {
-    public var versions: [RuntimeVersion<Content>]
+    public var versions: [RuntimeObservation<Content>]
     public var next: String?
-}
-
-/// `POST /versions/read`: each requested version, in order. `version` is nil when it was deleted or never saved.
-public struct VersionsResult<Content: Decodable & Sendable>: Decodable, Sendable {
-    public struct Item: Decodable, Sendable {
-        public var versionId: UUID
-        public var version: RuntimeVersion<Content>?
-    }
-    public var results: [Item]
-}
-
-/// The members of an Observation version's content.
-public struct ObservationMembers: Decodable, Sendable {
-    public var observerVersionId: UUID
-    public var contentVersionId: UUID
-    public var startAt: Date?
-    public var endAt: Date?
 }
 
 /// Any JSON value, for content whose type the client does not know.

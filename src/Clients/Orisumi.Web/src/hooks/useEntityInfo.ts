@@ -1,23 +1,29 @@
+import { useQueries } from "@tanstack/react-query";
+import { useSource } from "@/api/source";
 import {
   isEntitySchema,
   isInputSet,
   isObservation,
+  isThing,
   type EntitySchema,
-  type Observation,
+  type Item,
   type Version,
 } from "@/api/types";
 import { roleOf, ROLE_NAMES, thingColor, type Role } from "@/lib/roles";
 import { clock, parseTime } from "@/lib/time";
-import { businessTitle } from "@/lib/titles";
-import { CATEGORY_NAMES } from "@/lib/versions";
+import { businessTitle, thingTitle } from "@/lib/titles";
+import { CATEGORY_NAMES, describeChanges } from "@/lib/versions";
 import { LOCAL_APPLICATIONS } from "@/lib/applications";
+import { contentReferences, type OutgoingReference } from "@/lib/references";
 import { useCatalog } from "./useApplications";
-import { useReferrers, useVersion } from "./queries";
+import { useObservers } from "./useObservers";
+import { thingQuery, useThing, useVersion, versionQuery } from "./queries";
 import { useTypes } from "./useTypes";
 
-/** 一个版本在界面上的样子：角色、名字、类型名，以及事物的颜色。 */
+/** 一个实体在界面上的样子：角色、名字、类型名，以及事物的颜色。 */
 export interface EntityInfo {
-  version: Version;
+  item: Item;
+  entityId: string;
   schema: Version<EntitySchema> | null;
   role: Role;
   roleName: string;
@@ -27,21 +33,32 @@ export interface EntityInfo {
   color: string | null;
 }
 
-export function describeVersion(
-  version: Version,
+/** sourceName 是来源的名字，取它的描述的类型名。 */
+export function describeItem(
+  item: Item,
   schema: Version<EntitySchema> | null,
-  role: Role,
-): Omit<EntityInfo, "version" | "schema" | "role"> {
-  const typeName =
-    version.category === "business" ? (schema?.content.displayName ?? "业务实体") : CATEGORY_NAMES[version.category];
+  sourceName?: string | null,
+): Omit<EntityInfo, "item" | "schema"> {
+  const role = roleOf(item);
+  const typeName = isThing(item)
+    ? (schema?.content.displayName ?? "事物")
+    : isObservation(item)
+      ? (schema?.content.displayName ?? "Observation")
+      : CATEGORY_NAMES[item.category];
   let title = typeName;
-  if (isObservation(version)) title = timeLabel(version.content.startAt, version.content.endAt);
-  else if (isInputSet(version)) title = `${version.content.members.length} 个输入`;
-  else if (isEntitySchema(version)) title = version.content.displayName;
-  // Observer 用类型的名字，例如“前台状态 Observer”；它的内容多是平台和版本。
-  else if (role === "source") title = typeName;
-  else title = businessTitle(version.content, schema?.content.fields, schema?.content.resourceName)?.text ?? typeName;
-  return { roleName: ROLE_NAMES[role], title, typeName, color: role === "thing" ? thingColor(title) : null };
+  if (isThing(item)) title = role === "source" && sourceName ? sourceName : thingTitle(item, typeName);
+  else if (isObservation(item))
+    title = businessTitle(item.content, schema?.content.fields, schema?.content.resourceName)?.text ?? typeName;
+  else if (isInputSet(item)) title = `${item.content.members.length} 个输入`;
+  else if (isEntitySchema(item)) title = item.content.displayName;
+  return {
+    entityId: item.entityId,
+    role,
+    roleName: ROLE_NAMES[role],
+    title,
+    typeName,
+    color: role === "thing" ? thingColor(title) : null,
+  };
 }
 
 export function timeLabel(startAt: string | null, endAt: string | null): string {
@@ -58,40 +75,92 @@ export function useEntityInfo(versionId: string | null | undefined) {
   return useDescribe(version.data, version.isPending && !!versionId, version.isError);
 }
 
-export function useDescribe(version: Version | undefined, pending = false, failed = false) {
-  const schema = useVersion(version?.category === "business" ? version.schemaVersionId : null);
-  const types = useTypes();
-  const catalog = useCatalog();
-  if (!version) return { info: null, pending, unreadable: failed };
-  const schemaVersion = schema.data && isEntitySchema(schema.data) ? schema.data : null;
-  const role = types.data
-    ? roleOf(version, schemaVersion?.content.resourceName, types.data)
-    : roleOf(version, null, EMPTY);
-  const described = describeVersion(version, schemaVersion, role);
-  // 本机应用归到产品后，用产品的名字。
-  const product =
-    schemaVersion?.content.resourceName === LOCAL_APPLICATIONS ? catalog.data?.productOf(version) : undefined;
-  if (product) Object.assign(described, { title: product.name, color: thingColor(product.name) });
-  return {
-    info: { version, schema: schemaVersion, role, ...described } as EntityInfo,
-    pending: false,
-    unreadable: false,
-  };
+/** 按 EntityId 读取并描述一个事物。 */
+export function useThingInfo(entityId: string | null | undefined) {
+  const thing = useThing(entityId);
+  return useDescribe(thing.data ?? undefined, thing.isPending && !!entityId, thing.isError || thing.data === null);
 }
 
-const EMPTY = { contentTypes: new Set<string>(), observerTypes: new Set<string>() };
+export function useDescribe(item: Item | undefined, pending = false, failed = false) {
+  const context = useDescribeContext();
+  const versioned = useVersion(item && isObservation(item) ? item.schemaVersionId : null);
+  if (!item) return { info: null, pending, unreadable: failed };
+  return { info: describeIn(context, item, versioned.data), pending: false, unreadable: false };
+}
 
 /**
- * 经历的事实时间在 Observation 上：Observation 就是它自己，观测内容取引用它的那份 Observation。
- * 其他角色没有 Observation，不发请求。
+ * 一份 Observation 相对前一版改了什么，引用写目标的名字，见 describeChanges。
+ * 读完前一版、两版的 Schema 和引用的目标之前为 null。
  */
-export function useObservationOf(info: EntityInfo | null) {
-  const direct = info && isObservation(info.version) ? info.version : null;
-  const lookup = !direct && info?.role === "experience" ? info.version.entityId : null;
-  const referrers = useReferrers(lookup);
-  const found = referrers.data?.pages.flatMap((page) => page.referrers).find((r) => isObservation(r.version))?.version;
-  return {
-    observation: (direct ?? found ?? null) as Version<Observation> | null,
-    pending: !!lookup && referrers.isPending,
-  };
+export function useChanges(observation: Item | null): string[] | null {
+  const previous = useVersion(observation && isObservation(observation) ? observation.previousVersionId : null);
+  const schema = useVersion(observation && isObservation(observation) ? observation.schemaVersionId : null);
+  const previousSchema = useVersion(
+    previous.data && isObservation(previous.data) ? previous.data.schemaVersionId : null,
+  );
+  const fields = (version: Item | undefined) =>
+    version && isEntitySchema(version) ? version.content.fields : undefined;
+  const references = useReferenceNames([
+    ...(observation ? contentReferences(observation, fields(schema.data)) : []),
+    ...(previous.data ? contentReferences(previous.data, fields(previousSchema.data)) : []),
+  ]);
+  if (!observation || !isObservation(observation)) return null;
+  if (observation.previousVersionId && !previous.data) return null;
+  if ([schema, previousSchema].some(loading) || references.pending) return null;
+  return describeChanges(previous.data ?? null, observation, references.names);
+}
+
+/** 正在读取：已经启用、还没有结果。 */
+function loading(query: { isPending: boolean; fetchStatus: string }): boolean {
+  return query.isPending && query.fetchStatus !== "idle";
+}
+
+/**
+ * 一批引用目标的名字，键是引用的 EntityId 或 VersionId，名字的取法与 useDescribe 相同。
+ * 读完之前 pending 为 true；读不到的目标不在结果里。
+ */
+function useReferenceNames(references: readonly OutgoingReference[]) {
+  const source = useSource();
+  const context = useDescribeContext();
+  const targets = [...new Map(references.map((reference) => [reference.id, reference])).values()];
+  const items = useQueries({
+    queries: targets.map((reference) =>
+      reference.target === "thing" ? thingQuery(source, reference.id) : versionQuery(source, reference.id),
+    ),
+  });
+  const schemas = useQueries({
+    queries: items.map((result) =>
+      versionQuery(source, result.data && isObservation(result.data) ? result.data.schemaVersionId : null),
+    ),
+  });
+  const names = new Map<string, string>();
+  targets.forEach((reference, i) => {
+    const item = items[i]!.data;
+    if (item) names.set(reference.id, describeIn(context, item, schemas[i]!.data).title);
+  });
+  const pending = items.some((result, i) => loading(result) || loading(schemas[i]!));
+  return { names, pending };
+}
+
+function useDescribeContext() {
+  return { types: useTypes().data, observers: useObservers().data, catalog: useCatalog().data };
+}
+
+/** 事物的类型来自类型索引，Observation 用它所用的那一版 Schema。本机应用归到产品后，用产品的名字。 */
+function describeIn(
+  { types, observers, catalog }: ReturnType<typeof useDescribeContext>,
+  item: Item,
+  versioned: Item | null | undefined,
+): EntityInfo {
+  const schema = isThing(item)
+    ? (types?.bySchemaId.get(item.schemaId) ?? null)
+    : versioned && isEntitySchema(versioned)
+      ? versioned
+      : null;
+  const source = isThing(item) ? observers?.get(item.entityId)?.identity.typeName : null;
+  const described = describeItem(item, schema, source);
+  const product =
+    isThing(item) && schema?.content.resourceName === LOCAL_APPLICATIONS ? catalog?.productOf(item) : undefined;
+  if (product) Object.assign(described, { title: product.name, color: thingColor(product.name) });
+  return { item, schema, ...described };
 }

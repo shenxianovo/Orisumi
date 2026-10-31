@@ -18,7 +18,7 @@ export const caseId = 'api-binary-content';
 | 操作 | 预期结果 |
 | --- | --- |
 | 声明 Schema，字段的 `type` 为 `binary`，分别作为顶层字段、对象成员和数组元素 | 保存成功 |
-| 业务版本的 `binary` 值缺少成员、多出成员、摘要用大写或不是 64 位、`size` 为负 | 单次结果的 error.status 为 400，rule 为 BINARY-1 |
+| Observation 的 `binary` 值缺少成员、多出成员、摘要用大写或不是 64 位、`size` 为负 | 单次结果的 error.status 为 400，rule 为 BINARY-1 |
 | `binary` 字段省略或为 `null`，按 `required` 和 `nullable` 的四种组合 | 与其他字段类型的结果相同，见 [SCHEMA-11](../../core/model/schema.mdx#schema-11) |
 | 上传内容，路径中的摘要与字节不符 | `400`，`rule` 为 `BINARY-1` |
 | 上传超过 8 MiB 的内容 | `413` |

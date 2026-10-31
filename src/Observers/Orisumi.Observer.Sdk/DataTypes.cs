@@ -71,6 +71,7 @@ public sealed class WriteRejectedException(JsonElement error) : Exception(error.
 
 public static class CommonSchemas
 {
+    public static readonly Guid Relation = Guid.Parse("019e1bbb-ec00-7000-8000-00000000000f");
     public static readonly Guid Name = Guid.Parse("019e1bbb-ec00-7000-8000-000000000010");
     public static readonly Guid Review = Guid.Parse("019e1bbb-ec00-7000-8000-00000000000e");
     public static readonly Guid Program = Guid.Parse("019e1bbb-ec00-7000-8000-000000000012");

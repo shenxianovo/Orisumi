@@ -3,8 +3,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { dayRange, dayTitle, MINUTE } from "@/lib/time";
 
-/** 页头的日期和前后翻页。地址参数是 date=YYYY-MM-DD，今天省略；← 和 → 也翻日期。 */
-export function DayNav({ start, today }: { start: number; today: boolean }) {
+/** 页头的日期和前后翻页。地址参数是 date=YYYY-MM-DD，今天省略；← 和 → 也翻日期。small 用在页面中间的小标题上。 */
+export function DayNav({ start, today, small }: { start: number; today: boolean; small?: boolean }) {
   const navigate = useNavigate();
 
   function go(offset: number) {
@@ -36,7 +36,11 @@ export function DayNav({ start, today }: { start: number; today: boolean }) {
       >
         <ChevronLeft className="size-5" />
       </button>
-      <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] tabular-nums">{dayTitle(start)}</h1>
+      {small ? (
+        <h2 className="text-[13px] font-medium tabular-nums">{dayTitle(start)}</h2>
+      ) : (
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.01em] tabular-nums">{dayTitle(start)}</h1>
+      )}
       <button
         type="button"
         aria-label="后一天"

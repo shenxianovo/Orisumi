@@ -1,10 +1,10 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { isObservation, type FieldDefinition, type Version } from "@/api/types";
+import { isObservation, isThing, type FieldDefinition, type Item, type Version } from "@/api/types";
 import { InfoMark } from "@/components/token/Token";
 import { Button, Mono } from "@/components/ui";
 import { useReferrers } from "@/hooks/queries";
-import { timeLabel, useDescribe, useEntityInfo, useObservationOf } from "@/hooks/useEntityInfo";
+import { timeLabel, useDescribe, useEntityInfo, useThingInfo } from "@/hooks/useEntityInfo";
 import { UNREADABLE } from "@/lib/observers";
 import { outgoingReferences, referenceLabel } from "@/lib/references";
 import { cn } from "@/lib/utils";
@@ -17,22 +17,22 @@ const WIRE = 56;
 const FOLDED = 8;
 
 /**
- * 引用图：中间是这个版本，左边是它引用的版本，右边是引用这个实体的版本。连线的箭头指向被引用的一方。
+ * 引用图：中间是这个实体，左边是它引用的事物和版本，右边是引用这个实体的版本。连线的箭头指向被引用的一方。
  * 节点高度固定，连线按序号算位置，不测量元素。窄屏时三列上下排列，不画连线。
  */
 export function ReferenceMap({
-  version,
+  item,
   fields,
   title,
   center,
 }: {
-  version: Version;
+  item: Item;
   fields: Record<string, FieldDefinition> | undefined;
   title: string;
   center: ReactNode;
 }) {
-  const outgoing = outgoingReferences(version, fields);
-  const referrers = useReferrers(version.entityId);
+  const outgoing = outgoingReferences(item, fields);
+  const referrers = useReferrers(item.entityId);
   const [expanded, setExpanded] = useState(false);
   const all = referrers.data?.pages.flatMap((page) => page.referrers) ?? [];
   const incoming = expanded ? all : all.slice(0, FOLDED);
@@ -60,10 +60,15 @@ export function ReferenceMap({
         <Column label="它引用的">
           {outgoing.length ? (
             outgoing.map((ref) => (
-              <VersionNode key={ref.path} versionId={ref.versionId} paths={[ref.path]} side="right" />
+              <ItemNode
+                key={ref.path}
+                {...(ref.target === "thing" ? { thingId: ref.id } : { versionId: ref.id })}
+                paths={[ref.path]}
+                side="right"
+              />
             ))
           ) : (
-            <Placeholder>不引用其他版本</Placeholder>
+            <Placeholder>不引用其他实体</Placeholder>
           )}
         </Column>
 
@@ -87,18 +92,13 @@ export function ReferenceMap({
           ) : referrers.isError ? (
             <Placeholder danger>{(referrers.error as Error).message}</Placeholder>
           ) : !all.length ? (
-            <Placeholder>没有其他版本引用它</Placeholder>
+            <Placeholder>没有其他实体引用它</Placeholder>
           ) : (
             <>
               <ul aria-label="被引用" className="flex flex-col gap-[10px]">
                 {incoming.map((referrer) => (
                   <li key={referrer.version.versionId}>
-                    <VersionNode
-                      versionId={referrer.version.versionId}
-                      version={referrer.version}
-                      paths={referrer.references.map((r) => r.path)}
-                      side="left"
-                    />
+                    <ItemNode item={referrer.version} paths={referrer.references.map((r) => r.path)} side="left" />
                   </li>
                 ))}
               </ul>
@@ -173,24 +173,26 @@ function Wires({
 }
 
 /**
- * 图里的一个版本：记号、名字、类型和引用位置，经历在右边写出事实时间，点击进入它所属的实体。
+ * 图里的一个实体：记号、名字、类型和引用位置，经历在右边写出事实时间。点击进入事物的实体页，或者被引用的那个版本。
  * 悬停时在 side 一边浮出预览。
  */
-export function VersionNode({
+export function ItemNode({
   versionId,
-  version,
+  thingId,
+  item,
   paths,
   side,
 }: {
-  versionId: string;
-  version?: Version;
+  versionId?: string;
+  thingId?: string;
+  item?: Version;
   paths: string[];
   side: "left" | "right";
 }) {
-  const byId = useEntityInfo(version ? null : versionId);
-  const given = useDescribe(version);
-  const { info, unreadable } = version ? given : byId;
-  const { observation } = useObservationOf(info && !isObservation(info.version) ? info : null);
+  const byVersion = useEntityInfo(item ? null : versionId);
+  const byThing = useThingInfo(item ? null : thingId);
+  const given = useDescribe(item);
+  const { info, unreadable } = item ? given : thingId ? byThing : byVersion;
   const where = paths.map(referenceLabel).join(" ");
   if (unreadable) {
     return (
@@ -202,30 +204,43 @@ export function VersionNode({
       </div>
     );
   }
-  const time = observation ? timeLabel(observation.content.startAt, observation.content.endAt) : null;
+  const time =
+    info && info.role === "experience" && isObservation(info.item)
+      ? timeLabel(info.item.startAt, info.item.endAt)
+      : null;
+  const style =
+    "bg-card border-line hover:border-line-3 hover:bg-panel/40 flex h-[46px] items-center gap-2.5 rounded-xl border px-2.5 transition-colors";
+  const body = (
+    <>
+      {info ? (
+        <InfoMark info={info} size="lg" className="size-7 rounded-lg" framed />
+      ) : (
+        <span className="bg-panel size-7 shrink-0 rounded-lg" />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-[13px]">{info?.title ?? "…"}</span>
+          {time && <span className="text-fg-3 shrink-0 text-[11px] tabular-nums">{time}</span>}
+        </span>
+        <span className="text-fg-3 block truncate text-[11px]">
+          {info && info.title !== info.typeName && <>{info.typeName} · </>}
+          <span className="font-mono">{where}</span>
+        </span>
+      </span>
+    </>
+  );
+  const target = info?.item ?? null;
   return (
     <Peek info={info} side={side} footer={<Mono className="truncate text-[11px]">{where}</Mono>}>
-      <Link
-        to="/versions/$versionId"
-        params={{ versionId }}
-        className="bg-card border-line hover:border-line-3 hover:bg-panel/40 flex h-[46px] items-center gap-2.5 rounded-xl border px-2.5 transition-colors"
-      >
-        {info ? (
-          <InfoMark info={info} size="lg" className="size-7 rounded-lg" framed />
-        ) : (
-          <span className="bg-panel size-7 shrink-0 rounded-lg" />
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-[13px]">{info?.title ?? "…"}</span>
-            {time && <span className="text-fg-3 shrink-0 text-[11px] tabular-nums">{time}</span>}
-          </span>
-          <span className="text-fg-3 block truncate text-[11px]">
-            {info && info.title !== info.typeName && <>{info.typeName} · </>}
-            <span className="font-mono">{where}</span>
-          </span>
-        </span>
-      </Link>
+      {target && !isThing(target) ? (
+        <Link to="/versions/$versionId" params={{ versionId: target.versionId }} className={style}>
+          {body}
+        </Link>
+      ) : (
+        <Link to="/entities/$entityId" params={{ entityId: target?.entityId ?? thingId ?? "" }} className={style}>
+          {body}
+        </Link>
+      )}
     </Peek>
   );
 }

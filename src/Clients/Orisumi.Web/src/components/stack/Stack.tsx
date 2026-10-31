@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { ApiError } from "@/api/client";
 import { useEntity } from "@/hooks/queries";
@@ -117,20 +116,6 @@ function Panel({
               )}
             </PanelDepth>
           </div>
-          {info && (
-            <footer className="border-line bg-side text-fg-3 flex items-center gap-3 border-t px-5 py-2.5 text-xs">
-              <span className="font-mono">…{entityId.slice(-8)}</span>
-              <span className="flex-1" />
-              {info.role !== "definition" && (
-                <Link to="/entities" search={{ root: entityId }} className="hover:text-fg">
-                  从这里织
-                </Link>
-              )}
-              <Link to="/entities/$entityId" params={{ entityId }} className="hover:text-fg">
-                在检查器中打开 →
-              </Link>
-            </footer>
-          )}
         </>
       )}
     </section>

@@ -40,6 +40,8 @@ if (services.Contains("api"))
     api = builder.AddProject<Projects.Orisumi_Api>("api")
         .WithHttpEndpoint(name: "http")
         .WithReference(database)
+        .WithEnvironment("OPENAI_API_KEY", builder.Configuration["OPENAI_API_KEY"] ?? "")
+        .WithEnvironment("NARRATIVE_MODEL", builder.Configuration["NARRATIVE_MODEL"] ?? "gpt-6.1-terra")
         .WaitForCompletion(migrate)
         .WithHttpHealthCheck("/entities/019a0d3b-1d20-7000-8000-000000000001", statusCode: 404);
 

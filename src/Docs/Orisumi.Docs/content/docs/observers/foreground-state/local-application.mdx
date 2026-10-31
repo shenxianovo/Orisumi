@@ -25,7 +25,7 @@ description: "某台设备上的一个应用安装"
 
 | 变化 | 身份 |
 | --- | --- |
-| 应用名称变化 | 复用；新名称保存在前台时段中 |
+| 应用名称变化 | 复用；新名称保存在前台时段中，名字形成新版本 |
 | 应用退出后重新启动 | 复用 |
 | 前台状态 Observer 重启或升级 | 复用 |
 | 同一台设备上的另一个托管方读到它 | 复用 |
@@ -55,7 +55,7 @@ description: "某台设备上的一个应用安装"
 
 两台 Mac 上的 VS Code 是两个本机应用，它们的描述提到同一条应用包标识，所以属于同一个应用产品，见 [Application Identity · 归属](../application-identity/index.mdx#membership)。
 
-应用的名称和图标随每段时段读取，保存在[前台应用时段](./foreground-application-period.mdx)中。
+应用的名称和图标随每段时段读取，保存在[前台应用时段](./foreground-application-period.mdx)中。名称同时写成本机应用的名字，见[名字](#name)。
 
 ### 标识线索 [#identifiers]
 
@@ -68,6 +68,23 @@ description: "某台设备上的一个应用安装"
 | 可执行文件路径 | `executablePath` | 本机 |
 
 Android 上的前台状态 Observer 尚未实现，`android.package-name` 目前只出现在测试数据中。
+
+## 名字 [#name]
+
+前台状态 Observer 把读到的应用名称写成本机应用的一份 [Name](../../core/rules/understanding.mdx#name)，所以读取方读本机应用时就能得到“Visual Studio Code”这样的名字，不用写出识别依据。每个本机应用一份名字，用下面的依据写入：名称没变时，第二次写入什么都不发生；名称变了，名字形成新版本。
+
+| 识别依据 | 值 |
+| --- | --- |
+| `scope` | 与本机应用相同 |
+| `scheme` | `macos.installation-name` |
+| `value` | 与本机应用相同 |
+
+| 字段 | 内容 |
+| --- | --- |
+| `thingId` | 这个本机应用 |
+| `name` | 读到的应用名称，取自时段的 `name` |
+
+形成方式是 `direct`，事实时间和 `timeZone` 都是 `null`。时段的 `name` 为 `null` 时不写名字。
 
 ## EntitySchema [#schema]
 

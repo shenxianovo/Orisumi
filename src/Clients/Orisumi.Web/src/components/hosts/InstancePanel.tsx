@@ -119,7 +119,7 @@ export function InstancePanel({
       <footer className="border-line text-fg-3 flex items-center gap-3 border-t px-4 py-2 text-xs">
         <span className="font-mono">…{instance.entityId.slice(-8)}</span>
         <span className="flex-1" />
-        <Link to="/entities/$entityId" params={{ entityId: instance.entityId }} className="hover:text-fg">
+        <Link to="/things/$thingId" params={{ thingId: instance.entityId }} className="hover:text-fg">
           它的记录 →
         </Link>
       </footer>

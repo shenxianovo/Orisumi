@@ -1,7 +1,8 @@
 import type { ComponentType } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { BookOpen, Box, Layers } from "lucide-react";
-import type { Version } from "@/api/types";
-import { useDescribe, useEntityInfo, type EntityInfo } from "@/hooks/useEntityInfo";
+import { isThing, type Item } from "@/api/types";
+import { useDescribe, useEntityInfo, useThingInfo, type EntityInfo } from "@/hooks/useEntityInfo";
 import { useThingImage } from "@/hooks/useIcons";
 import type { Role } from "@/lib/roles";
 import { UNREADABLE } from "@/lib/observers";
@@ -90,31 +91,35 @@ export function Mark({
 }
 
 /**
- * 一个实体的记号。同一实体在任何地方出现都是这个样子；悬停时页面上它的其他记号一起亮起，
- * 点击在右边推出它的面板。
+ * 一个实体的记号。同一实体在任何地方出现都是这个样子；悬停时页面上它的其他记号一起亮起。
+ * 点事物打开它的档案，点其他实体在右边推出它的面板。
  */
 export function Token({
   versionId,
-  version,
+  thingId,
+  item,
   size = "md",
   detail,
   className,
 }: {
+  /** 版本按 VersionId，事物按 EntityId；已经读到时直接给 item。 */
   versionId?: string | null;
-  version?: Version;
+  thingId?: string | null;
+  item?: Item;
   size?: "sm" | "md";
   /** 名字后面的补充，例如安装路径里不同的那一段。 */
   detail?: string | null | undefined;
   className?: string;
 }) {
-  const byId = useEntityInfo(version ? null : versionId);
-  const given = useDescribe(version);
-  const { info, pending, unreadable } = version ? given : byId;
+  const byVersion = useEntityInfo(item ? null : versionId);
+  const byThing = useThingInfo(item ? null : thingId);
+  const given = useDescribe(item);
+  const { info, pending, unreadable } = item ? given : thingId ? byThing : byVersion;
 
   if (unreadable)
     return (
       <span className={cn(chip(size), "text-fg-3 border-line-2 border border-dashed", className)}>
-        <span className="font-mono text-[11px]">{versionId?.slice(-8)}</span> {UNREADABLE}
+        <span className="font-mono text-[11px]">{(thingId ?? versionId)?.slice(-8)}</span> {UNREADABLE}
       </span>
     );
   if (pending || !info)
@@ -144,8 +149,8 @@ export function InfoMark({
   framed?: boolean | undefined;
   className?: string | undefined;
 }) {
-  const thing = info.role === "thing";
-  const image = useThingImage(thing ? info.version : null, thing ? info.schema?.content.resourceName : null);
+  const thing = info.role === "thing" && isThing(info.item) ? info.item : null;
+  const image = useThingImage(thing, thing ? info.schema?.content.resourceName : null);
   return (
     <Mark
       role={info.role}
@@ -180,7 +185,8 @@ function LiveToken({
   const highlight = useHighlight();
   const depth = useDepth();
   const stack = useStack();
-  const entityId = info.version.entityId;
+  const navigate = useNavigate();
+  const entityId = info.entityId;
   const lit = highlight.active === entityId;
   const open = stack.ids.includes(entityId);
   return (
@@ -195,7 +201,13 @@ function LiveToken({
       onBlur={() => highlight.set(null)}
       onClick={(event) => {
         event.stopPropagation();
-        stack.open(entityId, depth);
+        if (info.role === "thing")
+          void navigate({
+            to: "/things/$thingId",
+            params: { thingId: entityId },
+            search: ((prev: { date?: string }) => (prev.date ? { date: prev.date } : {})) as never,
+          });
+        else stack.open(entityId, depth);
       }}
       className={cn(
         chip(size),

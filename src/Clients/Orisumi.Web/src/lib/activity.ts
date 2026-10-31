@@ -1,4 +1,4 @@
-import type { Observation, Version } from "@/api/types";
+import type { ObservationVersion } from "@/api/types";
 import { nameObservers, type ObserverIdentity } from "./observers";
 import { MINUTE, parseTime } from "./time";
 
@@ -31,15 +31,14 @@ export interface ObserverRow {
 }
 
 export interface ActivityInput {
-  /** 列出的全部 Observer 实体。 */
+  /** 列出的全部 Observer。 */
   observers: ObserverIdentity[];
-  timedTypes: ReadonlySet<string>;
-  /** Observer 版本解析出的 Observer。还没解析的返回 undefined，这些 Observation 暂不计入。 */
-  identityOf: (observerVersionId: string) => ObserverIdentity | undefined;
+  /** Observation 的 observerId 对应的 Observer；读不到的 Observer 返回不可读取。 */
+  identityOf: (observerId: string) => ObserverIdentity;
   /** 事实时间在今天的 Observation。 */
-  timed: Version<Observation>[];
-  /** 只写事实时间未知的陈述的 Observer 今天保存的 Observation。 */
-  recorded: Version<Observation>[];
+  timed: ObservationVersion[];
+  /** 今天没有写有事实时间的 Observation 的 Observer，今天保存的 Observation。 */
+  recorded: ObservationVersion[];
   now: number;
 }
 
@@ -59,14 +58,11 @@ export function isActive(row: ObserverRow, now: number): boolean {
   return row.lastAt > 0 && now - row.lastAt < ACTIVE_WINDOW;
 }
 
-function basisOf(identity: ObserverIdentity, timedTypes: ReadonlySet<string>): TimeBasis {
-  if (!identity.entityId) return "fact";
-  return identity.resourceName && timedTypes.has(identity.resourceName) ? "fact" : "recorded";
-}
-
 /** 每个 Observer 一行。正在写入的排在前面，其余按最近一次写入排列。 */
 export function observerRows(input: ActivityInput): ObserverRow[] {
   const { now } = input;
+  // 今天写了有事实时间的 Observation 的，按事实时间画。
+  const timedKeys = new Set(input.timed.map((observation) => input.identityOf(observation.observerId).key));
   const rows = new Map<string, Omit<ObserverRow, "name">>();
   const row = (identity: ObserverIdentity) => {
     let entry = rows.get(identity.key);
@@ -74,7 +70,7 @@ export function observerRows(input: ActivityInput): ObserverRow[] {
       entry = {
         identity,
         key: identity.key,
-        basis: basisOf(identity, input.timedTypes),
+        basis: timedKeys.has(identity.key) ? "fact" : "recorded",
         spans: [],
         ticks: [],
         count: 0,
@@ -84,7 +80,7 @@ export function observerRows(input: ActivityInput): ObserverRow[] {
     }
     return entry;
   };
-  const saved = (entry: Omit<ObserverRow, "name">, observation: Version<Observation>) => {
+  const saved = (entry: Omit<ObserverRow, "name">, observation: ObservationVersion) => {
     entry.count += 1;
     entry.lastAt = Math.max(entry.lastAt, Math.min(parseTime(observation.recordedAt) ?? now, now));
   };
@@ -92,22 +88,16 @@ export function observerRows(input: ActivityInput): ObserverRow[] {
   for (const identity of input.observers) row(identity);
 
   for (const observation of input.timed) {
-    const identity = input.identityOf(observation.content.observerVersionId);
-    if (!identity) continue;
-    const entry = row(identity);
-    // 按保存时间画的 Observer，Observation 全部从引用方读出。
-    if (entry.basis !== "fact") continue;
+    const entry = row(input.identityOf(observation.observerId));
     saved(entry, observation);
-    const start = parseTime(observation.content.startAt);
-    const end = parseTime(observation.content.endAt);
+    const start = parseTime(observation.startAt);
+    const end = parseTime(observation.endAt);
     if (start !== null && (end === null || end > start)) entry.spans.push({ start, end: end ?? now });
     else if (start !== null || end !== null) entry.ticks.push((start ?? end)!);
   }
 
   for (const observation of input.recorded) {
-    const identity = input.identityOf(observation.content.observerVersionId);
-    if (!identity) continue;
-    const entry = row(identity);
+    const entry = row(input.identityOf(observation.observerId));
     if (entry.basis !== "recorded") continue;
     saved(entry, observation);
     entry.ticks.push(Math.min(parseTime(observation.recordedAt) ?? now, now));

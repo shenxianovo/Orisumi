@@ -84,6 +84,8 @@ public sealed class WriteApiTests
         using var http = factory.CreateClient();
         var writer = new WriteClient(http); await writer.InitializeAsync();
         var schema = await writer.DeclareAsync(fields: NameFields);
+        var keysBefore = await BinaryContentTests.Count(db.ConnectionString, "recognition_keys");
+        var observationsBefore = await BinaryContentTests.Count(db.ConnectionString, "observations");
         var invalid = new { startAt = "2026-10-31T02:00:00Z", endAt = "2026-10-31T01:00:00Z", timeZone = (string?)null };
         var results = (await writer.SendAsync([
             WriteClient.Write(schema, new { name = "before" }, "before"),
@@ -96,8 +98,8 @@ public sealed class WriteApiTests
         await Assert.That(results[3].GetProperty("error").GetProperty("rule").GetString()).IsEqualTo("SCHEMA-3");
         await Assert.That(results[4].GetProperty("error").GetProperty("status").GetInt32()).IsEqualTo(400);
         await Assert.That(results[5].GetProperty("changed").GetBoolean()).IsTrue();
-        await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "recognition_keys")).IsEqualTo(4);
-        await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "observations")).IsEqualTo(4);
+        await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "recognition_keys")).IsEqualTo(keysBefore + 2);
+        await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "observations")).IsEqualTo(observationsBefore + 3);
         using var inputs = await http.GetAsync("/entities?category=input_set");
         await Assert.That((await WriteClient.JsonAsync(inputs)).GetProperty("versions").GetArrayLength()).IsEqualTo(1);
         var corrected = await writer.WriteAsync(schema, new { name = "reject" }, "retry", time: UnknownTime);

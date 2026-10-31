@@ -1,4 +1,4 @@
-import type { BinaryValue, Observation, Version } from "@/api/types";
+import type { BinaryValue, ObservationVersion, Thing } from "@/api/types";
 import { parseTime } from "./time";
 
 // 助手会话页的纯函数：把一天的交互按会话分组，把工具调用和结果配成一项，按视图筛选。
@@ -17,7 +17,7 @@ export interface InteractionPart {
 }
 
 export interface InteractionContent {
-  sessionVersionId: string;
+  sessionId: string;
   client: string | null;
   kind: InteractionKind;
   actor: Actor | null;
@@ -38,21 +38,21 @@ export interface InteractionContent {
   sourceEntries: BinaryValue[];
 }
 
-export interface SessionContent {
-  product: string;
-  sourceSessionId: string;
-}
-
-/** 写在别的实体上的会话信息：最后写入的标题，以及子 Agent 关系。 */
+/** 写在子 Agent 关系上的会话信息。 */
 export interface SessionMeta {
-  title: string | null;
   parentEntityId: string | null;
   agentName: string | null;
 }
 
+/** 会话事物的产品和来源标识，取自识别依据，例如 `codex.session`。 */
+export function sessionSource(session: Thing): { product: string; sourceSessionId: string } {
+  const key = session.keys[0];
+  return { product: key?.scheme.replace(/\.session$/, "") ?? "", sourceSessionId: key?.value ?? session.entityId };
+}
+
 /** 一次交互和它的事实时间。 */
 export interface Interaction {
-  version: Version<InteractionContent>;
+  version: ObservationVersion<InteractionContent>;
   observationId: string;
   start: number | null;
   end: number | null;
@@ -67,8 +67,7 @@ export type Item =
 
 export interface SessionGroup {
   entityId: string;
-  /** 这一天读到的最新的会话版本。 */
-  session: Version<SessionContent> | null;
+  session: Thing | null;
   title: string | null;
   parentEntityId: string | null;
   agentName: string | null;
@@ -98,12 +97,9 @@ export function productName(product: string | null | undefined): string {
 export function sessionTitle(group: SessionGroup): string {
   if (!group.session) return "读不到的会话";
   if (group.title) return group.title;
-  return group.parentEntityId ? `子 Agent · ${group.agentName ?? group.session.content.sourceSessionId}` : "未命名会话";
-}
-
-/** 会话实体自己的名字：内容只有产品和来源标识，标题在标题实体上。 */
-export function sessionLabel(session: SessionContent): string {
-  return `${productName(session.product)} · ${session.sourceSessionId.slice(0, 8)}`;
+  return group.parentEntityId
+    ? `子 Agent · ${group.agentName ?? sessionSource(group.session).sourceSessionId}`
+    : "未命名会话";
 }
 
 /** 交互的名字：消息取第一段文字，工具取工具名或记录种类。 */
@@ -124,32 +120,28 @@ export function contextLabel(content: InteractionContent): string {
   return content.sourceRole ? `${kind} · ${content.sourceRole}` : kind;
 }
 
-export function toInteraction(observation: Version<Observation>, content: Version<InteractionContent>): Interaction {
-  const start = parseTime(observation.content.startAt);
-  const end = parseTime(observation.content.endAt);
-  return { version: content, observationId: observation.entityId, start, end, at: start ?? end ?? 0 };
+export function toInteraction(observation: ObservationVersion<InteractionContent>): Interaction {
+  const start = parseTime(observation.startAt);
+  const end = parseTime(observation.endAt);
+  return { version: observation, observationId: observation.entityId, start, end, at: start ?? end ?? 0 };
 }
 
-/**
- * 按会话分组，组内按时间排列。sessions 是会话版本按 VersionId 的索引，metas 是会话信息按 EntityId 的索引；
- * 同一会话这一天引用过几个版本时，取 VersionId 最大的，也就是最新的那一版。
- */
+/** 按会话分组，组内按时间排列。sessions 和 metas 都按会话的 EntityId 索引，读不到的会话为 null。 */
 export function groupSessions(
   interactions: readonly Interaction[],
-  sessions: ReadonlyMap<string, Version<SessionContent> | null>,
+  sessions: ReadonlyMap<string, Thing | null>,
   metas: ReadonlyMap<string, SessionMeta>,
 ): SessionGroup[] {
   const groups = new Map<string, SessionGroup>();
   for (const interaction of interactions) {
-    const versionId = interaction.version.content.sessionVersionId;
-    const session = sessions.get(versionId) ?? null;
-    const entityId = session?.entityId ?? versionId;
+    const entityId = interaction.version.content.sessionId;
     let group = groups.get(entityId);
     if (!group) {
+      const session = sessions.get(entityId) ?? null;
       group = {
         entityId,
         session,
-        title: metas.get(entityId)?.title ?? null,
+        title: session?.name ?? null,
         parentEntityId: metas.get(entityId)?.parentEntityId ?? null,
         agentName: metas.get(entityId)?.agentName ?? null,
         client: null,
@@ -162,7 +154,6 @@ export function groupSessions(
       };
       groups.set(entityId, group);
     }
-    if (session && (!group.session || session.versionId > group.session.versionId)) group.session = session;
     group.interactions.push(interaction);
     group.first = Math.min(group.first, interaction.at);
     group.last = Math.max(group.last, interaction.end ?? interaction.at);

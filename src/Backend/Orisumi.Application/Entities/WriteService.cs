@@ -9,6 +9,12 @@ namespace Orisumi.Application.Entities;
 public sealed class WriteService(IEntityStore store, EntityService entities)
 {
     public Task<WriteResponse> WriteAsync(WriteRequest request, Guid? host = null, CancellationToken cancellationToken = default) =>
+        WriteAsync(request, host, false, cancellationToken);
+
+    public Task<WriteResponse> WriteAtomicAsync(WriteRequest request, CancellationToken cancellationToken = default) =>
+        WriteAsync(request, null, true, cancellationToken);
+
+    private Task<WriteResponse> WriteAsync(WriteRequest request, Guid? host, bool atomic, CancellationToken cancellationToken) =>
         store.ExecuteAsync(async (transaction, token) =>
         {
             var knownObserver = request.Observer.EntityId ?? await transaction.FindRecognitionAsync(request.Observer.SchemaId!.Value, request.Observer.Key!, token);
@@ -44,6 +50,7 @@ public sealed class WriteService(IEntityStore store, EntityService entities)
             {
                 if (write.StorageError is { } storageError)
                 {
+                    if (atomic) throw new InvalidDataException(storageError);
                     results.Add(new(null, false, new(400, null, storageError)));
                     continue;
                 }
@@ -53,7 +60,7 @@ public sealed class WriteService(IEntityStore store, EntityService entities)
                     results.Add(await transaction.SavepointAsync(() => WriteOneAsync(transaction, observer, stream, write, workingInputs, token), token));
                     inputs = workingInputs;
                 }
-                catch (ModelViolationException error)
+                catch (ModelViolationException error) when (!atomic)
                 {
                     var status = error.Conflict || error.Rule is "HISTORY-7" or "SCHEMA-5" or "HISTORY-9" ? 409 : 400;
                     results.Add(new(null, false, new(status, error.Rule, error.Message)));

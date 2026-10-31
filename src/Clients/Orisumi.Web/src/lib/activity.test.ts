@@ -9,18 +9,12 @@ const at = (offset: number) => new Date(now + offset).toISOString();
 
 const foreground = observerIdentity("fg", "前台状态 Observer", "foreground-state-observers");
 const identity = observerIdentity("id", "应用识别 Observer", "application-identity-observers");
-const versions: Record<string, ObserverIdentity> = {
-  "fg-v1": foreground,
-  "fg-v2": foreground,
-  "id-v1": identity,
-  gone: UNREADABLE_IDENTITY,
-};
+const known: Record<string, ObserverIdentity> = { fg: foreground, id: identity };
 
 function input(overrides: Partial<ActivityInput> = {}): ActivityInput {
   return {
     observers: [foreground, identity],
-    timedTypes: new Set(["foreground-state-observers"]),
-    identityOf: (versionId) => versions[versionId],
+    identityOf: (observerId) => known[observerId] ?? UNREADABLE_IDENTITY,
     timed: [],
     recorded: [],
     now,
@@ -43,11 +37,15 @@ describe("observerRows", () => {
         timed: [
           observation({
             recordedAt: at(-30 * MINUTE),
-            content: { observerVersionId: "fg-v1", startAt: at(-60 * MINUTE), endAt: at(-30 * MINUTE) },
+            observerId: "fg",
+            startAt: at(-60 * MINUTE),
+            endAt: at(-30 * MINUTE),
           }),
           observation({
             recordedAt: at(-5 * MINUTE),
-            content: { observerVersionId: "fg-v2", startAt: at(-5 * MINUTE), endAt: null },
+            observerId: "fg",
+            startAt: at(-5 * MINUTE),
+            endAt: null,
           }),
         ],
       }),
@@ -66,7 +64,7 @@ describe("observerRows", () => {
   it("只知道一个边界的 Observation 是一道刻度", () => {
     const rows = observerRows(
       input({
-        timed: [observation({ content: { observerVersionId: "fg-v1", startAt: null, endAt: at(-MINUTE) } })],
+        timed: [observation({ observerId: "fg", startAt: null, endAt: at(-MINUTE) })],
       }),
     );
     expect(rows.find((r) => r.key === "fg")!.ticks).toEqual([now - MINUTE]);
@@ -78,7 +76,9 @@ describe("observerRows", () => {
         recorded: [
           observation({
             recordedAt: at(-18 * MINUTE),
-            content: { observerVersionId: "id-v1", startAt: null, endAt: null },
+            observerId: "id",
+            startAt: null,
+            endAt: null,
           }),
         ],
       }),
@@ -95,10 +95,12 @@ describe("observerRows", () => {
         timed: [
           observation({
             recordedAt: at(-SECOND),
-            content: { observerVersionId: "fg-v1", startAt: at(-9 * MINUTE), endAt: at(-SECOND) },
+            observerId: "fg",
+            startAt: at(-9 * MINUTE),
+            endAt: at(-SECOND),
           }),
         ],
-        recorded: [observation({ recordedAt: at(-MINUTE * 2), content: { observerVersionId: "id-v1" } })],
+        recorded: [observation({ recordedAt: at(-MINUTE * 2), observerId: "id", startAt: null, endAt: null })],
       }),
     );
     expect(rows[0]!.key).toBe("fg");
@@ -108,13 +110,13 @@ describe("observerRows", () => {
     expect(isActive(rows[1]!, now)).toBe(false);
   });
 
-  it("读不到 Observer 版本的 Observation 合成一行不可读取；还没解析的暂不计入", () => {
+  it("读不到 Observer 的 Observation 合成一行不可读取", () => {
     const rows = observerRows(
       input({
         timed: [
-          observation({ content: { observerVersionId: "gone" } }),
-          observation({ content: { observerVersionId: "gone" } }),
-          observation({ content: { observerVersionId: "pending" } }),
+          observation({ observerId: "gone" }),
+          observation({ observerId: "gone" }),
+          observation({ observerId: "id", startAt: null, endAt: null }),
         ],
       }),
     );

@@ -1,0 +1,7 @@
+{
+  "title": "Narrative",
+  "defaultOpen": false,
+  "collapsible": true,
+  "pagesIndex": "index",
+  "pages": ["narrative-observer", "episode"]
+}

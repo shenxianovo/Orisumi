@@ -1,10 +1,10 @@
 import type { Category, Version } from "@/api/types";
 
-export const CATEGORY_NAMES: Record<Category, string> = {
+export const CATEGORY_NAMES: Record<Category | "thing", string> = {
+  thing: "事物",
   observation: "Observation",
   input_set: "InputSet",
   entity_schema: "EntitySchema",
-  business: "业务实体",
 };
 
 /** 版本在版本链中的序号，从 1 开始。 */
@@ -31,8 +31,14 @@ export function changedFields(previous: Version | undefined, current: Version): 
  * 相对前一版改了什么，每处一句：数组字段写加入和移出的元素，取值是标量的写新的值，其余写“改了”。
  * 例如 identifiers 多了一条线索时是“加入 macos.bundle-id com.apple.Preview”。
  * 没有前一版时是“新建”，后面是数组字段里的元素。
+ * names 是引用目标的名字，键是引用的 EntityId 或 VersionId；引用写成目标的名字，不在其中的写原值。
  */
-export function describeChanges(previous: Version | null, current: Version): string[] {
+export function describeChanges(
+  previous: Version | null,
+  current: Version,
+  names: ReadonlyMap<string, string>,
+): string[] {
+  const plain = (value: unknown) => written(value, names);
   const after = asRecord(current.content);
   if (!previous)
     return [
@@ -60,15 +66,16 @@ export function describeChanges(previous: Version | null, current: Version): str
   return changes.length ? changes : ["内容相同"];
 }
 
-/** 一个值的简短写法：对象按键名的顺序写出它的标量值，用空格隔开。 */
-function plain(value: unknown): string {
+/** 一个值的简短写法：引用写目标的名字；对象按键名的顺序写出它的标量值，用空格隔开。 */
+function written(value: unknown, names: ReadonlyMap<string, string>): string {
   if (value === null) return "null";
+  if (typeof value === "string") return names.get(value) ?? value;
   if (typeof value !== "object") return String(value);
   return Object.entries(value)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([, item]) => item)
     .filter((item) => item === null || typeof item !== "object")
-    .map(plain)
+    .map((item) => written(item, names))
     .join(" ");
 }
 

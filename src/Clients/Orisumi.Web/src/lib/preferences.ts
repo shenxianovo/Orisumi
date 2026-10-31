@@ -3,6 +3,8 @@
 export type Theme = "system" | "light" | "dark";
 
 const THEME_KEY = "orisumi.theme";
+const SEEN_KEY = "orisumi.understanding.seen";
+const SEEN_EVENT = "orisumi:understanding-seen";
 
 function read(key: string): string | null {
   try {
@@ -33,4 +35,19 @@ export function applyTheme(theme: Theme): void {
 export function saveTheme(theme: Theme): void {
   write(THEME_KEY, theme);
   applyTheme(theme);
+}
+
+/** 上次查看理解页面的时刻，没有看过时为 0。 */
+export function readSeen(): number {
+  return Number(read(SEEN_KEY)) || 0;
+}
+
+export function saveSeen(at: number): void {
+  write(SEEN_KEY, String(at));
+  window.dispatchEvent(new Event(SEEN_EVENT));
+}
+
+export function subscribeSeen(listener: () => void): () => void {
+  window.addEventListener(SEEN_EVENT, listener);
+  return () => window.removeEventListener(SEEN_EVENT, listener);
 }

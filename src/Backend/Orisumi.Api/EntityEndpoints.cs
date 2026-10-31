@@ -160,7 +160,7 @@ internal static class EntityEndpoints
     private static object ThingJson(Thing thing) => new
     {
         entityId = thing.EntityId.Value, category = "thing", schemaId = thing.SchemaId.Value,
-        keys = thing.Keys.Select(key => new { scope = key.Scope, scheme = key.Scheme, value = key.Value }), name = thing.Name,
+        keys = thing.Keys.Select(key => new { scope = key.Scope, scheme = key.Scheme, value = key.Value }), name = thing.Name, nameVersionId = thing.NameVersionId?.Value,
     };
 
     private static async Task<IResult> ListThingsAsync(HttpRequest request, EntityService service, CancellationToken token)

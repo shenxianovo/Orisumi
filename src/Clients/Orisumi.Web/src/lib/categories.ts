@@ -22,7 +22,9 @@ const BY_RESOURCE_NAME: Record<string, CategoryKey> = {
   "foreground-state-observers": "desktop",
   "assistant-sessions-observers": "desktop",
   "application-identity-observers": "inference",
-  users: "you",
+  "narrative-observers": "inference",
+  "session-understanding-observers": "inference",
+  people: "you",
 };
 
 export function categoryOf(resourceName: string | null | undefined): CategoryKey {

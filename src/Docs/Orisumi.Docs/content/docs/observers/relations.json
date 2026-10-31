@@ -65,6 +65,18 @@
     },
     "IDENTIFIER_IDS": {
       "label": "identifierIds"
+    },
+    "SUMMARY": {
+      "label": "summary"
+    },
+    "SESSION_IDS": {
+      "label": "sessionIds"
+    },
+    "LOCAL_APPLICATION_IDS": {
+      "label": "localApplicationIds"
+    },
+    "DECISION_MODEL": {
+      "label": "decisionModel"
     }
   },
   "nodes": {
@@ -177,6 +189,7 @@
       ],
       "fields": [
         "PROGRAM_VERSION",
+        "DECISION_MODEL",
         "MODEL"
       ]
     },
@@ -258,6 +271,44 @@
       "fields": [
         "SESSION_ID",
         "PARENT_SESSION_ID"
+      ]
+    },
+    "NARRATIVE": {
+      "path": "/observers/narrative/narrative-observer",
+      "schemaPath": "/observers/narrative/narrative-observer#schema",
+      "label": "叙事 Observer<br/>描述",
+      "interfaces": [
+        "Observation"
+      ],
+      "fields": [
+        "PROGRAM_VERSION",
+        "MODEL"
+      ]
+    },
+    "EPISODE": {
+      "path": "/observers/narrative/episode",
+      "schemaPath": "/observers/narrative/episode#schema",
+      "label": "Episode<br/>一件事",
+      "interfaces": [
+        "Observation"
+      ],
+      "fields": [
+        "TITLE",
+        "SUMMARY",
+        "SESSION_IDS",
+        "LOCAL_APPLICATION_IDS"
+      ]
+    },
+    "SESSION_UNDERSTANDING": {
+      "path": "/observers/session-understanding/session-understanding-observer",
+      "schemaPath": "/observers/session-understanding/session-understanding-observer#schema",
+      "label": "会话理解 Observer<br/>描述",
+      "interfaces": [
+        "Observation"
+      ],
+      "fields": [
+        "PROGRAM_VERSION",
+        "MODEL"
       ]
     }
   }

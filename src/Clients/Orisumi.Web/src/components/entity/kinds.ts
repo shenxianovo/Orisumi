@@ -1,9 +1,9 @@
 import type { Category } from "@/api/types";
 import type { EntityFilter } from "@/hooks/queries";
 
-/** 实体页左栏的一类：三种 Core 类型，或一个业务 Schema（用 Schema 的 EntityId 作键）。 */
+/** Core 的一类实体：Observation、InputSet 或 EntitySchema。 */
 export interface CoreKind {
-  key: Exclude<Category, "business">;
+  key: Category;
   name: string;
   hint: string;
   tint: string;
@@ -14,7 +14,7 @@ export const CORE_KINDS: readonly CoreKind[] = [
   {
     key: "observation",
     name: "Observation",
-    hint: "Observer 写下的每一份观测，指向 Observer、观测内容和输入",
+    hint: "Observer 写下的每一份陈述，带着形成方式、输入和事实时间",
     tint: "#5f86a8",
     filter: { category: "observation" },
   },

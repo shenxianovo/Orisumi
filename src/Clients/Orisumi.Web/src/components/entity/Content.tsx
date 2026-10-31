@@ -5,14 +5,19 @@ import {
   isEntitySchema,
   isInputSet,
   isObservation,
+  isThing,
   type BinaryValue,
   type FieldDefinition,
   type InputSet,
-  type Observation,
+  type Item,
+  type ObservationVersion,
+  type Thing,
   type Version,
 } from "@/api/types";
 import { Chip, Mono } from "@/components/ui";
 import { useContentUrl, useVersion } from "@/hooks/queries";
+import { FORMATION_NAMES } from "@/lib/common";
+import { Token } from "../token/Token";
 import { clock, dateTime, DAY, HOUR, MINUTE, parseTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { VersionChip } from "./VersionChip";
@@ -44,18 +49,21 @@ function Tile({
   );
 }
 
-export function Content({ version }: { version: Version }) {
-  if (isObservation(version)) return <ObservationMembers version={version} />;
-  if (isInputSet(version)) return <InputSetContent version={version} />;
-  if (isEntitySchema(version)) {
-    const schema = version.content;
+export function Content({ item }: { item: Item }) {
+  if (isThing(item)) return <ThingKeys thing={item} />;
+  if (isObservation(item)) return <ObservationDetails version={item} />;
+  if (isInputSet(item)) return <InputSetContent version={item} />;
+  if (isEntitySchema(item)) {
+    const schema = item.content;
     return (
       <div className="grid gap-3">
         <Tiles>
           <Tile name="资源名">
             <Mono>{schema.resourceName}</Mono>
           </Tile>
-          <Tile name="字段">{Object.keys(schema.fields).length} 个</Tile>
+          <Tile name="性质">
+            {schema.kind === "thing" ? "事物" : schema.immutable ? "Observation，内容不再变化" : "Observation"}
+          </Tile>
           <Tile name="说明" wide>
             {schema.description || <span className="text-fg-3">无</span>}
           </Tile>
@@ -64,28 +72,47 @@ export function Content({ version }: { version: Version }) {
       </div>
     );
   }
-  return <BusinessContent version={version} />;
+  return null;
 }
 
-function ObservationMembers({ version }: { version: Version<Observation> }) {
-  const content = version.content;
+/** 事物只有身份：认出它的识别依据。 */
+function ThingKeys({ thing }: { thing: Thing }) {
+  if (!thing.keys.length) return <span className="text-fg-3 text-[13px]">没有识别依据</span>;
   return (
     <Tiles>
-      <Tile name="观测内容">
-        <VersionChip versionId={content.contentVersionId} strong />
-      </Tile>
-      <Tile name="Observer">
-        <VersionChip versionId={content.observerVersionId} />
-      </Tile>
-      <Tile name="事实时间" wide>
-        <DayTrack startAt={content.startAt} endAt={content.endAt} timeZone={content.timeZone} />
-      </Tile>
-      {content.inputSetVersionId && (
-        <Tile name="InputSet" wide>
-          <Inputs versionId={content.inputSetVersionId} />
+      {thing.keys.map((key) => (
+        <Tile key={`${key.scope}|${key.scheme}|${key.value}`} name={key.scheme} hint={key.scope ?? undefined} wide>
+          <Mono className="break-all">{key.value}</Mono>
         </Tile>
-      )}
+      ))}
     </Tiles>
+  );
+}
+
+function ObservationDetails({ version }: { version: ObservationVersion }) {
+  return (
+    <div className="grid gap-3">
+      <Tiles>
+        <Tile name="Observer">
+          <Token thingId={version.observerId} />
+        </Tile>
+        <Tile name="形成方式">{FORMATION_NAMES[version.formation] ?? version.formation}</Tile>
+        <Tile name="事实时间" wide>
+          <DayTrack startAt={version.startAt} endAt={version.endAt} timeZone={version.timeZone} />
+        </Tile>
+        {version.observerVersionId && (
+          <Tile name="当时的描述">
+            <VersionChip versionId={version.observerVersionId} />
+          </Tile>
+        )}
+        {version.inputSetVersionId && (
+          <Tile name="InputSet" wide>
+            <Inputs versionId={version.inputSetVersionId} />
+          </Tile>
+        )}
+      </Tiles>
+      <ObservationFields version={version} />
+    </div>
   );
 }
 
@@ -190,7 +217,7 @@ function InputSetContent({ version }: { version: Version<InputSet> }) {
   );
 }
 
-function BusinessContent({ version }: { version: Version }) {
+function ObservationFields({ version }: { version: ObservationVersion }) {
   const schema = useVersion(version.schemaVersionId);
   const content = (version.content ?? {}) as Record<string, unknown>;
   const fields = schema.data && isEntitySchema(schema.data) ? schema.data.content.fields : {};
@@ -214,7 +241,8 @@ function BusinessContent({ version }: { version: Version }) {
 function Value({ value, definition }: { value: unknown; definition: FieldDefinition | undefined }) {
   if (value === undefined) return <span className="text-fg-3">缺省</span>;
   if (value === null) return <span className="text-fg-3">null</span>;
-  if (definition?.type === "reference" && typeof value === "string") return <VersionChip versionId={value} />;
+  if (definition?.type === "reference" && typeof value === "string")
+    return definition.target === "thing" ? <Token thingId={value} /> : <VersionChip versionId={value} />;
   if (definition?.type === "binary" && isBinaryValue(value)) return <Binary value={value} />;
   if (typeof value === "boolean") return <span className={value ? "text-fg" : "text-fg-2"}>{value ? "是" : "否"}</span>;
   if (typeof value === "number")

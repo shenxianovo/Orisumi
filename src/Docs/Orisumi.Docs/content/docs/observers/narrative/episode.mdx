@@ -1,0 +1,64 @@
+---
+title: "Episode"
+description: "一天中的一件事：一段时间里在做什么"
+---
+
+Episode 是一天中的一件事，例如 20:16 到 20:51 “把代码迁移到事物与 Observation 模型”。它由叙事 Observer 读当天的记录写出，形成方式是 `inferred`：标题和摘要是模型对这段时间的理解，引用的会话和本机应用是它认为属于这件事的记录。
+
+<ObserverStructure node="EPISODE" />
+
+## 粒度 [#granularity]
+
+一件事一份 Observation。一天写一批，通常 3 到 7 件。两件事的时段可以重叠，例如下午在讨论应用识别的同时，回复了一次工作上的进度询问。
+
+## 身份 [#identity]
+
+一件事没有识别依据，每次写都新建。
+
+| 变化 | 结果 |
+| --- | --- |
+| 第一次写这一天 | 新建一批 |
+| 用户要求重写这一天 | 新建一批，再为原来的每件事写一份 `supersede` 的 Review |
+| 用户发现一件事写错了 | 用户写一份 `deny` 的 Review，这件事保持原样 |
+
+## 引用 [#references]
+
+| 字段 | 目标 |
+| --- | --- |
+| `sessionIds` | 属于这件事的[助手会话](../assistant-sessions/assistant-session.mdx) |
+| `localApplicationIds` | 这段时间在前台的[本机应用](../foreground-state/local-application.mdx) |
+
+## 事实时间 [#fact-time]
+
+`startAt` 和 `endAt` 是这件事的时段，精确到分钟；`timeZone` 是写它时请求的时区。时段由模型按会话中交互的时间和前台应用时段写出，证据是 InputSet 中的这些版本，见 [TIME-2](../../core/rules/time.mdx#time-2)。
+
+## EntitySchema [#schema]
+
+| 项目 | 值 |
+| --- | --- |
+| SchemaId | `019e1bbb-ec00-7000-8000-000000000018` |
+| 显示名称 | 一件事 |
+| 说明 | 表示一天中的一件事：一段时间里在做什么。事实时间是这件事的时段，由模型读当天的记录写出。 |
+| 资源名 | `episodes` |
+| `kind` | `observation` |
+| `immutable` | `true` |
+
+| 字段 | 类型 | 必填 | 可空 | description |
+| --- | --- | --- | --- | --- |
+| `title` | `string` | 是 | 否 | 这件事的标题，一句短语 |
+| `summary` | `string` | 是 | 否 | 做了什么、得出了什么，一到两句 |
+| `sessionIds` | `array` | 是 | 否 | 属于这件事的助手会话，没有时为 `[]` |
+| `sessionIds[]` | `reference`，目标为事物 | 不适用 | 否 | 一个助手会话 |
+| `localApplicationIds` | `array` | 是 | 否 | 这段时间在前台的本机应用，没有时为 `[]` |
+| `localApplicationIds[]` | `reference`，目标为事物 | 不适用 | 否 | 一个本机应用 |
+
+## 示例 [#example]
+
+```json
+{
+  "title": "把代码迁移到事物与 Observation 模型",
+  "summary": "你按交接文档让 Codex 把代码改成“事物加 Observation”的模型，并把应用识别重新判断的时机留给文档侧讨论。",
+  "sessionIds": ["01a191f7-dcfc-7894-863c-5ec8720eb9b2"],
+  "localApplicationIds": ["01a191fc-ee17-721a-a1b0-4b785ae25af3"]
+}
+```

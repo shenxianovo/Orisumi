@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { readAllPages } from "@/api/client";
+import { readAllPages, readAllThings } from "@/api/client";
 import { useSource } from "@/api/source";
-import type { Observation, Version } from "@/api/types";
+import type { Item, ObservationVersion, Thing } from "@/api/types";
 import { typeIcon } from "@/components/token/icons";
 import { InfoMark, Mark, Token } from "@/components/token/Token";
 import { Button, Card, Message, PageHeader } from "@/components/ui";
 import { WeaveCanvas } from "@/components/weave/Weave";
 import { useEntityCount, type EntityFilter } from "@/hooks/queries";
-import { describeVersion, useDescribe, useEntityInfo } from "@/hooks/useEntityInfo";
+import { describeItem, useDescribe } from "@/hooks/useEntityInfo";
 import { useEntity } from "@/hooks/queries";
 import { useTypes, type TypeEdge, type TypeIndex, type TypeNode } from "@/hooks/useTypes";
 import { referenceLabel } from "@/lib/references";
@@ -32,11 +32,11 @@ export const Route = createFileRoute("/entities/")({
   component: EntitiesPage,
 });
 
-/** 列的顺序：来源 ← Observation → 经历 → 事物；InputSet 和 Observation 同列。 */
+/** 列的顺序：来源 ← 陈述和 InputSet → 经历 → 事物。 */
 const COLUMNS: { label: string; keep: (node: TypeNode) => boolean }[] = [
   { label: "来源", keep: (n) => n.role === "source" },
-  { label: "观测", keep: (n) => n.key === "observation" || n.key === "input_set" },
-  { label: "经历", keep: (n) => n.role === "experience" && n.key !== "observation" },
+  { label: "观测", keep: (n) => n.role === "statement" || n.role === "evidence" },
+  { label: "经历", keep: (n) => n.role === "experience" },
   { label: "事物", keep: (n) => n.role === "thing" },
 ];
 
@@ -68,7 +68,7 @@ function EntitiesPage() {
     return (
       <section>
         <PageHeader
-          title="实体"
+          title="原始记录"
           summary={
             <p>
               从 <RootName entityId={root} />{" "}
@@ -83,13 +83,13 @@ function EntitiesPage() {
 
   if (types.isPending) return <Message title="正在整理类型" />;
   if (types.isError) return <Message title="读不到类型" detail={types.error.message} mascot />;
-  if (types.data.nodes.length <= 2) return <Message title="还没有登记 Schema" mascot />;
+  if (types.data.nodes.length <= 1) return <Message title="还没有登记 Schema" mascot />;
 
   const selected = types.data.nodes.find((node) => node.key === type) ?? null;
   return (
     <section>
       <PageHeader
-        title="实体"
+        title="原始记录"
         summary={`${types.data.nodes.length} 种类型。线上写着引用它的字段。点一个类型列出它的实体，再点一个实体从它开始织。`}
       />
       <div className="grid gap-4">
@@ -109,8 +109,8 @@ function EntitiesPage() {
 }
 
 function filterOf(node: TypeNode): EntityFilter {
-  if (node.key === "observation" || node.key === "input_set") return { category: node.key };
-  return { resourceName: node.key };
+  if (node.key === "input_set") return { category: "input_set" };
+  return { resourceName: node.key, ...(node.schema?.content.kind === "thing" ? { things: true } : {}) };
 }
 
 /** 节点在分列的图里的位置和宽度。 */
@@ -379,7 +379,7 @@ function TypeDetail({ node }: { node: TypeNode }) {
       {node.schema && (
         <div className="mb-3 flex items-center gap-1.5 text-[13px]">
           <span className="text-fg-3 text-xs">定义</span>
-          <Token version={node.schema} size="sm" />
+          <Token item={node.schema} size="sm" />
         </div>
       )}
       {node.role === "experience" ? <RecentExperiences node={node} /> : <EntityTokens node={node} />}
@@ -387,39 +387,43 @@ function TypeDetail({ node }: { node: TypeNode }) {
   );
 }
 
+/** 事物、来源、陈述和 InputSet 按名字排列，同名的写出不同的那一段。 */
 function EntityTokens({ node }: { node: TypeNode }) {
   const source = useSource();
   const filter = filterOf(node);
   const list = useQuery({
     queryKey: ["entities", filter, "all"],
-    queryFn: () => source.listEntities({ ...filter, limit: 1000 }),
+    queryFn: async (): Promise<Item[]> => {
+      const { things, ...query } = filter;
+      if (things)
+        return readAllThings((after) => source.listThings({ ...query, limit: 1000, ...(after ? { after } : {}) }));
+      return (await source.listEntities({ ...query, limit: 1000 })).versions;
+    },
   });
   const items = useMemo(() => {
-    const versions = list.data?.versions ?? [];
-    const named = versions.map((v) => ({ version: v, title: describeVersion(v, node.schema, node.role).title }));
+    const named = (list.data ?? []).map((item) => ({
+      item,
+      title: describeItem(item, node.schema).title,
+      detail: null as string | null,
+    }));
     named.sort((a, b) => a.title.localeCompare(b.title));
     const groups = new Map<string, number[]>();
-    named.forEach((item, i) => groups.set(item.title, [...(groups.get(item.title) ?? []), i]));
-    const details = new Array<string | null>(named.length).fill(null);
+    named.forEach((entry, i) => groups.set(entry.title, [...(groups.get(entry.title) ?? []), i]));
     for (const members of groups.values()) {
       if (members.length < 2) continue;
-      const found = differences(members.map((i) => named[i]!.version.content));
-      members.forEach((i, k) => (details[i] = found[k] ?? null));
+      const found = differences(members.map((i) => identity(named[i]!.item)));
+      members.forEach((i, k) => (named[i]!.detail = found[k] ?? null));
     }
-    return named.map((item, i) => ({ ...item, detail: details[i] }));
-  }, [list.data, node.schema, node.role]);
+    return named;
+  }, [list.data, node.schema]);
 
   if (list.isPending) return <p className="text-fg-3 text-[13px]">读取中</p>;
   if (!items.length) return <p className="text-fg-3 text-[13px]">这个类型还没有实体</p>;
   return (
     <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-1">
-      {items.map((item, i) => (
-        <li
-          key={item.version.entityId}
-          className="rise min-w-0"
-          style={{ animationDelay: `${Math.min(i, 20) * 12}ms` }}
-        >
-          <StartButton version={item.version} detail={item.detail} />
+      {items.map((entry, i) => (
+        <li key={entry.item.entityId} className="rise min-w-0" style={{ animationDelay: `${Math.min(i, 20) * 12}ms` }}>
+          <StartButton item={entry.item} detail={entry.detail} />
         </li>
       ))}
     </ul>
@@ -437,11 +441,11 @@ function RecentExperiences({ node }: { node: TypeNode }) {
         source.listObservations({
           from: new Date(now - DAY).toISOString(),
           to: new Date(now + 60_000).toISOString(),
-          ...(node.key === "observation" ? {} : { resourceName: node.key }),
+          resourceName: node.key,
           limit: 1000,
           ...(after ? { after } : {}),
         }),
-      ) as Promise<Version<Observation>[]>,
+      ) as Promise<ObservationVersion[]>,
   });
   const [shown, setShown] = useState(30);
   const list = (recent.data ?? []).slice(-shown).reverse();
@@ -457,11 +461,7 @@ function RecentExperiences({ node }: { node: TypeNode }) {
             className="rise flex min-w-0 items-center gap-1"
             style={{ animationDelay: `${Math.min(i, 20) * 12}ms` }}
           >
-            {node.key === "observation" ? (
-              <StartButton version={observation} />
-            ) : (
-              <StartButton versionId={observation.content.contentVersionId} />
-            )}
+            <StartButton item={observation} />
           </li>
         ))}
       </ul>
@@ -486,25 +486,15 @@ function RootName({ entityId }: { entityId: string }) {
 }
 
 /** 列表里的一个实体：记号和名字，点它从它开始织。 */
-function StartButton({
-  version,
-  versionId,
-  detail,
-}: {
-  version?: Version;
-  versionId?: string;
-  detail?: string | null | undefined;
-}) {
-  const byId = useEntityInfo(version ? null : versionId);
-  const given = useDescribe(version);
-  const { info } = version ? given : byId;
+function StartButton({ item, detail }: { item: Item; detail?: string | null | undefined }) {
+  const { info } = useDescribe(item);
   const navigate = Route.useNavigate();
   if (!info) return <span className="bg-panel block h-7 rounded-md" />;
   return (
     <button
       type="button"
       title={`从 ${info.title} 开始织`}
-      onClick={() => void navigate({ search: (prev) => ({ ...prev, root: info.version.entityId }) })}
+      onClick={() => void navigate({ search: (prev) => ({ ...prev, root: info.entityId }) })}
       className="hover:bg-panel flex w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left text-[13px]"
     >
       <InfoMark info={info} size="md" />
@@ -514,4 +504,9 @@ function StartButton({
       </span>
     </button>
   );
+}
+
+/** 同名的实体之间比较哪一段：事物比识别依据，其余比内容。 */
+function identity(item: Item): unknown {
+  return item.category === "thing" ? (item as Thing).keys : item.content;
 }

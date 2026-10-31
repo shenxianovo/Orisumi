@@ -12,12 +12,13 @@ internal static class Program
         {
             var settings = context.Settings;
             var modelName = settings.TryGetProperty("model", out var model) ? model.GetString()! : "gpt-6.1-terra";
+            var decisionModel = settings.TryGetProperty("decisionModel", out var decision) ? decision.GetString()! : "gpt-6-luna";
             var seconds = settings.TryGetProperty("intervalSeconds", out var interval) ? interval.GetDouble() : 60;
             if (!double.IsFinite(seconds) || seconds <= 0) throw new ArgumentException("intervalSeconds must be positive and finite.");
             using var http = new HttpClient();
             var recognizer = new IdentityRecognizer(data, new(data),
-                new OpenAiApplicationModel(http, Environment.GetEnvironmentVariable("OPENAI_API_KEY"), modelName), modelName,
-                context.PackageVersion!, Console.Error.WriteLine);
+                new OpenAiApplicationModel(http, Environment.GetEnvironmentVariable("OPENAI_API_KEY"), modelName, decisionModel), modelName,
+                context.PackageVersion!, Console.Error.WriteLine, decisionModel);
             while (!context.Stopping.IsCancellationRequested)
             {
                 try { await recognizer.RunOnceAsync(context.Stopping); }

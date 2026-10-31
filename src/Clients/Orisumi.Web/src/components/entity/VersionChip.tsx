@@ -8,11 +8,11 @@ import { clock, parseTime } from "@/lib/time";
 import { CATEGORY_NAMES, versionLabel, versionNumber } from "@/lib/versions";
 import { coreKind } from "./kinds";
 
-/** 版本的类型名：业务版本用 Schema 的 displayName，Core 类型用类型名。 */
+/** 版本的类型名：Observation 用 Schema 的 displayName，其余用 Core 的类型名。 */
 export function useVersionType(version: Version | undefined) {
-  const schema = useVersion(version?.category === "business" ? version.schemaVersionId : null);
+  const schema = useVersion(version && isObservation(version) ? version.schemaVersionId : null);
   if (!version) return { name: null, resourceName: null };
-  if (version.category !== "business") {
+  if (!isObservation(version)) {
     const name = isEntitySchema(version)
       ? `${CATEGORY_NAMES.entity_schema} · ${version.content.displayName}`
       : CATEGORY_NAMES[version.category];
@@ -21,13 +21,13 @@ export function useVersionType(version: Version | undefined) {
   if (schema.data && isEntitySchema(schema.data)) {
     return { name: schema.data.content.displayName, resourceName: schema.data.content.resourceName };
   }
-  return { name: schema.isError ? CATEGORY_NAMES.business : null, resourceName: null };
+  return { name: schema.isError ? CATEGORY_NAMES.observation : null, resourceName: null };
 }
 
 /** 版本的类型：名称和颜色。 */
 function useVersionKind(version: Version | undefined) {
   const type = useVersionType(version);
-  const core = version && version.category !== "business" ? coreKind(version.category) : undefined;
+  const core = version && !isObservation(version) ? coreKind(version.category) : undefined;
   return { name: type.name, tint: core ? core.tint : tintOf(type.resourceName) };
 }
 
@@ -56,7 +56,7 @@ export function VersionChip({
       <Dot color={kind.tint} />
       {kind.name ?? "…"}
       {number !== null && chain.data && <span className="text-fg-3">{versionLabel(number, chain.data.length)}</span>}
-      {isObservation(version.data) && <span className="text-fg-3">{factTime(version.data.content)}</span>}
+      {isObservation(version.data) && <span className="text-fg-3">{factTime(version.data)}</span>}
     </Chip>
   );
   if (plain) return chip;

@@ -39,14 +39,16 @@ public sealed class UnderstandingApiTests
         var source = await f.Writer.WriteAsync(new(CommonSchemas.Name), new { thingId = target, name = "source" });
         var id = ((Observation)source.Content).Fields.GetProperty("thingId").GetGuid();
         var human = await f.Person.WriteAsync(new(CommonSchemas.Name, new { thingId = id, name = "user" }, "stated"));
-        await f.Model.WriteAsync(new(CommonSchemas.Name, new { thingId = id, name = "model" }, "inferred"));
+        var model = await f.Model.WriteAsync(new(CommonSchemas.Name, new { thingId = id, name = "model" }, "inferred"));
         var thing = await f.Model.EntityAsync(id);
         await Assert.That(thing.GetProperty("category").GetString()).IsEqualTo("thing");
         await Assert.That(thing.TryGetProperty("versionId", out _)).IsFalse();
         await Assert.That(thing.GetProperty("name").GetString()).IsEqualTo("user");
+        await Assert.That(thing.GetProperty("nameVersionId").GetGuid()).IsEqualTo(human!.Version!.Value.GetProperty("versionId").GetGuid());
         await f.Person.WriteAsync(new(CommonSchemas.Review, new { targetVersionId = human!.Version!.Value.GetProperty("versionId").GetGuid(), verdict = "deny", text = (string?)null }, "stated"));
         var things = await f.Model.ListAsync("things?resourceName=objects&limit=1");
         await Assert.That(things.Single().GetProperty("name").GetString()).IsEqualTo("model");
+        await Assert.That(things.Single().GetProperty("nameVersionId").GetGuid()).IsEqualTo(model!.Version!.Value.GetProperty("versionId").GetGuid());
         using var batch = await f.Http.PostAsJsonAsync("things/read", new { entityIds = new[] { id, Guid.CreateVersion7(), id } });
         var read = (await WriteClient.JsonAsync(batch)).GetProperty("results");
         await Assert.That(read.EnumerateArray().Select(v => v.GetProperty("status").GetString()).SequenceEqual(["found", "not_found", "found"])).IsTrue();

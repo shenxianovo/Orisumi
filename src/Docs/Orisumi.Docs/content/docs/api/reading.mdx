@@ -45,7 +45,7 @@ description: "怎样读取版本、事物和二进制内容，按类型、Observ
 
 [`GET /things`](/api/listThings) 列出事物，按 EntityId 升序排列，`resourceName` 只返回这种类型的事物。[`POST /things/read`](/api/readThings) 一次读取 1 到 256 个事物，响应的 `status` 和[批量读取版本](#versions)相同。
 
-每个事物带着它的类型、识别依据和名字。名字按 [UNDERSTANDING-9](../core/rules/understanding.mdx#understanding-9) 取得，所以显示一批设备或会话时一次请求就够。关于事物的陈述用[引用方](#referrers)读取。
+每个事物带着它的类型、识别依据和名字。名字按 [UNDERSTANDING-9](../core/rules/understanding.mdx#understanding-9) 取得，所以显示一批设备或会话时一次请求就够。`nameVersionId` 是名字所在的 Name 的版本，读取方读它就知道这个名字是谁写的、怎样形成的，例如前台状态 Observer 直接记下，或者会话理解 Observer 推断。关于事物的陈述用[引用方](#referrers)读取。
 
 ## 查询观测 [#observations]
 

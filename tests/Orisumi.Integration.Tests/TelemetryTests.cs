@@ -25,7 +25,8 @@ public sealed partial class TelemetryTests
     [Arguments("file:///tmp/otlp")]
     public async Task WithoutAValidEndpointTheApiRunsWithoutExporters(string? endpoint)
     {
-        await using var factory = new OrisumiApiFactory("Host=localhost;Database=unused", new Dictionary<string, string?>
+        await using var db = await DatabaseFixture.CreateAsync();
+        await using var factory = new OrisumiApiFactory(db.ConnectionString, new Dictionary<string, string?>
         {
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint,
         });
@@ -61,7 +62,8 @@ public sealed partial class TelemetryTests
         var activities = new List<Activity>();
         var logs = new List<LogRecord>();
         var metrics = new List<Metric>();
-        await using var factory = new OrisumiApiFactory("Host=localhost;Database=unused", new Dictionary<string, string?>
+        await using var db = await DatabaseFixture.CreateAsync();
+        await using var factory = new OrisumiApiFactory(db.ConnectionString, new Dictionary<string, string?>
         {
             ["OTEL_EXPORTER_OTLP_ENDPOINT"] = receiver.Urls.Single(),
             ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf",

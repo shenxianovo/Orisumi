@@ -11,6 +11,7 @@
   <Folder Name="/src/Observers/">
     <Project Path="src/Observers/Orisumi.Observer.AssistantSessions/Orisumi.Observer.AssistantSessions.csproj" />
     <Project Path="src/Observers/Orisumi.Observer.ApplicationIdentity/Orisumi.Observer.ApplicationIdentity.csproj" />
+    <Project Path="src/Observers/Orisumi.Observer.SessionUnderstanding/Orisumi.Observer.SessionUnderstanding.csproj" />
     <Project Path="src/Observers/Orisumi.Observer.Sdk/Orisumi.Observer.Sdk.csproj" />
     <Project Path="src/Observers/Orisumi.Observer.Runtime/Orisumi.Observer.Runtime.csproj" />
     <Project Path="src/Observers/Orisumi.Observer.ForegroundState/Orisumi.Observer.ForegroundState.csproj" />

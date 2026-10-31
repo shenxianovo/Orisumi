@@ -20,6 +20,7 @@ internal sealed class AssistantTestFixture : IDisposable
     private readonly TestDatabase? _database;
     private readonly OrisumiApiFactory? _factory;
     private readonly Network _network;
+    internal HttpClient Http => _http;
     internal DataClient Data { get; }
     internal bool Offline { get => _network.Offline; set => _network.Offline = value; }
     internal AssistantState State { get; private set; }

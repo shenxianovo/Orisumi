@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { isObservation, type Observation, type Version } from "@/api/types";
+import { isObservation, isThing, type ObservationVersion } from "@/api/types";
 import { Fields } from "@/components/stack/bodies";
 import { InfoMark, Token } from "@/components/token/Token";
-import { useObservationOf, type EntityInfo } from "@/hooks/useEntityInfo";
+import type { EntityInfo } from "@/hooks/useEntityInfo";
+import { FORMATION_NAMES } from "@/lib/common";
 import { useNow } from "@/hooks/useNow";
 import { ago, clock, dayTitle, duration, parseTime } from "@/lib/time";
 
@@ -128,10 +129,11 @@ function Card({
 }
 
 function PeekBody({ info, footer }: { info: EntityInfo; footer: ReactNode }) {
-  const { observation, pending } = useObservationOf(info);
-  const recordedAt = parseTime(info.version.recordedAt);
+  const { item } = info;
+  const observation = isObservation(item) ? item : null;
+  const recordedAt = isThing(item) ? null : parseTime(item.recordedAt);
   const now = useNow(30_000);
-  const content = (info.version.content ?? {}) as Record<string, unknown>;
+  const content = (isThing(item) ? {} : (item.content ?? {})) as Record<string, unknown>;
   // 名字已经写在标题上，字段里不再重复。
   const titleKey = Object.keys(content).find((key) => content[key] === info.title);
 
@@ -147,29 +149,28 @@ function PeekBody({ info, footer }: { info: EntityInfo; footer: ReactNode }) {
         </div>
       </header>
 
-      {observation ? (
-        // Observation 的名字就是它的时间，这里只补日期和时长。
-        <FactTime observation={observation} brief={observation === info.version} />
-      ) : (
-        pending && <p className="text-fg-3 text-xs">读取时间…</p>
-      )}
+      {observation && <FactTime observation={observation} />}
 
-      {isObservation(info.version) ? (
+      {observation && (
         <dl className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
-          <dt className="text-fg-3 text-xs">观测内容</dt>
-          <dd className="min-w-0">
-            <Token versionId={info.version.content.contentVersionId} size="sm" />
-          </dd>
           <dt className="text-fg-3 text-xs">来源</dt>
           <dd className="min-w-0">
-            <Token versionId={info.version.content.observerVersionId} size="sm" />
+            <Token thingId={observation.observerId} size="sm" />
           </dd>
+          <dt className="text-fg-3 text-xs">形成方式</dt>
+          <dd className="min-w-0 text-xs">{FORMATION_NAMES[observation.formation] ?? observation.formation}</dd>
         </dl>
-      ) : (
-        info.role !== "definition" && (
-          <Fields version={info.version} schema={info.schema} skipReferences skip={titleKey} limit={4} />
-        )
       )}
+      {isThing(item)
+        ? item.keys[0] && (
+            <p className="min-w-0 text-xs">
+              <span className="text-fg-3 font-mono text-[11px]">{item.keys[0].scheme}</span>
+              <span className="block truncate font-mono">{item.keys[0].value}</span>
+            </p>
+          )
+        : info.role !== "definition" && (
+            <Fields content={content} schema={info.schema} skipReferences skip={titleKey} limit={4} />
+          )}
 
       <footer className="border-line text-fg-3 flex items-center gap-2 border-t pt-2 text-xs">
         {footer}
@@ -180,21 +181,13 @@ function PeekBody({ info, footer }: { info: EntityInfo; footer: ReactNode }) {
   );
 }
 
-function FactTime({ observation, brief }: { observation: Version<Observation>; brief: boolean }) {
+function FactTime({ observation }: { observation: ObservationVersion }) {
   const now = useNow(1000);
-  const start = parseTime(observation.content.startAt);
-  const end = parseTime(observation.content.endAt);
-  if (start === null && end === null) return brief ? null : <p className="text-fg-3">时间未知</p>;
+  const start = parseTime(observation.startAt);
+  const end = parseTime(observation.endAt);
+  if (start === null && end === null) return null;
   const span = start !== null && end !== null && end > start;
   const going = span && now - end < 30_000;
-  if (brief)
-    return (
-      <p className="text-fg-2 -mt-1.5 text-xs">
-        {dayTitle((start ?? end)!)}
-        {span && ` · ${duration(end - start)}`}
-        {going && <span className="text-accent"> · 还在继续</span>}
-      </p>
-    );
   return (
     <div>
       <p className="text-fg-3 text-xs">{dayTitle((start ?? end)!)}</p>

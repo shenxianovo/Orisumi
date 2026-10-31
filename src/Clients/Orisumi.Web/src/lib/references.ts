@@ -1,33 +1,36 @@
-import { isInputSet, isObservation, type FieldDefinition, type Version } from "@/api/types";
+import { isInputSet, isObservation, type FieldDefinition, type Item } from "@/api/types";
 
-/** 一个版本引用的另一个版本，path 是引用在内容里的位置。 */
+/** 一个版本引用的实体：事物写 EntityId，其余写 VersionId。path 是引用在版本里的位置。 */
 export interface OutgoingReference {
   path: string;
-  versionId: string;
+  target: "thing" | "version";
+  id: string;
 }
 
 /**
- * 这个版本引用了哪些版本：Observation 的 Observer、观测内容和 InputSet，InputSet 的每个输入，
- * 业务版本里 Schema 定义为 reference 的字段，包括 reference 数组的每一项和对象里的嵌套字段。
+ * 这个版本引用了哪些实体：Observation 的 Observer、它当时的描述和 InputSet，以及 Schema 定义为 reference 的业务字段，
+ * 包括 reference 数组的每一项和对象里的嵌套字段；InputSet 的每个输入。事物和 EntitySchema 不引用别的实体。
  */
 export function outgoingReferences(
-  version: Version,
+  item: Item,
   fields: Record<string, FieldDefinition> | undefined,
 ): OutgoingReference[] {
-  if (isObservation(version)) {
-    const content = version.content;
-    return [
-      { path: "observerVersionId", versionId: content.observerVersionId },
-      { path: "contentVersionId", versionId: content.contentVersionId },
-      ...(content.inputSetVersionId ? [{ path: "inputSetVersionId", versionId: content.inputSetVersionId }] : []),
-    ];
-  }
-  if (isInputSet(version)) {
-    return version.content.members.map((versionId, i) => ({ path: `members[${i}]`, versionId }));
-  }
-  if (version.category !== "business" || !fields) return [];
+  if (isInputSet(item))
+    return item.content.members.map((id, i) => ({ path: `members[${i}]`, target: "version" as const, id }));
+  if (!isObservation(item)) return [];
+  const found: OutgoingReference[] = [{ path: "observerId", target: "thing", id: item.observerId }];
+  if (item.observerVersionId) found.push({ path: "observerVersionId", target: "version", id: item.observerVersionId });
+  if (item.inputSetVersionId) found.push({ path: "inputSetVersionId", target: "version", id: item.inputSetVersionId });
+  return [...found, ...contentReferences(item, fields)];
+}
+
+/** Observation 的内容里引用了哪些实体，即 Schema 定义为 reference 的业务字段。 */
+export function contentReferences(
+  item: Item,
+  fields: Record<string, FieldDefinition> | undefined,
+): OutgoingReference[] {
   const found: OutgoingReference[] = [];
-  collect(version.content, fields, "", found);
+  if (isObservation(item) && fields) collect(item.content, fields, "", found);
   return found;
 }
 
@@ -41,15 +44,16 @@ function collect(value: unknown, fields: Record<string, FieldDefinition>, prefix
 
 function visit(value: unknown, definition: FieldDefinition, path: string, found: OutgoingReference[]) {
   if (value === null || value === undefined) return;
-  if (definition.type === "reference" && typeof value === "string") found.push({ path, versionId: value });
+  if (definition.type === "reference" && typeof value === "string")
+    found.push({ path, target: definition.target === "thing" ? "thing" : "version", id: value });
   else if (definition.type === "array" && definition.items && Array.isArray(value))
     value.forEach((item, i) => visit(item, definition.items!, `${path}[${i}]`, found));
   else if (definition.type === "object" && definition.fields) collect(value, definition.fields, path, found);
 }
 
 /**
- * 引用位置在界面上的写法：去掉内容的根 `/content/` 和字段名末尾的 `VersionId`，数组下标写成方括号。
- * 例如 `/content/localApplicationVersionId` 写成 `localApplication`，`/content/items/0/targetVersionId` 写成 `items[0].target`。
+ * 引用位置在界面上的写法：去掉内容的根 `/content/` 和字段名末尾的 `Id` 或 `VersionId`，数组下标写成方括号。
+ * 例如 `/content/localApplicationId` 写成 `localApplication`，`/content/items/0/targetVersionId` 写成 `items[0].target`。
  */
 export function referenceLabel(path: string): string {
   return path
@@ -57,5 +61,5 @@ export function referenceLabel(path: string): string {
     .replace(/\/(\d+)(?=\/|$)/g, "[$1]")
     .replace(/^\//, "")
     .replaceAll("/", ".")
-    .replace(/VersionId(?=$|[.[])/g, "");
+    .replace(/(?:Version)?Id(?=$|[.[])/g, "");
 }

@@ -2435,6 +2435,85 @@
           }
         }
       }
+    },
+    "/narratives": {
+      "post": {
+        "operationId": "writeNarrative",
+        "summary": "写一天的几件事",
+        "description": "叙事 Observer 读这段时间的记录，调用模型逐件写出这段时间做了哪几件事，以 Server-Sent Events 推回，全部写完后保存为事件，见 [Narrative · 叙事](/api/narrative)。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NarrativeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "事件流：每写完一件事一个 `episode` 事件，最后是 `saved` 或 `failed`，见 [Narrative · 事件流](/api/narrative#stream)。",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求体不符合契约，`to` 不晚于 `from`，范围超过 25 小时，或者时区无效。",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "请求带着托管方凭证，凭证无效或托管方已移除。`code` 为 `credential_invalid` 或 `credential_revoked`，见 [Overview · 认证](/api#auth)。",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "另一次写作正在写重叠的范围，`code` 为 `narrative_in_progress`。",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "叙事 Observer 没有配置 API Key，`code` 为 `narrative_unavailable`。",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "后端出现意外错误。",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3957,7 +4036,8 @@
           "category",
           "schemaId",
           "keys",
-          "name"
+          "name",
+          "nameVersionId"
         ],
         "properties": {
           "entityId": {
@@ -3985,6 +4065,17 @@
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nameVersionId": {
+            "description": "`name` 所在的 Name 的版本，读取方用它查到谁这样称呼这个事物；没有名字时为 `null`。",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VersionId"
               },
               {
                 "type": "null"
@@ -4083,6 +4174,103 @@
           },
           "content": {
             "$ref": "#/components/schemas/BusinessContent"
+          }
+        }
+      },
+      "NarrativeRequest": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "timeZone"
+        ],
+        "additionalProperties": false,
+        "description": "要写的一段时间，通常是用户所在时区的一天。",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "范围的开始，包含在内。"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "description": "范围的结束，不包含在内，必须晚于 `from`，范围不超过 25 小时。"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA 时区，例如 `Asia/Shanghai`。模型按这个时区写时段，事件的 `timeZone` 也是它。"
+          }
+        }
+      },
+      "NarrativeEpisode": {
+        "type": "object",
+        "required": [
+          "startAt",
+          "endAt",
+          "title",
+          "summary",
+          "sessionIds",
+          "localApplicationIds"
+        ],
+        "additionalProperties": false,
+        "description": "`episode` 事件的数据：刚写完的一件事，字段与[事件](/observers/narrative/episode#schema)相同，时段换算为带偏移的时间。",
+        "properties": {
+          "startAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "sessionIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityId"
+            }
+          },
+          "localApplicationIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityId"
+            }
+          }
+        }
+      },
+      "NarrativeSaved": {
+        "type": "object",
+        "required": [
+          "versionIds"
+        ],
+        "additionalProperties": false,
+        "description": "`saved` 事件的数据：保存下来的事件，按推送的顺序。",
+        "properties": {
+          "versionIds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionId"
+            }
+          }
+        }
+      },
+      "NarrativeFailed": {
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "additionalProperties": false,
+        "description": "`failed` 事件的数据：这次写作失败，已经推送的几件事没有保存。",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "失败的原因，供人阅读。"
           }
         }
       }

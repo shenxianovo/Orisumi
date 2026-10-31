@@ -1,41 +1,26 @@
-import type { Version } from "@/api/types";
+import { isThing, type Item } from "@/api/types";
+import { isUser, PROGRAM_SCHEMA } from "./common";
 
-// 实体在记录里扮演的角色，从 Core 推出：被 observerVersionId 引用的是来源，被 contentVersionId 引用的是经历，
-// 其余业务实体是事物。角色决定记号的形状；颜色只给事物。
+// 实体在记录里扮演的角色，由类别和事实时间决定：对观测负责的程序实例和用户本人是来源，有事实时间的 Observation 是经历，
+// 事实时间未知的 Observation 是陈述，其余事物是事物。角色决定记号的形状；颜色只给事物。
 
-export type Role = "thing" | "experience" | "source" | "evidence" | "definition";
+export type Role = "thing" | "experience" | "statement" | "source" | "evidence" | "definition";
 
 export const ROLE_NAMES: Record<Role, string> = {
   thing: "事物",
   experience: "经历",
+  statement: "陈述",
   source: "来源",
   evidence: "依据",
   definition: "定义",
 };
 
-/** 哪些业务类型是观测内容、哪些是 Observer。键是 resourceName。 */
-export interface RoleIndex {
-  contentTypes: ReadonlySet<string>;
-  observerTypes: ReadonlySet<string>;
-}
-
-export function roleOf(version: Version, resourceName: string | null | undefined, index: RoleIndex): Role {
-  if (version.category === "observation") return "experience";
-  if (version.category === "input_set") return "evidence";
-  if (version.category === "entity_schema") return "definition";
-  if (resourceName && index.observerTypes.has(resourceName)) return "source";
-  if (resourceName && index.contentTypes.has(resourceName)) return "experience";
-  return "thing";
-}
-
-/** 业务类型的角色；Core 类型用自己的 category 作键。 */
-export function roleOfType(key: string, index: RoleIndex): Role {
-  if (key === "observation") return "experience";
-  if (key === "input_set") return "evidence";
-  if (key === "entity_schema") return "definition";
-  if (index.observerTypes.has(key)) return "source";
-  if (index.contentTypes.has(key)) return "experience";
-  return "thing";
+export function roleOf(item: Item): Role {
+  if (isThing(item)) return item.schemaId === PROGRAM_SCHEMA || isUser(item) ? "source" : "thing";
+  if (item.category === "input_set") return "evidence";
+  if (item.category === "entity_schema") return "definition";
+  const { startAt, endAt } = item as { startAt?: string | null; endAt?: string | null };
+  return startAt || endAt ? "experience" : "statement";
 }
 
 const THING_COLORS = [

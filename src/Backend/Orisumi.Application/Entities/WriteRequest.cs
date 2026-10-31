@@ -17,4 +17,4 @@ public sealed record WriteResult(EntityVersion? Version, bool Changed, WriteErro
 public sealed record WriteResponse(IReadOnlyList<WriteResult> Results, bool Duplicate = false);
 
 public sealed record ObserverDescription(EntityId SchemaId, JsonElement Content);
-public sealed record Thing(EntityId EntityId, EntityId SchemaId, IReadOnlyList<RecognitionKey> Keys, string? Name = null);
+public sealed record Thing(EntityId EntityId, EntityId SchemaId, IReadOnlyList<RecognitionKey> Keys, string? Name = null, VersionId? NameVersionId = null);

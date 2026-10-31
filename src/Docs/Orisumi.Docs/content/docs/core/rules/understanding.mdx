@@ -11,7 +11,7 @@ description: "模型怎样形成理解、用户怎样纠正，以及系统目前
 | --- | --- | --- | --- |
 | 证据 | QQ 号 123 发了这句话 | Observer | 永久保存，尽量保留原样 |
 | 世界知识 | QQ 是腾讯的软件 | 模型自带 | 读取时现取，不保存 |
-| 私有理解 | 123 是本人，某人是高中同学 | 模型推断，用户纠正 | 保存为 Observation，可以出错和重做 |
+| 私有理解 | 123 是本人，下午在写 Web 控制台 | 模型推断，用户纠正 | 保存为 Observation，可以出错和重做 |
 
 ## 形成 [#forming]
 
@@ -27,11 +27,11 @@ description: "模型怎样形成理解、用户怎样纠正，以及系统目前
 
 每次判断形成新的 Observation，新旧判断都保留，所以能看到认识怎样变化。模型变强后可以重读过去的数据，再形成一批判断。
 
-### UNDERSTANDING-3 现取的内容不保存 [#understanding-3]
+### UNDERSTANDING-3 世界知识不保存 [#understanding-3]
 
 执行方：写入方
 
-世界知识和叙事在读取时由模型现取，不保存。只有私有理解，以及软件要用来计算的结果，才保存为 Observation。
+世界知识在读取时由模型现取，不保存。私有理解保存为 Observation，模型写下的叙事也是，例如“下午在写 Web 控制台”这件事，见 [Episode](../../observers/narrative/episode.mdx)。软件要用来计算的结果同样保存为 Observation。
 
 ## 复核 [#review]
 

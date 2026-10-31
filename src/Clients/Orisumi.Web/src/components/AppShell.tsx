@@ -1,14 +1,14 @@
 import { useEffect, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import {
+  Boxes,
   CalendarDays,
   Check,
-  LayoutGrid,
-  MessagesSquare,
   Monitor,
   Moon,
   Network,
   Radio,
+  Scale,
   Search,
   Server,
   Sun,
@@ -16,9 +16,9 @@ import {
 } from "lucide-react";
 import { isUnreadable } from "@/api/client";
 import { useSource } from "@/api/source";
-import { useWriting } from "@/hooks/useWriting";
-import { useHosts } from "@/hooks/useManagement";
-import { useNow } from "@/hooks/useNow";
+import { isThing } from "@/api/types";
+import { useCollectionProblems } from "@/hooks/useCollection";
+import { useNewJudgments } from "@/hooks/useJudgments";
 import { readTheme, saveTheme, type Theme } from "@/lib/preferences";
 import { isUuidv7 } from "@/lib/uuid";
 import { cn } from "@/lib/utils";
@@ -54,10 +54,13 @@ function Shell() {
  * 页面分两组：上面一组看记录，下面一组看采集。
  */
 function Sidebar() {
-  const now = useNow(5000);
-  const writing = useWriting(now);
-  const hosts = useHosts();
-  const offline = (hosts.data ?? []).filter((host) => !host.revoked && !host.connected).length;
+  const problems = useCollectionProblems();
+  const fresh = useNewJudgments();
+  const dot = problems.length > 0 && (
+    <span title={problems.join("；")} className="bg-danger size-1.5 rounded-full">
+      <span className="sr-only">采集出了问题</span>
+    </span>
+  );
 
   return (
     <aside
@@ -77,50 +80,38 @@ function Sidebar() {
         className="flex [scrollbar-width:none] gap-0.5 max-md:order-last max-md:w-full max-md:overflow-x-auto md:flex-col"
       >
         <NavItem to="/" icon={CalendarDays} exact>
-          日
+          今天
         </NavItem>
-        <NavItem to="/applications" icon={LayoutGrid} exact>
-          应用
-        </NavItem>
-        <NavItem to="/sessions" icon={MessagesSquare} exact>
-          会话
-        </NavItem>
-        <NavItem to="/entities" icon={Network}>
-          实体
-        </NavItem>
-        <p className="text-fg-3 px-2.5 pt-4 pb-1 text-[11px] max-md:hidden">采集</p>
-        <NavItem
-          to="/observers"
-          icon={Radio}
-          exact
-          badge={
-            writing > 0 && (
-              <span title={`${writing} 个 Observer 正在写入`} className="grid size-2 place-items-center">
-                <span className="bg-accent beat size-1.5 rounded-full" />
-                <span className="sr-only">{writing} 个正在写入</span>
-              </span>
-            )
-          }
-        >
-          Observer
+        <NavItem to="/things" icon={Boxes}>
+          事物
         </NavItem>
         <NavItem
-          to="/hosts"
-          icon={Server}
+          to="/understanding"
+          icon={Scale}
           exact
           badge={
-            offline > 0 && (
+            fresh > 0 && (
               <span
-                title={`${offline} 台机器离线`}
+                title={`上次查看之后形成了 ${fresh} 件判断`}
                 className="bg-panel text-fg-2 rounded-full px-1.5 text-[11px] leading-4 tabular-nums"
               >
-                {offline}
-                <span className="sr-only"> 台离线</span>
+                {fresh}
+                <span className="sr-only"> 件新判断</span>
               </span>
             )
           }
         >
+          理解
+        </NavItem>
+        <p className="text-fg-3 flex items-center gap-1.5 px-2.5 pt-4 pb-1 text-[11px] max-md:hidden">采集 {dot}</p>
+        <NavItem to="/observers" icon={Radio} exact>
+          Observer
+        </NavItem>
+        <NavItem to="/hosts" icon={Server} exact badge={dot && <span className="md:hidden">{dot}</span>}>
           托管
+        </NavItem>
+        <NavItem to="/entities" icon={Network}>
+          原始记录
         </NavItem>
       </nav>
       <div className="flex items-center gap-1 max-md:ml-auto md:mt-4 md:block">
@@ -142,7 +133,7 @@ function NavItem({
   badge,
   children,
 }: {
-  to: "/" | "/applications" | "/sessions" | "/entities" | "/observers" | "/hosts";
+  to: "/" | "/things" | "/understanding" | "/observers" | "/hosts" | "/entities";
   icon: ComponentType<{ className?: string }>;
   exact?: boolean;
   badge?: ReactNode;
@@ -245,7 +236,7 @@ function Appearance({ className, top = true }: { className?: string; top?: boole
   );
 }
 
-/** 接受 EntityId 和 VersionId：先按 EntityId 读取，读不到再按 VersionId 读取。找到后跳到实体页，再调用 onFound。 */
+/** 接受 EntityId 和 VersionId：先按 EntityId 读取，读不到再按 VersionId 读取。事物打开档案，版本打开实体页，再调用 onFound。 */
 export function IdSearch({ onFound }: { onFound: () => void }) {
   const source = useSource();
   const navigate = useNavigate();
@@ -264,8 +255,12 @@ export function IdSearch({ onFound }: { onFound: () => void }) {
     setError(null);
     try {
       try {
-        await source.getEntity(id);
-        await navigate({ to: "/entities/$entityId", params: { entityId: id } });
+        const entity = await source.getEntity(id);
+        await navigate(
+          isThing(entity)
+            ? { to: "/things/$thingId", params: { thingId: id } }
+            : { to: "/entities/$entityId", params: { entityId: id } },
+        );
       } catch (error) {
         if (!isUnreadable(error)) throw error;
         try {

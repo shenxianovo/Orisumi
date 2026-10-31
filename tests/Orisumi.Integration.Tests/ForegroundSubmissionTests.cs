@@ -8,6 +8,35 @@ namespace Orisumi.Integration.Tests;
 public sealed class ForegroundSubmissionTests
 {
     [Test, Property("caseId", "foreground-submission")]
+    public async Task ApplicationNamesOnlyVersionWhenTheObservedNameChanges()
+    {
+        await using var db = await DatabaseFixture.CreateAsync();
+        await using var factory = new OrisumiApiFactory(db.ConnectionString);
+        using var http = factory.CreateClient();
+        var local = await ForegroundTestStore.CreateAsync(http);
+        foreach (var name in new string?[] { null, "Code", "Code", "Visual Studio Code", null })
+        {
+            var reading = ForegroundTimelineTests.Reading(0) with { Name = name };
+            var capture = ForegroundCapture.Create(local.Applications.Resolve(reading), reading);
+            local.Store.Checkpoint(capture, null); local.Store.FinishActive();
+            if ((await local.Observations()).Length == 1)
+            {
+                var unnamed = (await local.Data.ListAsync("things?resourceName=local-applications")).Single();
+                await Assert.That(unnamed.GetProperty("name").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+                await Assert.That(unnamed.GetProperty("nameVersionId").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+            }
+        }
+        var app = (await local.Data.ListAsync("things?resourceName=local-applications")).Single();
+        await Assert.That(app.GetProperty("name").GetString()).IsEqualTo("Visual Studio Code");
+        var currentName = await local.Data.VersionAsync(app.GetProperty("nameVersionId").GetGuid());
+        var chain = await local.Data.GetAsync($"entities/{currentName.GetProperty("entityId").GetGuid()}/versions");
+        await Assert.That(chain.GetProperty("versions").GetArrayLength()).IsEqualTo(2);
+        await Assert.That(currentName.GetProperty("formation").GetString()).IsEqualTo("direct");
+        await Assert.That(currentName.GetProperty("startAt").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+        await Assert.That((await local.Observations()).Length).IsEqualTo(5);
+    }
+
+    [Test, Property("caseId", "foreground-submission")]
     public async Task OngoingPeriodIsWrittenOnceWhenItEnds()
     {
         await using var db = await DatabaseFixture.CreateAsync();

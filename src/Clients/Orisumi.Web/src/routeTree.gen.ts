@@ -10,22 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApplicationsRouteImport } from './routes/applications'
 import { Route as HostsRouteImport } from './routes/hosts'
 import { Route as ObserversRouteImport } from './routes/observers'
-import { Route as SessionsRouteImport } from './routes/sessions'
+import { Route as UnderstandingRouteImport } from './routes/understanding'
 import { Route as EntitiesIndexRouteImport } from './routes/entities.index'
 import { Route as EntitiesEntityIdRouteImport } from './routes/entities.$entityId'
+import { Route as ThingsIndexRouteImport } from './routes/things.index'
+import { Route as ThingsThingIdRouteImport } from './routes/things.$thingId'
 import { Route as VersionsVersionIdRouteImport } from './routes/versions.$versionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApplicationsRoute = ApplicationsRouteImport.update({
-  id: '/applications',
-  path: '/applications',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HostsRoute = HostsRouteImport.update({
@@ -38,9 +34,9 @@ const ObserversRoute = ObserversRouteImport.update({
   path: '/observers',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SessionsRoute = SessionsRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
+const UnderstandingRoute = UnderstandingRouteImport.update({
+  id: '/understanding',
+  path: '/understanding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EntitiesIndexRoute = EntitiesIndexRouteImport.update({
@@ -53,6 +49,16 @@ const EntitiesEntityIdRoute = EntitiesEntityIdRouteImport.update({
   path: '/entities/$entityId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ThingsIndexRoute = ThingsIndexRouteImport.update({
+  id: '/things/',
+  path: '/things/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ThingsThingIdRoute = ThingsThingIdRouteImport.update({
+  id: '/things/$thingId',
+  path: '/things/$thingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VersionsVersionIdRoute = VersionsVersionIdRouteImport.update({
   id: '/versions/$versionId',
   path: '/versions/$versionId',
@@ -61,77 +67,84 @@ const VersionsVersionIdRoute = VersionsVersionIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/applications': typeof ApplicationsRoute
   '/hosts': typeof HostsRoute
   '/observers': typeof ObserversRoute
-  '/sessions': typeof SessionsRoute
+  '/understanding': typeof UnderstandingRoute
   '/entities/$entityId': typeof EntitiesEntityIdRoute
+  '/things/$thingId': typeof ThingsThingIdRoute
   '/versions/$versionId': typeof VersionsVersionIdRoute
   '/entities/': typeof EntitiesIndexRoute
+  '/things/': typeof ThingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/applications': typeof ApplicationsRoute
   '/hosts': typeof HostsRoute
   '/observers': typeof ObserversRoute
-  '/sessions': typeof SessionsRoute
+  '/understanding': typeof UnderstandingRoute
   '/entities/$entityId': typeof EntitiesEntityIdRoute
+  '/things/$thingId': typeof ThingsThingIdRoute
   '/versions/$versionId': typeof VersionsVersionIdRoute
   '/entities': typeof EntitiesIndexRoute
+  '/things': typeof ThingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/applications': typeof ApplicationsRoute
   '/hosts': typeof HostsRoute
   '/observers': typeof ObserversRoute
-  '/sessions': typeof SessionsRoute
+  '/understanding': typeof UnderstandingRoute
   '/entities/$entityId': typeof EntitiesEntityIdRoute
+  '/things/$thingId': typeof ThingsThingIdRoute
   '/versions/$versionId': typeof VersionsVersionIdRoute
   '/entities/': typeof EntitiesIndexRoute
+  '/things/': typeof ThingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/applications'
     | '/hosts'
     | '/observers'
-    | '/sessions'
+    | '/understanding'
     | '/entities/$entityId'
+    | '/things/$thingId'
     | '/versions/$versionId'
     | '/entities/'
+    | '/things/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/applications'
     | '/hosts'
     | '/observers'
-    | '/sessions'
+    | '/understanding'
     | '/entities/$entityId'
+    | '/things/$thingId'
     | '/versions/$versionId'
     | '/entities'
+    | '/things'
   id:
     | '__root__'
     | '/'
-    | '/applications'
     | '/hosts'
     | '/observers'
-    | '/sessions'
+    | '/understanding'
     | '/entities/$entityId'
+    | '/things/$thingId'
     | '/versions/$versionId'
     | '/entities/'
+    | '/things/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ApplicationsRoute: typeof ApplicationsRoute
   HostsRoute: typeof HostsRoute
   ObserversRoute: typeof ObserversRoute
-  SessionsRoute: typeof SessionsRoute
+  UnderstandingRoute: typeof UnderstandingRoute
   EntitiesEntityIdRoute: typeof EntitiesEntityIdRoute
+  ThingsThingIdRoute: typeof ThingsThingIdRoute
   VersionsVersionIdRoute: typeof VersionsVersionIdRoute
   EntitiesIndexRoute: typeof EntitiesIndexRoute
+  ThingsIndexRoute: typeof ThingsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -141,13 +154,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/applications': {
-      id: '/applications'
-      path: '/applications'
-      fullPath: '/applications'
-      preLoaderRoute: typeof ApplicationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/hosts': {
@@ -164,11 +170,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ObserversRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions': {
-      id: '/sessions'
-      path: '/sessions'
-      fullPath: '/sessions'
-      preLoaderRoute: typeof SessionsRouteImport
+    '/understanding': {
+      id: '/understanding'
+      path: '/understanding'
+      fullPath: '/understanding'
+      preLoaderRoute: typeof UnderstandingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/entities/': {
@@ -185,6 +191,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EntitiesEntityIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/things/': {
+      id: '/things/'
+      path: '/things'
+      fullPath: '/things/'
+      preLoaderRoute: typeof ThingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/things/$thingId': {
+      id: '/things/$thingId'
+      path: '/things/$thingId'
+      fullPath: '/things/$thingId'
+      preLoaderRoute: typeof ThingsThingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/versions/$versionId': {
       id: '/versions/$versionId'
       path: '/versions/$versionId'
@@ -197,13 +217,14 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ApplicationsRoute: ApplicationsRoute,
   HostsRoute: HostsRoute,
   ObserversRoute: ObserversRoute,
-  SessionsRoute: SessionsRoute,
+  UnderstandingRoute: UnderstandingRoute,
   EntitiesEntityIdRoute: EntitiesEntityIdRoute,
+  ThingsThingIdRoute: ThingsThingIdRoute,
   VersionsVersionIdRoute: VersionsVersionIdRoute,
   EntitiesIndexRoute: EntitiesIndexRoute,
+  ThingsIndexRoute: ThingsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Observation, Version } from "@/api/types";
+import type { ObservationVersion, Thing } from "@/api/types";
+import { observation, thing } from "@/test/fixtures";
 import {
   argumentSummary,
   buildItems,
@@ -11,103 +12,66 @@ import {
   toInteraction,
   type Interaction,
   type InteractionContent,
-  type SessionContent,
+  type SessionMeta,
 } from "./conversations";
 
-let counter = 0;
-const id = () => `0192b056-7300-7000-8000-${(++counter).toString(16).padStart(12, "0")}`;
-
-function session(content: Partial<SessionContent> = {}): Version<SessionContent> {
-  return {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "business",
-    schemaVersionId: null,
-    recordedAt: "2026-10-31T00:00:00Z",
-    content: {
-      product: "claude-code",
-      sourceSessionId: "s",
-      ...content,
-    },
-  };
+function session(name: string | null = null): Thing {
+  return thing({ name, keys: [{ scope: null, scheme: "claude-code.session", value: "s" }] });
 }
 
 function interaction(
-  sessionVersion: Version<SessionContent>,
+  session: Thing,
   at: string,
   content: Partial<InteractionContent>,
   startAt: string | null = at,
 ): Interaction {
-  const version: Version<InteractionContent> = {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "business",
-    schemaVersionId: null,
-    recordedAt: at,
-    content: {
-      sessionVersionId: sessionVersion.versionId,
-      client: null,
-      kind: "message",
-      actor: "user",
-      sourceRole: null,
-      sourceKind: "user",
-      sourceId: id(),
-      sourceTurnId: null,
-      callId: null,
-      toolCallVersionId: null,
-      toolName: null,
-      toolServer: null,
-      isError: null,
-      exitCode: null,
-      phase: null,
-      model: null,
-      workingDirectory: null,
-      parts: [],
-      sourceEntries: [],
-      ...content,
-    },
-  };
-  const observation: Version<Observation> = {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "observation",
-    schemaVersionId: null,
-    recordedAt: at,
-    content: {
-      observerVersionId: id(),
-      contentVersionId: version.versionId,
-      inputSetVersionId: null,
+  return toInteraction(
+    observation({
+      recordedAt: at,
       startAt,
       endAt: at,
       timeZone: null,
-    },
-  };
-  return toInteraction(observation, version);
+      content: {
+        sessionId: session.entityId,
+        client: null,
+        kind: "message",
+        actor: "user",
+        sourceRole: null,
+        sourceKind: "user",
+        sourceId: at,
+        sourceTurnId: null,
+        callId: null,
+        toolCallVersionId: null,
+        toolName: null,
+        toolServer: null,
+        isError: null,
+        exitCode: null,
+        phase: null,
+        model: null,
+        workingDirectory: null,
+        parts: [],
+        sourceEntries: [],
+        ...content,
+      },
+    }) as unknown as ObservationVersion<InteractionContent>,
+  );
 }
+
+const index = (...sessions: Thing[]) => new Map(sessions.map((s) => [s.entityId, s]));
+const none: SessionMeta = { parentEntityId: null, agentName: null };
 
 describe("groupSessions", () => {
   it("按会话分组，组内按时间排列，最近活动的会话在前", () => {
-    const a = session();
-    const b = session();
-    const index = new Map([
-      [a.versionId, a],
-      [b.versionId, b],
-    ]);
-    const metas = new Map([
-      [a.entityId, { title: "A", parentEntityId: null, agentName: null }],
-      [b.entityId, { title: "B", parentEntityId: null, agentName: null }],
-    ]);
+    const a = session("A");
+    const b = session("B");
     const groups = groupSessions(
       [
         interaction(a, "2026-10-31T02:00:00Z", { workingDirectory: "/x/heartbeat" }),
         interaction(b, "2026-10-31T03:00:00Z", {}),
         interaction(a, "2026-10-31T01:00:00Z", { kind: "tool-call", actor: "assistant" }),
       ],
-      index,
-      metas,
+      index(a, b),
+      new Map(),
     );
     expect(groups.map(sessionTitle)).toEqual(["B", "A"]);
     expect(groups[1]!.interactions.map((i) => i.version.content.kind)).toEqual(["tool-call", "message"]);
@@ -121,21 +85,20 @@ describe("groupSessions", () => {
         interaction(a, "2026-10-31T01:00:05Z", { actor: "assistant" }, null),
         interaction(a, "2026-10-31T01:00:00Z", { actor: "user" }),
       ],
-      new Map([[a.versionId, a]]),
+      index(a),
       new Map(),
     );
     expect(groups[0]!.interactions.map((i) => i.version.content.actor)).toEqual(["user", "assistant"]);
   });
 
   it("子 Agent 的会话排在父会话后面", () => {
-    const parent = session();
+    const parent = session("父");
     const child = session();
-    const other = session();
-    const index = new Map([parent, child, other].map((s) => [s.versionId, s]));
+    const other = session("其他");
     const metas = new Map([
-      [parent.entityId, { title: "父", parentEntityId: null, agentName: null }],
-      [child.entityId, { title: null, parentEntityId: parent.entityId, agentName: "web-fetch" }],
-      [other.entityId, { title: "其他", parentEntityId: null, agentName: null }],
+      [parent.entityId, none],
+      [child.entityId, { parentEntityId: parent.entityId, agentName: "web-fetch" }],
+      [other.entityId, none],
     ]);
     const groups = groupSessions(
       [
@@ -143,7 +106,7 @@ describe("groupSessions", () => {
         interaction(other, "2026-10-31T02:00:00Z", {}),
         interaction(child, "2026-10-31T03:00:00Z", { actor: "agent" }),
       ],
-      index,
+      index(parent, child, other),
       metas,
     );
     expect(nestSessions(groups).map(({ group, depth }) => [sessionTitle(group), depth])).toEqual([
@@ -168,6 +131,12 @@ describe("buildItems", () => {
   const orphan = interaction(s, "2026-10-31T01:00:04Z", { kind: "tool-result", actor: "tool", callId: "c9" });
   const context = interaction(s, "2026-10-31T00:59:00Z", { kind: "context", actor: "application" });
   const message = interaction(s, "2026-10-31T00:59:30Z", {});
+
+  it("读不到会话时写读不到的会话", () => {
+    const a = session("A");
+    const groups = groupSessions([interaction(a, "2026-10-31T01:00:00Z", {})], new Map(), new Map());
+    expect(groups.map(sessionTitle)).toEqual(["读不到的会话"]);
+  });
 
   it("并行的调用按标识配对结果，没有调用的结果单独成一项", () => {
     const items = buildItems([message, call, other, result, late, orphan], "process");

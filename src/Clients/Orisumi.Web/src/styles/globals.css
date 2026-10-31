@@ -2,7 +2,7 @@
 
 /*
   中性灰阶，浅色和深色各一套。强调色就是正文的墨色。
-  彩色只用于数据：Observer 类别和实体类型的标记，定义在 src/lib/categories.ts。
+  彩色只用于数据：Observer 类别和实体类型的标记，定义在 src/lib/categories.ts。infer 是推断的陈述。
   主题由 <html data-theme> 决定：没有这个属性时跟随系统。
 
   表面分三层：page 是纸面，side 是侧栏，card 是放在纸面上的卡片；panel 是卡片里的浅色填充。
@@ -23,6 +23,7 @@
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-danger: var(--danger);
+  --color-infer: var(--infer);
 
   --shadow-card: var(--card-shadow);
   --shadow-float: var(--float-shadow);
@@ -45,6 +46,7 @@
   --accent: #1a1a18;
   --accent-soft: rgb(0 0 0 / 0.05);
   --danger: #a32d2d;
+  --infer: #c27052;
   --card-shadow: 0 1px 2px rgb(30 28 20 / 0.04), 0 2px 8px -4px rgb(30 28 20 / 0.06);
   --float-shadow: 0 16px 48px -16px rgb(30 28 20 / 0.28), 0 2px 6px rgb(30 28 20 / 0.05);
   color-scheme: light;
@@ -65,6 +67,7 @@
     --accent: #ecebe6;
     --accent-soft: rgb(255 255 255 / 0.07);
     --danger: #f09595;
+    --infer: #e39a7c;
     --card-shadow: 0 0 0 transparent;
     --float-shadow: 0 20px 56px -16px rgb(0 0 0 / 0.7);
     color-scheme: dark;
@@ -85,6 +88,7 @@
   --accent: #ecebe6;
   --accent-soft: rgb(255 255 255 / 0.07);
   --danger: #f09595;
+  --infer: #e39a7c;
   --card-shadow: 0 0 0 transparent;
   --float-shadow: 0 20px 56px -16px rgb(0 0 0 / 0.7);
   color-scheme: dark;

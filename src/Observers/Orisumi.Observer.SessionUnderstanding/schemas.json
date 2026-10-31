@@ -1,0 +1,26 @@
+[
+  {
+    "schemaId": "019e1bbb-ec00-7000-8000-000000000019",
+    "content": {
+      "displayName": "会话理解 Observer",
+      "description": "描述一个会话理解 Observer 程序实例的程序版本和调用的模型。",
+      "resourceName": "session-understanding-observers",
+      "kind": "observation",
+      "immutable": false,
+      "fields": {
+        "programVersion": {
+          "type": "string",
+          "description": "程序版本",
+          "required": true,
+          "nullable": false
+        },
+        "model": {
+          "type": "string",
+          "description": "供应商和模型型号",
+          "required": true,
+          "nullable": false
+        }
+      }
+    }
+  }
+]

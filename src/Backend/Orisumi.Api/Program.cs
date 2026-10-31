@@ -1,3 +1,4 @@
+using Orisumi.Api.Narrative;
 using Orisumi.Application.Management;
 using System.Text.Json;
 using Orisumi.Api;
@@ -19,6 +20,10 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddOrisumiInfrastructure(connectionString);
 builder.Services.AddSingleton<RuntimeCoordinator>();
 builder.Services.AddHostedService<ContentCleanup>();
+builder.Services.AddHttpClient<INarrativeModel, OpenAiNarrativeModel>();
+builder.Services.AddScoped<NarrativeReader>();
+builder.Services.AddSingleton<NarrativeService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<NarrativeService>());
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -59,4 +64,5 @@ app.UseHostCredentials();
 app.MapManagement();
 app.MapEntities();
 app.MapContents();
+app.MapNarratives();
 app.Run();

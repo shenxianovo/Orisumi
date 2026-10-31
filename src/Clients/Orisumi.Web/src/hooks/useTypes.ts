@@ -1,12 +1,11 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { isUnreadable, readAllPages, type OrisumiSource } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isEntitySchema, isObservation, type EntitySchema, type Observation, type Version } from "@/api/types";
+import { isEntitySchema, isObservation, type EntitySchema, type Item, type Thing, type Version } from "@/api/types";
 import { outgoingReferences } from "@/lib/references";
-import { roleOfType, type Role, type RoleIndex } from "@/lib/roles";
-import { DAY } from "@/lib/time";
+import type { Role } from "@/lib/roles";
 
-/** 类型图的一个点：一个业务类型，或 Observation、InputSet。 */
+/** 类型图的一个点：一个业务类型，或者 InputSet。 */
 export interface TypeNode {
   key: string;
   name: string;
@@ -21,12 +20,12 @@ export interface TypeEdge {
   label: string;
 }
 
-export interface TypeIndex extends RoleIndex {
-  /** 写有事实时间的 Observation 的 Observer 类型。其余 Observer 类型只写事实时间未知的陈述。 */
-  timedObserverTypes: ReadonlySet<string>;
+export interface TypeIndex {
   nodes: TypeNode[];
   edges: TypeEdge[];
   byResourceName: ReadonlyMap<string, Version<EntitySchema>>;
+  /** 每个 EntitySchema 的当前版本，键是 SchemaId。事物按它找到自己的类型。 */
+  bySchemaId: ReadonlyMap<string, Version<EntitySchema>>;
 }
 
 /** 版本不会改变：经过查询缓存读取，和 useVersion 共用结果。 */
@@ -37,6 +36,41 @@ export function readVersion(client: QueryClient, source: OrisumiSource, versionI
       if (isUnreadable(error)) return null;
       throw error;
     });
+}
+
+/** 事物的名字随当前理解变化，缓存 30 秒。 */
+export const THING_STALE = 30_000;
+
+/** 一批事物，一次请求最多 256 个；读到的放进查询缓存，读不到的为 null。 */
+export async function readThings(
+  client: QueryClient,
+  source: OrisumiSource,
+  entityIds: readonly string[],
+): Promise<Map<string, Thing | null>> {
+  const found = new Map<string, Thing | null>();
+  const missing: string[] = [];
+  for (const entityId of new Set(entityIds)) {
+    const state = client.getQueryState<Thing | null>(["thing", entityId]);
+    if (state?.status === "success" && Date.now() - state.dataUpdatedAt < THING_STALE) found.set(entityId, state.data!);
+    else missing.push(entityId);
+  }
+  for (let i = 0; i < missing.length; i += 256) {
+    for (const result of (await source.readThings(missing.slice(i, i + 256))).results) {
+      const thing = result.thing ?? null;
+      client.setQueryData(["thing", result.entityId], thing);
+      found.set(result.entityId, thing);
+    }
+  }
+  return found;
+}
+
+export async function readThing(client: QueryClient, source: OrisumiSource, entityId: string): Promise<Thing | null> {
+  return (await readThings(client, source, [entityId])).get(entityId) ?? null;
+}
+
+/** 按把手读取：先当作事物的 EntityId，读不到再当作 VersionId。 */
+export async function readItem(client: QueryClient, source: OrisumiSource, handle: string): Promise<Item | null> {
+  return (await readThing(client, source, handle)) ?? (await readVersion(client, source, handle));
 }
 
 /** 同时最多 limit 个请求。 */
@@ -53,90 +87,76 @@ export async function pool<T, R>(items: readonly T[], limit: number, run: (item:
   return results;
 }
 
-const SAMPLE_RANGE = 30 * DAY;
+/** 实体所用的 EntitySchema：事物用它的类型的当前版本，Observation 用它所用的那一版。 */
+export async function schemaOf(
+  client: QueryClient,
+  source: OrisumiSource,
+  index: TypeIndex,
+  item: Item,
+): Promise<Version<EntitySchema> | null> {
+  if (item.category === "thing") return index.bySchemaId.get(item.schemaId) ?? null;
+  if (!isObservation(item)) return null;
+  const schema = await readVersion(client, source, item.schemaVersionId);
+  return schema && isEntitySchema(schema) ? schema : null;
+}
+
+/** 类型的角色：程序实例是来源；Observation 的类型看样本有没有事实时间。 */
+function typeRole(schema: EntitySchema, timed: boolean): Role {
+  if (schema.kind === "thing") return schema.resourceName === "program-instances" ? "source" : "thing";
+  return timed ? "experience" : "statement";
+}
 
 /**
- * 每种业务类型取一个样本：最近 30 天里一份以它为内容的 Observation，以及它的一个实体。
- * 由此知道哪些类型是观测内容、哪些是 Observer，以及类型之间经由哪个字段引用。
+ * 全部 EntitySchema，以及类型图：每种 Observation 的类型取一份样本，读出它引用的类型，
+ * 由此知道类型之间经由哪个字段引用，以及这种类型的陈述有没有事实时间。
  */
 async function buildIndex(client: QueryClient, source: OrisumiSource): Promise<TypeIndex> {
   const schemas = (await readAllPages((after) =>
     source.listEntities({ category: "entity_schema", limit: 1000, ...(after ? { after } : {}) }),
   )) as Version<EntitySchema>[];
   const byResourceName = new Map(schemas.map((s) => [s.content.resourceName, s]));
-  const contentTypes = new Set<string>();
-  const observerTypes = new Set<string>();
-  const timedObserverTypes = new Set<string>();
+  const bySchemaId = new Map(schemas.map((s) => [s.entityId, s]));
+  const index: TypeIndex = { byResourceName, bySchemaId, nodes: [], edges: [] };
+  const timed = new Set<string>();
   const edges = new Map<string, TypeEdge>();
   const edge = (from: string, to: string, label: string) => edges.set(`${from}>${to}>${label}`, { from, to, label });
 
-  async function typeOf(versionId: string): Promise<string | null> {
-    const version = await readVersion(client, source, versionId);
+  async function typeOf(target: "thing" | "version", id: string): Promise<string | null> {
+    if (target === "thing") {
+      const thing = await readThing(client, source, id);
+      return thing ? (bySchemaId.get(thing.schemaId)?.content.resourceName ?? null) : null;
+    }
+    const version = await readVersion(client, source, id);
     if (!version) return null;
-    if (version.category !== "business") return version.category;
-    if (!version.schemaVersionId) return null;
-    const schema = await readVersion(client, source, version.schemaVersionId);
-    return schema && isEntitySchema(schema) ? schema.content.resourceName : null;
+    if (!isObservation(version)) return version.category;
+    return (await schemaOf(client, source, index, version))?.content.resourceName ?? null;
   }
 
-  const now = Date.now();
-  await pool(schemas, 6, async (schema) => {
-    const resourceName = schema.content.resourceName;
-    const [observed, sample] = await Promise.all([
-      source
-        .listObservations({
-          from: new Date(now - SAMPLE_RANGE).toISOString(),
-          to: new Date(now + DAY).toISOString(),
-          resourceName,
-          limit: 1,
-        })
-        .catch(() => ({ versions: [] })),
-      source.listEntities({ resourceName, limit: 1 }),
-    ]);
-    const observation = observed.versions[0];
-    if (observation && isObservation(observation)) {
-      contentTypes.add(resourceName);
-      edge("observation", resourceName, "contentVersionId");
-      const content = observation.content as Observation;
-      const observerType = await typeOf(content.observerVersionId);
-      if (observerType) {
-        observerTypes.add(observerType);
-        timedObserverTypes.add(observerType);
-        edge("observation", observerType, "observerVersionId");
+  await pool(
+    schemas.filter((schema) => schema.content.kind === "observation"),
+    6,
+    async (schema) => {
+      const resourceName = schema.content.resourceName;
+      const sample = (await source.listObservations({ resourceName, order: "desc", limit: 1 })).versions[0];
+      if (!sample || !isObservation(sample)) return;
+      if (sample.startAt || sample.endAt) timed.add(resourceName);
+      for (const reference of outgoingReferences(sample, schema.content.fields)) {
+        const target = await typeOf(reference.target, reference.id);
+        if (target && target !== "entity_schema") edge(resourceName, target, reference.path.replace(/\[\d+\]/g, "[]"));
       }
-      if (content.inputSetVersionId) edge("observation", "input_set", "inputSetVersionId");
-    }
-    const entity = sample.versions[0];
-    if (!entity) return;
-    // 事实时间未知的陈述不在按时间取的样本里，例如应用识别 Observer 和用户本人写的应用产品。
-    // 它们的 Observer 从这种类型的一个实体的引用方认出。
-    if (!observation) {
-      const referrers = await source.listReferrers(entity.entityId, { limit: 20 }).catch(() => ({ referrers: [] }));
-      if (
-        referrers.referrers.some((r) => r.references.some((location) => location.path === "/content/observerVersionId"))
-      ) {
-        observerTypes.add(resourceName);
-        edge("observation", resourceName, "observerVersionId");
-      }
-    }
-    for (const reference of outgoingReferences(entity, schema.content.fields)) {
-      const target = await typeOf(reference.versionId);
-      if (target) edge(resourceName, target, reference.path.replace(/\[\d+\]/g, "[]"));
-    }
-  });
+    },
+  );
 
-  const index: RoleIndex = { contentTypes, observerTypes };
   const nodes: TypeNode[] = [
-    { key: "observation", name: "Observation", role: "experience", schema: null },
     { key: "input_set", name: "InputSet", role: "evidence", schema: null },
     ...schemas.map((schema) => ({
       key: schema.content.resourceName,
       name: schema.content.displayName,
-      role: roleOfType(schema.content.resourceName, index),
+      role: typeRole(schema.content, timed.has(schema.content.resourceName)),
       schema,
     })),
   ];
-  return { contentTypes, observerTypes, timedObserverTypes, nodes, edges: [...edges.values()], byResourceName };
+  return { nodes, edges: [...edges.values()], byResourceName, bySchemaId };
 }
 
 export function useTypes() {

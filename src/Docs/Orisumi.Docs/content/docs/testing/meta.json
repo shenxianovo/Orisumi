@@ -43,6 +43,7 @@
     "observers/assistant-raw-entries",
     "---Clients---",
     "clients/native-views",
+    "clients/today",
     "clients/application-products",
     "clients/assistant-sessions"
   ]

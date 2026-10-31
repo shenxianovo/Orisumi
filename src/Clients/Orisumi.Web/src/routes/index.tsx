@@ -1,12 +1,20 @@
-import { useMemo } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Applications } from "@/components/day/Applications";
 import { DayNav } from "@/components/day/DayNav";
-import { Timeline } from "@/components/day/Timeline";
-import { Card, Message } from "@/components/ui";
+import { Episodes } from "@/components/day/Episodes";
+import { Lanes } from "@/components/day/Lanes";
+import { Message } from "@/components/ui";
 import { productGroup, useCatalog } from "@/hooks/useApplications";
+import { useCollectionProblems } from "@/hooks/useCollection";
+import { useConversations } from "@/hooks/useConversations";
 import { useDay } from "@/hooks/useDay";
+import { useEpisodes, useNarrative } from "@/hooks/useEpisodes";
+import { useNewJudgments } from "@/hooks/useJudgments";
 import { useNow } from "@/hooks/useNow";
-import { groupThings, summarize, type Experience, type Row } from "@/lib/day";
+import type { SessionGroup } from "@/lib/conversations";
+import { groupThings, PERIODS, summarize, type Row, type ThingGroup } from "@/lib/day";
+import { episodeOf, streamedEpisode } from "@/lib/episodes";
 import { differences } from "@/lib/roles";
 import { dayOf, dayRange, duration } from "@/lib/time";
 
@@ -20,61 +28,129 @@ export const Route = createFileRoute("/")({
   component: DayPage,
 });
 
-/** 日：那一天在用什么、用了多久。上面是总时长，下面是排行和时间线合在一起的表；点任何东西都在右边推出它的面板。 */
+const SAME: ThingGroup = () => null;
+
+/** 今天：这一天做了哪几件事，下面是一天的条和用过的应用。 */
 function DayPage() {
   const search = Route.useSearch();
   const now = useNow(1000);
-  const todayKey = dayRange(now).key;
-  const key = search.date ?? todayKey;
+  const key = search.date ?? dayRange(now).key;
   const day = useDay(key);
+  const conversations = useConversations(key);
   const catalog = useCatalog();
   const { range, today } = day;
+  const episodes = useEpisodes(range, today);
+  const [hovered, setHovered] = useState<string | null>(null);
 
-  const experiences = useMemo<Experience[]>(() => {
-    // 各设备上的同一款软件按应用产品合并成一行。
-    return catalog.data ? groupThings(day.data?.experiences ?? [], productGroup(catalog.data)) : [];
-  }, [day.data, catalog.data]);
+  const experiences = day.data?.experiences;
+  const periods = useMemo(() => (experiences ?? []).filter((e) => e.contentType === PERIODS), [experiences]);
+  const group = useMemo(() => (catalog.data ? productGroup(catalog.data) : SAME), [catalog.data]);
   const summary = useMemo(
-    () => summarize(experiences, day.data?.points ?? [], range.start, range.end),
-    [experiences, day.data, range.start, range.end],
+    () => summarize(groupThings(periods, group), range.start, range.end),
+    [periods, group, range.start, range.end],
   );
   const details = useMemo(() => sameNameDetails(summary.things), [summary.things]);
 
-  const total = summary.things.reduce((sum, row) => sum + row.total, 0);
+  const groups = conversations.groups;
+  const sessions = useMemo(
+    () => new Map<string, SessionGroup>((groups ?? []).map((session) => [session.entityId, session])),
+    [groups],
+  );
+  const said = useMemo(
+    () =>
+      (groups ?? []).flatMap((session) =>
+        session.interactions
+          .filter(({ version: { content } }) => content.kind === "message" && content.actor === "user")
+          .map((interaction) => interaction.at),
+      ),
+    [groups],
+  );
+
+  const hasRecords = periods.length > 0 || sessions.size > 0;
+  const loaded = !!day.data && !!groups;
+  const narrative = useNarrative(range, episodes, loaded && hasRecords);
+  const saved = useMemo(() => (episodes.data ?? []).map(episodeOf), [episodes.data]);
+  const lanes = narrative.state.kind === "writing" ? narrative.state.episodes.map(streamedEpisode) : saved;
+
+  const written = Math.max(0, ...saved.map((episode) => Date.parse(episode.version!.recordedAt)));
+  const stale = today && saved.length > 0 && (experiences ?? []).some((e) => e.writtenAt > written);
+  const error = day.error ?? conversations.error ?? episodes.error;
+
   return (
     <section>
-      <header className="mb-6 flex flex-wrap items-end gap-x-8 gap-y-4">
-        <div className="min-w-[min(100%,320px)] flex-1">
-          <DayNav start={range.start} today={today} />
-          {summary.things.length > 0 && <Overview summary={summary} total={total} />}
-        </div>
+      <header>
+        <DayNav start={range.start} today={today} />
+        {hasRecords && (
+          <p className="text-fg-2 mt-1.5 text-[13px] tabular-nums">
+            {[
+              lanes.length > 0 && `${lanes.length} 件事`,
+              sessions.size > 0 && `${sessions.size} 个助手会话，你说了 ${said.length} 句`,
+              summary.things.length > 0 &&
+                `前台记录 ${duration(summary.things.reduce((sum, row) => sum + row.total, 0))}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        )}
+        <Signals />
       </header>
 
-      {(day.error && !day.data) || (catalog.error && !catalog.data) ? (
-        <Message title="读不到这一天" detail={((day.error ?? catalog.error) as Error).message} mascot />
-      ) : (day.loading && !day.data) || !catalog.data ? (
+      {error && !loaded ? (
+        <Message title="读不到这一天" detail={(error as Error).message} mascot />
+      ) : !loaded ? (
         <Message title="正在读取这一天" />
-      ) : !summary.things.length && !summary.lanes.length && !summary.points.length ? (
+      ) : !hasRecords && !saved.length ? (
         <Message title={today ? "今天还没有记录" : "这一天没有记录"} mascot />
       ) : (
-        <Card className="rise min-w-0 px-4 py-4 sm:px-5">
-          <Timeline summary={summary} from={range.start} to={range.end} now={now} today={today} details={details} />
-        </Card>
+        <div className="rise mt-6">
+          <Lanes
+            episodes={lanes}
+            said={said}
+            applications={summary.things}
+            from={range.start}
+            to={range.end}
+            now={today ? now : null}
+            hovered={hovered}
+            onHover={setHovered}
+          />
+          <Episodes
+            saved={saved}
+            state={narrative.state}
+            periods={periods}
+            group={group}
+            sessions={sessions}
+            now={now}
+            stale={stale}
+            hovered={hovered}
+            onHover={setHovered}
+            onRewrite={() => void narrative.write()}
+          />
+          {summary.things.length > 0 && <Applications summary={summary} details={details} />}
+        </div>
       )}
     </section>
   );
 }
 
-/** 这一天的总时长和切换次数，写在日期下面。 */
-function Overview({ summary, total }: { summary: ReturnType<typeof summarize>; total: number }) {
+/** 页头的提示，只在需要时出现：采集出了问题，以及模型新认定了几件。 */
+function Signals() {
+  const problems = useCollectionProblems();
+  const fresh = useNewJudgments();
+  if (!problems.length && !fresh) return null;
   return (
-    <p className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <span className="text-[40px] leading-none font-semibold tracking-[-0.02em] tabular-nums">{duration(total)}</span>
-      <span className="text-fg-2 text-[13px]">
-        在 {summary.things.length} 个{summary.thingTypes.length === 1 ? summary.thingTypes[0] : "事物"}之间切换了{" "}
-        {summary.switches} 次
-      </span>
-    </p>
+    <div className="mt-2 grid justify-items-start gap-0.5 text-[13px]">
+      {problems.length > 0 && (
+        <Link to="/hosts" className="text-danger flex items-center gap-2 hover:underline">
+          <span className="bg-danger size-1.5 rounded-full" aria-hidden="true" />
+          {problems.join("；")}
+        </Link>
+      )}
+      {fresh > 0 && (
+        <Link to="/understanding" className="text-fg-2 hover:text-fg">
+          模型新认定 {fresh} 件 →
+        </Link>
+      )}
+    </div>
   );
 }
 
@@ -85,7 +161,7 @@ function sameNameDetails(rows: Row[]): Map<string, string | null> {
   const out = new Map<string, string | null>();
   for (const group of groups.values()) {
     if (group.length < 2) continue;
-    const found = differences(group.map((row) => row.thing!.content));
+    const found = differences(group.map((row) => row.thing.keys));
     group.forEach((row, i) => out.set(row.key, found[i] ?? null));
   }
   return out;

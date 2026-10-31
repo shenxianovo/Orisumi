@@ -1,41 +1,29 @@
 import Foundation
 
-/// One identification clue of a local application, as stored in its content.
-public struct AppIdentifier: Codable, Equatable, Hashable, Sendable {
-    public var scheme: String
-    public var value: String
-
-    public init(scheme: String, value: String) {
-        self.scheme = scheme
-        self.value = value
-    }
-}
-
 /// A saved foreground application period shown in the client.
 public struct Period: Equatable, Identifiable, Sendable {
     /// The Observation's EntityId.
     public var id: UUID
     public var name: String?
-    public var identifiers: [AppIdentifier]
+    /// The local application the period mentions.
+    public var applicationId: UUID?
     /// Digest of the icon read when the period started; nil when it was not read.
     public var icon: String?
     public var startAt: Date
     /// The last confirmation.
     public var endAt: Date
 
-    public init(id: UUID, name: String?, identifiers: [AppIdentifier], icon: String? = nil, startAt: Date, endAt: Date) {
+    public init(id: UUID, name: String?, applicationId: UUID?, icon: String? = nil, startAt: Date, endAt: Date) {
         self.id = id
         self.name = name
-        self.identifiers = identifiers
+        self.applicationId = applicationId
         self.icon = icon
         self.startAt = startAt
         self.endAt = endAt
     }
 
-    public var bundleId: String? { identifiers.first { $0.scheme == "macos.bundle-id" }?.value }
-    public var executablePath: String? { identifiers.first { $0.scheme == "macos.executable-path" }?.value }
-    /// Groups periods of the same application.
-    public var applicationKey: String { bundleId ?? executablePath ?? name ?? "" }
+    /// Groups periods of the same local application.
+    public var applicationKey: String { applicationId?.uuidString ?? name ?? "" }
 
     /// The part of the period inside `day`. Durations count up to the last confirmation, never past it.
     public func clipped(to day: DateInterval, now: Date) -> DateInterval? {
@@ -49,7 +37,6 @@ public struct Period: Equatable, Identifiable, Sendable {
 public struct Usage: Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String?
-    public var identifiers: [AppIdentifier]
     /// The icon of the latest period that has one.
     public var icon: String?
     public var duration: TimeInterval
@@ -78,7 +65,7 @@ public enum Today {
         for period in periods {
             guard let part = period.clipped(to: day, now: now) else { continue }
             var item = usage[period.applicationKey] ?? Usage(id: period.applicationKey, name: period.name,
-                                                             identifiers: period.identifiers, duration: 0, periods: 0, longest: 0)
+                                                             duration: 0, periods: 0, longest: 0)
             if let icon = period.icon, period.startAt >= (latestIcon[period.applicationKey] ?? .distantPast) {
                 item.icon = icon
                 latestIcon[period.applicationKey] = period.startAt

@@ -20,7 +20,7 @@ description: "设备和服务器运行同一个 Runtime，Runtime 启动各 Obse
 - 程序文件和实例数据分开保存：`packages/<package-id>/<version>/` 是解压后的包，`instances/<entity-id>/` 是实例的数据。安装登记记录包和程序实例的对应关系。
 - 数据目录是程序实例的身份和业务状态的权威位置。服务器部署必须持久保存它。
 - 设备上的 Runtime 随客户端运行，客户端退出时一起退出。服务方式的 Runtime 由服务管理器启停。
-- 服务器上的 Observer 是独立的安装包，和设备上的 Observer 使用同一种包格式、安装流程和 SDK。API 进程不运行 Observer。
+- 服务器上的 Observer 是独立的安装包，和设备上的 Observer 使用同一种包格式、安装流程和 SDK。叙事 Observer 由 API 进程托管，见 [ADR · 叙事](./narrative.mdx)。
 - 开发时不启动客户端，用同一个 Runtime 在命令行中运行 Observer。
 - Runtime 不是 Observer，没有自己的实体。它在后端有一条管理登记，见 [ADR · Observer 的统一管理](./observer-management.mdx)。
 - 以上是桌面平台和服务器的做法。移动平台承担相同的职责，运行机制另定。

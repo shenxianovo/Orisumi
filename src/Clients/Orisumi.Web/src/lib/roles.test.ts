@@ -1,29 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { Category, Version } from "@/api/types";
+import { PERSON_SCHEMA, PROGRAM_SCHEMA, USER_KEY } from "./common";
 import { differences, distinctSegment, roleOf } from "./roles";
-
-function version(category: Category): Version {
-  return {
-    entityId: "e",
-    versionId: "v",
-    previousVersionId: null,
-    category,
-    schemaVersionId: null,
-    recordedAt: "2026-10-29T00:00:00Z",
-    content: {},
-  };
-}
-
-const index = { contentTypes: new Set(["periods"]), observerTypes: new Set(["observers"]) };
+import { inputSet, observation, schema, thing } from "@/test/fixtures";
 
 describe("roleOf", () => {
-  it("Core 类型按 category，业务实体按它被谁引用", () => {
-    expect(roleOf(version("observation"), null, index)).toBe("experience");
-    expect(roleOf(version("input_set"), null, index)).toBe("evidence");
-    expect(roleOf(version("entity_schema"), null, index)).toBe("definition");
-    expect(roleOf(version("business"), "observers", index)).toBe("source");
-    expect(roleOf(version("business"), "periods", index)).toBe("experience");
-    expect(roleOf(version("business"), "local-applications", index)).toBe("thing");
+  it("按类别和事实时间", () => {
+    expect(roleOf(observation())).toBe("experience");
+    expect(roleOf(observation({ startAt: null, endAt: null }))).toBe("statement");
+    expect(roleOf(inputSet([]))).toBe("evidence");
+    expect(roleOf(schema({ resourceName: "x" }))).toBe("definition");
+  });
+
+  it("程序实例和用户本人是来源，其余事物是事物", () => {
+    expect(roleOf(thing({ schemaId: PROGRAM_SCHEMA }))).toBe("source");
+    expect(roleOf(thing({ schemaId: PERSON_SCHEMA, keys: [USER_KEY] }))).toBe("source");
+    expect(roleOf(thing({ schemaId: PERSON_SCHEMA }))).toBe("thing");
+    expect(roleOf(thing())).toBe("thing");
   });
 });
 

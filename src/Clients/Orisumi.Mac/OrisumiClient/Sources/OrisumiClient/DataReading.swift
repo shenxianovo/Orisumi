@@ -4,7 +4,6 @@ import Foundation
 @MainActor
 public protocol DataReading: AnyObject {
     func read<Content: Decodable & Sendable>(_ query: ReadQuery, as: Content.Type) async throws -> ReadResult<Content>
-    func versions<Content: Decodable & Sendable>(_ ids: [UUID], as: Content.Type) async throws -> VersionsResult<Content>
 }
 
 /// One page of the Observations an instance is responsible for.
@@ -30,7 +29,7 @@ public struct ReadQuery: Equatable, Sendable {
 
     /// The path of `GET /observations`, relative to the API address.
     public var path: String {
-        var items = [("observerEntityId", instanceId.uuidString.lowercased()), ("from", from), ("to", to), ("limit", String(limit))]
+        var items = [("observerId", instanceId.uuidString.lowercased()), ("from", from), ("to", to), ("limit", String(limit))]
         if let resourceName { items.append(("resourceName", resourceName)) }
         if descending { items.append(("order", "desc")) }
         if let cursor { items.append(("after", cursor)) }
@@ -49,14 +48,9 @@ extension RuntimeModel: DataReading {
         var api: Api
     }
     private struct Problem: Decodable { var detail: String?; var title: String? }
-    private struct VersionsRequest: Encodable { var versionIds: [UUID] }
 
     public func read<Content: Decodable & Sendable>(_ query: ReadQuery, as: Content.Type) async throws -> ReadResult<Content> {
         try decode(try await request(query.path))
-    }
-
-    public func versions<Content: Decodable & Sendable>(_ ids: [UUID], as: Content.Type) async throws -> VersionsResult<Content> {
-        try decode(try await request("versions/read", body: try JSONEncoder().encode(VersionsRequest(versionIds: ids))))
     }
 
     /// The bytes of one binary content.

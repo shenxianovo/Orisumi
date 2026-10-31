@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, Maximize, Minus, Plus, Quote } from "lucide-react";
-import { timeLabel, useDescribe, useEntityInfo } from "@/hooks/useEntityInfo";
-import { useVersion } from "@/hooks/queries";
+import { isObservation } from "@/api/types";
+import { timeLabel, useChanges, useDescribe, useThingInfo } from "@/hooks/useEntityInfo";
+import { useStanding } from "@/hooks/useStanding";
+import { FORMATION_NAMES } from "@/lib/common";
 import { useWeave } from "@/hooks/useWeave";
 import { cn } from "@/lib/utils";
-import { describeChanges } from "@/lib/versions";
 import {
   bounds,
   edgeGeometry,
@@ -49,6 +50,7 @@ export function WeaveCanvas({ rootId }: { rootId: string }) {
   const [hover, setHover] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const highlight = useHighlight();
+  const stack = useStack();
 
   useEffect(() => {
     if (!box) return;
@@ -185,10 +187,13 @@ export function WeaveCanvas({ rootId }: { rootId: string }) {
                     x={label.x}
                     y={label.y}
                     textAnchor={label.anchor}
+                    // Relation 的线上写 predicate，点它打开这份 Relation。
+                    onClick={edge.via ? () => stack.open(edge.via!, -1) : undefined}
                     style={{
                       fontSize: 11,
-                      fill: lit ? "var(--fg)" : "var(--fg-3)",
+                      fill: lit || edge.via ? "var(--fg)" : "var(--fg-3)",
                       fontWeight: lit ? 500 : 400,
+                      ...(edge.via ? { cursor: "pointer", pointerEvents: "all", textDecoration: "underline" } : {}),
                     }}
                   >
                     {edge.label}
@@ -231,10 +236,10 @@ export function WeaveCanvas({ rootId }: { rootId: string }) {
               },
             };
             if (node.kind === "entity") return <EntityCard key={node.key} {...props} />;
-            const observer = node.payload.kind === "knot" ? node.payload.observation.content.observerVersionId : null;
+            const observer = node.payload.kind === "knot" ? node.payload.observation.observerId : null;
             const source = weave.nodes.find(
               (item) =>
-                item.kind === "entity" && item.payload.kind === "entity" && item.payload.version.versionId === observer,
+                item.kind === "entity" && item.payload.kind === "entity" && item.payload.item.entityId === observer,
             );
             return (
               <KnotCard
@@ -390,13 +395,13 @@ function Toggle({ node, busy }: { node: ItemNode; busy: boolean }) {
 function EntityCard(props: CardProps) {
   const { node, onHover, onClick } = props;
   const payload = node.payload.kind === "entity" ? node.payload : null;
-  const { info } = useDescribe(payload?.version);
-  const observation = payload?.observation ?? null;
-  const observer = useEntityInfo(observation?.content.observerVersionId);
+  const { info } = useDescribe(payload?.item);
+  const observation = payload && isObservation(payload.item) ? payload.item : null;
+  const observer = useThingInfo(observation?.observerId);
   const sub = !info
     ? ""
     : observation
-      ? `${timeLabel(observation.content.startAt, observation.content.endAt)} · ${observer.info?.title ?? "…"}`
+      ? `${timeLabel(observation.startAt, observation.endAt)} · ${observer.info?.title ?? "…"}`
       : info.title === info.typeName
         ? info.roleName
         : info.typeName;
@@ -429,28 +434,31 @@ function EntityCard(props: CardProps) {
 }
 
 /**
- * 一个结：一份 Observation，写着谁说的、这次改了什么、什么时候，以及依据了几个输入。
+ * 一个结：一份 Observation，写着谁说的、这次改了什么、形成方式、什么时候，以及依据了几个输入。
+ * 被否定的画删除线，被取代的变浅，依据已被否定的写出来。
  * 点结展开依据和其他邻居；Observer 的名字是另一个按钮，点它长出或收起来源。
  */
 function KnotCard(props: CardProps & { sourceShown: boolean; onSource: () => void }) {
   const { node, onHover, onClick, sourceShown, onSource } = props;
   const payload = node.payload.kind === "knot" ? node.payload : null;
-  const observer = useEntityInfo(payload?.observation.content.observerVersionId);
+  const observation = payload?.observation ?? null;
+  const observer = useThingInfo(observation?.observerId);
+  const standing = useStanding(observation, payload?.inputSet ?? null);
   const who = observer.info?.title ?? "…";
-  const when = payload ? timeLabel(payload.observation.content.startAt, payload.observation.content.endAt) : "";
+  const when = observation ? timeLabel(observation.startAt, observation.endAt) : "";
+  const formation = observation ? (FORMATION_NAMES[observation.formation] ?? observation.formation) : "";
   const inputs = payload?.inputSet?.content.members.length ?? 0;
-  const content = useVersion(payload?.observation.content.contentVersionId);
-  const previous = useVersion(content.data?.previousVersionId);
-  const changes =
-    content.data && (!content.data.previousVersionId || previous.data)
-      ? describeChanges(previous.data ?? null, content.data).join("；")
-      : "…";
+  const changes = useChanges(observation)?.join("；") ?? "…";
   return (
     <Frame node={node} root={props.root} selected={props.selected} panelId={node.key}>
       <div
         onPointerEnter={() => onHover(true)}
         onPointerLeave={() => onHover(false)}
-        className={cn("bg-panel relative rounded-[28px] pl-1.5", cardClass(props))}
+        className={cn(
+          "bg-panel relative rounded-[28px] pl-1.5",
+          cardClass(props),
+          standing.verdict === "supersede" && "opacity-55",
+        )}
       >
         <button
           type="button"
@@ -480,12 +488,20 @@ function KnotCard(props: CardProps & { sourceShown: boolean; onSource: () => voi
           >
             {who}
           </button>
-          <span title={changes} className="text-fg-2 line-clamp-2 text-xs wrap-anywhere">
+          <span
+            title={changes}
+            className={cn(
+              "text-fg-2 line-clamp-2 text-xs wrap-anywhere",
+              standing.verdict === "deny" && "line-through",
+            )}
+          >
             {changes}
           </span>
           <span className="text-fg-3 block truncate text-[11px] tabular-nums">
-            陈述 · {when}
+            {standing.verdict === "deny" ? "已否定" : standing.verdict === "supersede" ? "已被取代" : formation} ·{" "}
+            {when}
             {inputs > 0 && ` · 依据 ${inputs} 个`}
+            {standing.deniedInput && " · 依据已被否定"}
           </span>
         </span>
         <span className="pointer-events-none relative">

@@ -58,6 +58,8 @@ Observation、EntitySchema、InputSet、Observer 和各种 Id 用英文名，其
 | 理解 | 模型读证据形成、用户可以否定的陈述 | [Understanding](./rules/understanding.mdx) |
 | 复核 | 对一条陈述的确认、否定或取代，写成一份 Review | [UNDERSTANDING-5](./rules/understanding.mdx#understanding-5) |
 | 当前理解 | 没有被否定也没有被取代的陈述 | [UNDERSTANDING-4](./rules/understanding.mdx#understanding-4) |
+| 叙事 | 模型读一天的记录写下的几件事，每件一份 Episode | [UNDERSTANDING-3](./rules/understanding.mdx#understanding-3) |
+| 一件事（Episode） | 一天中的一段时间在做什么，引用涉及的会话和本机应用 | [Episode](../observers/narrative/episode.mdx) |
 
 ## 参与方 [#actors]
 
@@ -116,3 +118,8 @@ Observation、EntitySchema、InputSet、Observer 和各种 Id 用英文名，其
 | `ObserverSession`、`IObserverSession`、`PipeObserverSession`、`RuntimeObserverSession`、`RuntimeReader`、`LocalApplicationRegistry`、`IdentityWork`、`SubmissionContract`、`SameSubmission` | 已删除。业务代码经 [HTTP SDK](../api/sdk.mdx) 写入 [`POST /writes`](../api/writing.mdx)，受托管时经[本地转发](../hosting/runtime.mdx#forwarding)，对象靠[识别依据](../api/writing.mdx#recognition)认出 |
 | `--device`、`ORISUMI_DEVICE_ID` | 运行设备由托管方自动读取，见 [Device · 身份](../observers/device-state/device.mdx#identity) |
 | `服务端托管`、`ServerObserverHost`、`ServerObserverSession`、`IServerObserverStore` | 运行在服务器上的 [Runtime](../hosting/server.mdx)；服务器上的 Observer 和设备上的一样由它托管 |
+| `contentVersionId`、`观测内容`、`业务实体`、`业务版本` | Observation 自己就是陈述，内容是它的业务字段；它关于的对象是[事物](./model/thing.mdx) |
+| `关系实体` | 关系是 Observation 中的引用，见 [ENTITY-9](./model/entity.mdx#entity-9)；模型发现的关系写成 [Relation](./rules/understanding.mdx#relation) |
+| `deviceVersionId`、`sessionVersionId`、`localApplicationVersionId`、`productVersionId`、`parentSessionVersionId` | 引用事物写 EntityId：`deviceId`、`sessionId`、`localApplicationId`、`productId`、`parentSessionId` |
+| `session-titles`、`assistant-session-titles` | 会话的标题是它的 [Name](./rules/understanding.mdx#name) |
+| `observerEntityId`、`contentEntityId` | 查询观测时按 `observerId` 筛选，见 [API · 查询观测](../api/reading.mdx#observations) |

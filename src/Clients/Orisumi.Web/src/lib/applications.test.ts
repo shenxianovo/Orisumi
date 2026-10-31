@@ -1,88 +1,85 @@
 import { describe, expect, it } from "vitest";
-import type { Version } from "@/api/types";
-import { id } from "@/test/fixtures";
-import { buildCatalog, installDetails, latestMembership, unassigned, type Identifier } from "./applications";
+import type { ObservationVersion, Thing } from "@/api/types";
+import { observation, thing } from "@/test/fixtures";
+import { buildCatalog, installDetails, type CatalogInput } from "./applications";
 
-const qqMac: Identifier = { scheme: "macos.bundle-id", value: "com.tencent.qq" };
-const qqAndroid: Identifier = { scheme: "android.package-name", value: "com.tencent.mobileqq" };
-const lark: Identifier = { scheme: "macos.bundle-id", value: "com.electron.lark" };
+const clue = (scheme: string, value: string) => thing({ keys: [{ scope: null, scheme, value }] });
+const qqMac = clue("macos.bundle-id", "com.tencent.qq");
+const qqAndroid = clue("android.package-name", "com.tencent.mobileqq");
+const lark = clue("macos.bundle-id", "com.electron.lark");
 
-function business(content: unknown, recordedAt = "2026-10-29T01:00:00.000Z"): Version {
-  return {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "business",
-    schemaVersionId: "schema-v1",
+const product = (name: string) => thing({ name });
+const membership = (identifier: Thing, target: Thing, recordedAt = "2026-10-29T01:00:00.000Z") =>
+  observation({
     recordedAt,
-    content,
-  };
+    startAt: null,
+    endAt: null,
+    content: { identifierId: identifier.entityId, productId: target.entityId },
+  });
+
+function install(identifiers: Thing[], path: string): [Thing, ObservationVersion] {
+  const app = thing();
+  return [
+    app,
+    observation({
+      startAt: null,
+      endAt: null,
+      content: {
+        localApplicationId: app.entityId,
+        deviceId: "device",
+        identifierIds: identifiers.map((i) => i.entityId),
+        executablePath: path,
+      },
+    }),
+  ];
 }
 
-const product = (name: string) => business({ name });
-const membership = (identifier: Identifier, target: Version, recordedAt?: string) =>
-  business({ identifier, productVersionId: target.versionId }, recordedAt);
-const install = (clue: Identifier | null, path: string) =>
-  business({ identifiers: [...(clue ? [clue] : []), { scheme: "macos.executable-path", value: path }] });
-
-function catalogOf(products: Version[], memberships: Version[], installs: Version[]) {
-  const targets = new Map(products.map((p) => [p.versionId, p.entityId]));
-  return buildCatalog(products, memberships, installs, targets);
+function catalogOf(products: Thing[], memberships: ObservationVersion[], installs: [Thing, ObservationVersion][]) {
+  const input: CatalogInput = {
+    products,
+    memberships,
+    clues: new Map([qqMac, qqAndroid, lark].map((c) => [c.entityId, c])),
+    installs: installs.map(([app]) => app),
+    descriptions: installs.map(([, description]) => description),
+  };
+  return buildCatalog(input);
 }
 
 describe("归属", () => {
   it("跨设备线索相同的安装属于同一个产品，路径不参与", () => {
     const qq = product("QQ");
-    const a = install(qqMac, "/Applications/QQ.app/Contents/MacOS/QQ");
-    const b = install(qqMac, "/Users/me/Applications/QQ.app/Contents/MacOS/QQ");
+    const a = install([qqMac], "/Applications/QQ.app/Contents/MacOS/QQ");
+    const b = install([qqMac], "/Users/me/Applications/QQ.app/Contents/MacOS/QQ");
     const catalog = catalogOf([qq], [membership(qqMac, qq)], [a, b]);
-    expect(catalog.productOf(a)?.name).toBe("QQ");
-    expect(catalog.productOf(b)?.name).toBe("QQ");
-    expect(catalog.installsOf(qqMac)).toHaveLength(2);
+    expect(catalog.productOf(a[0])?.name).toBe("QQ");
+    expect(catalog.productOf(b[0])?.name).toBe("QQ");
+    expect(catalog.installsOf(qqMac.entityId)).toHaveLength(2);
   });
 
-  it("一个产品的线索来自各自的线索归属，最近一次判断取保存得最晚的", () => {
+  it("一个产品的线索来自各自的线索归属", () => {
     const qq = product("QQ");
     const earlier = membership(qqMac, qq, "2026-10-29T01:00:00.000Z");
     const later = membership(qqAndroid, qq, "2026-10-29T02:00:00.000Z");
     const catalog = catalogOf([qq], [earlier, later], []);
-    expect(catalog.products[0]!.memberships.map((m) => m.identifier)).toEqual([qqMac, qqAndroid]);
-    expect(latestMembership(catalog.products[0]!).version).toBe(later);
+    expect(catalog.products[0]!.memberships.map((m) => m.clue.value)).toEqual([
+      "com.tencent.qq",
+      "com.tencent.mobileqq",
+    ]);
   });
 
   it("没有线索归属的产品不列出", () => {
-    const catalog = catalogOf([product("QQ"), product("Lark")], [], []);
-    expect(catalog.products).toEqual([]);
+    expect(catalogOf([product("QQ"), product("Lark")], [], []).products).toEqual([]);
   });
 
   it("指向的产品已删除时，线索未归属", () => {
-    const deleted = product("已删除");
-    const app = install(qqMac, "/a");
-    const catalog = buildCatalog([], [membership(qqMac, deleted)], [app], new Map());
-    expect(catalog.productOf(app)).toBeNull();
-    expect(unassigned(catalog).clues).toEqual([qqMac]);
-  });
-
-  it("线索归属引用产品的旧版本时，按实体归到产品", () => {
-    const qq = product("QQ");
-    const old = { ...qq, versionId: id() };
-    const catalog = buildCatalog([qq], [membership(qqMac, old)], [], new Map([[old.versionId, qq.entityId]]));
-    expect(catalog.ownerOf(qqMac)?.name).toBe("QQ");
-  });
-
-  it("没有匹配的线索未归属；只有本机线索的安装单独列出", () => {
-    const qq = product("QQ");
-    const pathOnly = install(null, "/usr/local/bin/tool");
-    const catalog = catalogOf([qq], [membership(qqMac, qq)], [install(qqMac, "/a"), install(lark, "/b"), pathOnly]);
-    const loose = unassigned(catalog);
-    expect(loose.clues).toEqual([lark]);
-    expect(loose.withoutClues.map((x) => x.version)).toEqual([pathOnly]);
-    expect(catalog.productOf(pathOnly)).toBeNull();
+    const app = install([qqMac], "/a");
+    const catalog = catalogOf([], [membership(qqMac, product("已删除"))], [app]);
+    expect(catalog.productOf(app[0])).toBeNull();
   });
 
   it("同一条线索的几个安装写出路径里不同的那一段", () => {
-    const details = installDetails([install(qqMac, "/A/Release/QQ"), install(qqMac, "/A/Debug/QQ")]);
-    expect(details).toEqual(["…/Release/…", "…/Debug/…"]);
-    expect(installDetails([install(qqMac, "/A/QQ")])).toEqual([null]);
+    const catalog = catalogOf([], [], [install([qqMac], "/A/Release/QQ"), install([qqMac], "/A/Debug/QQ")]);
+    expect(installDetails(catalog.installs)).toEqual(["…/Release/…", "…/Debug/…"]);
+    expect(installDetails(catalog.installs.slice(0, 1))).toEqual([null]);
   });
 });

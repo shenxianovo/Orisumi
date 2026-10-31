@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const EMPTY_PAGE = { versions: [], next: null };
 
-/** 列表接口返回空页，其余读取返回 404。 */
+/** 列表接口返回空页，批量读取事物都读不到，其余读取返回 404。 */
 async function emptyApi(page: Page) {
   // 只拦截 /api 下的请求；Vite 的 /src/api/*.ts 模块照常加载。
   await page.route(
@@ -13,6 +13,11 @@ async function emptyApi(page: Page) {
       const { pathname } = new URL(route.request().url());
       if (pathname === "/api/observations" || pathname === "/api/entities") {
         return route.fulfill({ json: EMPTY_PAGE });
+      }
+      if (pathname === "/api/things") return route.fulfill({ json: { things: [], next: null } });
+      if (pathname === "/api/things/read") {
+        const { entityIds } = route.request().postDataJSON() as { entityIds: string[] };
+        return route.fulfill({ json: { results: entityIds.map((entityId) => ({ entityId, status: "not_found" })) } });
       }
       return route.fulfill({ status: 404, json: { title: "Not Found", status: 404 } });
     },
@@ -56,6 +61,17 @@ test.describe("空状态", () => {
   test("日页面今天没有 Observation", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByText("今天还没有记录")).toBeVisible();
+  });
+
+  test("事物页面按类型分组", async ({ page }) => {
+    await page.goto("/things");
+    await expect(page.getByRole("heading", { name: "事物" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "设备" }).getByText("这里还没有")).toBeVisible();
+  });
+
+  test("理解页面还没有判断", async ({ page }) => {
+    await page.goto("/understanding");
+    await expect(page.getByText("还没有判断")).toBeVisible();
   });
 
   test("Observer 页面还没有 Observer", async ({ page }) => {

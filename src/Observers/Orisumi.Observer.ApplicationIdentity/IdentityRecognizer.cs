@@ -5,7 +5,7 @@ using Orisumi.Observer.Sdk;
 namespace Orisumi.Observers.ApplicationIdentity;
 
 internal sealed class IdentityRecognizer(DataClient data, IdentityRepository repository, IApplicationModel model,
-    string modelName, string programVersion, Action<string> diagnostic)
+    string modelName, string programVersion, Action<string> diagnostic, string decisionModelName = "gpt-6-luna")
 {
     // Identifiers the model answered unknown for, with what it saw then. Kept only while the process runs.
     private readonly Dictionary<string, string> unknown = [];
@@ -13,7 +13,7 @@ internal sealed class IdentityRecognizer(DataClient data, IdentityRepository rep
     public async Task RunOnceAsync(CancellationToken token)
     {
         await data.UseAsync(IdentityData.Definitions, IdentityData.ObserverSchemaId.Value,
-            new { programVersion, model = "openai/" + modelName }, token);
+            new { programVersion, model = "openai/" + modelName, decisionModel = "openai/" + decisionModelName }, token);
         if (!model.IsConfigured) { diagnostic("OPENAI_API_KEY 未配置，本轮不识别。"); return; }
         var applications = await repository.ApplicationsAsync(token);
         if (applications.Length == 0) return;

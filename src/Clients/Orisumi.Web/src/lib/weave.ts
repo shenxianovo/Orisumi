@@ -1,10 +1,11 @@
-import type { InputSet, Observation, Version } from "@/api/types";
+import type { InputSet, Item, ObservationVersion, Thing, Version } from "@/api/types";
 
 // 织图：从一个实体出发，点一个节点，和它有关的实体从两边长出来。
-// 实体是线，Observation 是把线系在一起的结：谁（Observer）依据什么（InputSet 的输入）说了什么（观测内容）。
-// - 观测内容是经历的，Observation 并进经历的节点，节点写出事实时间和 Observer。
-// - 其余的 Observation 画成结；它的 InputSet 并进结，输入是结左边的线。Observer 写在结上，点名字才长出来。
-// 位置按来龙去脉从左往右：Observer 和输入在陈述左边，陈述在它的内容左边，业务字段的引用方在被引用的实体左边。
+// 事物是线，Observation 是把线系在一起的结：谁（Observer）依据什么（InputSet 的输入）说了什么（业务字段）。
+// - 有事实时间的 Observation 是经历的节点，写出事实时间和 Observer。
+// - 事实时间未知的 Observation 画成结；它的 InputSet 并进结，输入是结左边的线。Observer 写在结上，点名字才长出来。
+// - Relation 是两个事物之间的一条线，线上写 predicate。
+// 位置按来龙去脉从左往右：Observer 和输入在陈述左边，引用方在被引用的实体左边。
 // 只用 Core 的结构，新的 Observer 和类型接入后不用改这里。
 
 export const NODE_W = 208;
@@ -24,24 +25,26 @@ export const REVEAL = 8;
 export const SOURCE = "来源";
 export const INPUT = "依据";
 
-/** 节点画的东西：一个实体（经历连同记下它的 Observation），或者一个结。 */
+/** 节点画的东西：一个事物或一份经历，或者一个结。 */
 export type Payload =
-  | { kind: "entity"; version: Version; observation: Version<Observation> | null }
-  | { kind: "knot"; observation: Version<Observation>; inputSet: Version<InputSet> | null };
+  | { kind: "entity"; item: Thing | ObservationVersion }
+  | { kind: "knot"; observation: ObservationVersion; inputSet: Version<InputSet> | null };
 
 export function payloadKey(payload: Payload): string {
-  return payload.kind === "entity" ? payload.version.entityId : payload.observation.entityId;
+  return payload.kind === "entity" ? payload.item.entityId : payload.observation.entityId;
 }
 
 /** 邻居在哪一边：left 在来龙去脉的上游，right 在下游。 */
 export type Side = "left" | "right";
 
-/** 还没解析成节点的邻居：读到的版本、在哪一边、经由什么，以及分组和排序用的类型名和时间。 */
+/** 还没解析成节点的邻居：读到的实体、在哪一边、经由什么，以及分组和排序用的类型名和时间。 */
 export interface Neighbor {
-  version: Version;
+  item: Item;
   side: Side;
-  /** 连线上写的字：来源、依据、内容，或者业务字段名，例如 `localApplication`。 */
+  /** 连线上写的字：来源、依据、业务字段名（例如 `localApplication`），或者关系的 predicate。 */
   label: string;
+  /** 这条线是一份 Relation 时，它的 EntityId。 */
+  via?: string;
   typeName: string;
   time: number;
 }
@@ -80,11 +83,12 @@ export interface Bundle {
 
 export type WeaveNode = ItemNode | BundleNode;
 
-/** 一条线，from 是长出 to 的节点。 */
+/** 一条线，from 是长出 to 的节点。via 是这条线代表的 Relation。 */
 export interface WeaveEdge {
   from: string;
   to: string;
   label: string;
+  via?: string;
 }
 
 export interface Weave {
@@ -137,6 +141,7 @@ export interface Resolved {
   payload: Payload;
   side: Side;
   label: string;
+  via?: string;
 }
 
 /**
@@ -234,7 +239,7 @@ function attach(weave: Weave, parent: ItemNode, resolved: readonly Resolved[]) {
   const nodes = [...weave.nodes];
   const edges = [...weave.edges];
   const added = new Set<string>();
-  for (const { payload, side, label } of resolved) {
+  for (const { payload, side, label, via } of resolved) {
     const key = payloadKey(payload);
     if (key === parent.key) continue;
     if (!present.has(key)) {
@@ -251,7 +256,7 @@ function attach(weave: Weave, parent: ItemNode, resolved: readonly Resolved[]) {
       added.add(key);
     }
     if (!linked.has(pairKey(parent.key, key))) {
-      edges.push({ from: parent.key, to: key, label });
+      edges.push({ from: parent.key, to: key, label, ...(via ? { via } : {}) });
       linked.add(pairKey(parent.key, key));
     }
   }
