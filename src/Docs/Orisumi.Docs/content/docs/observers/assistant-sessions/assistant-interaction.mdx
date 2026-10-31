@@ -59,6 +59,8 @@ description: "助手会话中的一次交互：消息、工具调用与结果、
 
 Codex 的 rollout 文件用 `event_msg` 中的 `item_completed` 记下每一项交互，同一项内容还以 `response_item` 出现一次。交互以 `item_completed` 为准，指令和上下文只出现在 `response_item` 和 `session_meta` 中，从那里读取。
 
+Codex 派出子 Agent 时，子 Agent 的 rollout 先复制一份发起会话的历史：发起会话的 `session_meta` 和派出之前的记录，时间改成复制的时刻。第一行 `session_meta` 的 `subagent_history_start_ordinal` 是子 Agent 自己的第一条记录，第一行之后 `ordinal` 小于它的行都是复制的，不形成交互。这些交互已经在发起会话中记下，子 Agent 从哪里接上由[子 Agent 关系](./assistant-subagent.mdx)的 `spawnCallId` 说明。用户和 Agent fork 出的会话用 `history_base` 或 `forked_from_ordinal_exclusive` 指向原会话的历史，不复制记录。
+
 | 来源记录 | 交互 | `kind` | `actor` |
 | --- | --- | --- | --- |
 | `session_meta`：`base_instructions` 和会话信息 | 一次 | `context` | `application` |
@@ -71,7 +73,7 @@ Codex 的 rollout 文件用 `event_msg` 中的 `item_completed` 记下每一项�
 | `Reasoning`，连同 `id` 相同的 `response_item` `reasoning` | 一次，见下文 | `reasoning` | `assistant` |
 | `CommandExecution`、`McpToolCall`、`FileChange`、`Extension`、`ImageView` | 一项形成两次：调用和结果 | `tool-call`、`tool-result` | `assistant`、`tool` |
 
-Codex 先写 `Reasoning` 的 `item_completed`，接着写 `id` 相同、带 `encrypted_content` 的 `response_item`。两行都读到后形成一次推理；只读到第一行时，它留在本地的待配对状态中，跨轮询和重启保留。同一轮的 `task_complete` 或 `turn_aborted` 出现时还没有第二行，推理只用第一行形成。`id` 为 `item-<N>` 的 `Reasoning` 可以连续写成多行，后一行的 `summary_text` 包含前一行的全部内容，这些行同样留在待配对状态中，读到下一个 `id` 时形成一次推理，内容取最后一行。
+Codex 先写 `Reasoning` 的 `item_completed`，接着写 `id` 相同、带 `encrypted_content` 的 `response_item`。两行都读到后形成一次推理；只读到第一行时，它留在本地的待配对状态中，跨轮询和重启保留。同一轮的 `task_complete` 或 `turn_aborted` 出现时还没有第二行，推理只用第一行形成。`id` 为 `item-<N>` 的 `Reasoning` 可以连续写成多行，后一行的 `summary_text` 包含前一行的全部内容，这些行同样留在待配对状态中，读到编号不同的下一个 `item-<M>` 时形成一次推理，内容取最后一行。中间穿插的其他项，例如 `exec-` 开头的 `FileChange`，不结束这次推理。
 
 ### 不形成交互的记录 [#excluded]
 
@@ -80,7 +82,7 @@ Codex 先写 `Reasoning` 的 `item_completed`，接着写 `id` 相同、带 `enc
 | 产品 | 记录 |
 | --- | --- |
 | Claude Code | `api-request`、`api-request-blob`（请求快照，内容来自其他记录）；`file-history-snapshot`、`file-history-delta`、`queue-operation`、`last-prompt`、`atis-latch`、`mode`、`relocated`、`type` 为 `system` 的行；`custom-title` 和 `agent-name` 用作[会话](./assistant-session.mdx)的标题 |
-| Codex | `token_count`、`token_usage_record`、`task_started`、`task_complete`、`turn_aborted`、`thread_settings_applied`、`world_state`；`turn_context` 用作交互的 `model` 和 `workingDirectory`；`ContextCompaction` 由 `compacted` 记下；与 `item_completed` 重复的 `response_item` |
+| Codex | `token_count`、`token_usage_record`、`task_started`、`task_complete`、`turn_aborted`、`thread_settings_applied`、`world_state`；`turn_context` 用作交互的 `model` 和 `workingDirectory`；`ContextCompaction` 由 `compacted` 记下；与 `item_completed` 重复的 `response_item`；子 Agent 的 rollout 中复制的发起会话历史 |
 
 ## 身份 [#identity]
 
@@ -91,15 +93,15 @@ Codex 先写 `Reasoning` 的 `item_completed`，接着写 `id` 相同、带 `enc
 | Claude Code | 行的 `uuid`；`tool_result` block 为 `uuid#<block 序号>`；`api-request-shape` 为 `<sessionId>/<shapeHash>` |
 | Codex | `item_completed` 的 item `id`；`response_item` 的 `id`；`session_meta` 为会话 `id`；`compacted` 为 `window_id` |
 
-证据的含义是“这份日志里有这一条”，所以识别依据都带上来源会话。两个会话中的 `item-3` 是两次交互：`item-<N>` 是早期 Codex 在一个会话内的序号，在已核实的版本中，0.147 到 0.149 写下的部分 rollout 从 `item-1` 开始编号。Claude Code 的 resume 和 fork 把同一条记录复制到另一个会话时，这条记录在两个会话中各是一份观测，都是真的，读取方要去重时按 `sourceId`。
+证据的含义是“这份日志里有这一条”，所以识别依据都带上来源会话。两个会话中的 `item-3` 是两次交互：`item-<N>` 是早期 Codex 在一个会话内的序号，在已核实的版本中，0.147 到 0.149 写下的部分 rollout 从 `item-1` 开始编号。Claude Code 的 resume 和 fork 把同一条记录原样复制到另一个会话，看不出哪一份是原件，所以这条记录在两个会话中各是一份观测，读取方要去重时按 `sourceId`。Codex 子 Agent 复制的历史有明确的边界，不形成交互，见 [Codex](#codex)。
 
 | 识别依据 | 值 |
 | --- | --- |
 | `scope` | 来源会话的标识 |
 | `scheme` | 工具调用是 `claude-code.tool-call` 或 `codex.tool-call`，其余是 `claude-code.interaction` 或 `codex.interaction` |
-| `value` | 工具调用是 `callId`，其余是 `sourceId`。Codex 的工具结果以同一个 `id` 形成，加上 `/result`。`session_meta` 和 `api-request-shape` 再加上这一行字节的摘要 |
+| `value` | 工具调用是 `callId`，其余是 `sourceId`。Codex 的工具结果以同一个 `id` 形成，加上 `/result`。`api-request-shape` 再加上这一行字节的摘要 |
 
-`session_meta` 和 `api-request-shape` 用同一个标识写下不同的字节，来源保留了每一次，所以每次是一份新的 Observation。文本相同的两次输入有各自的 `sourceId`，是两次交互。
+`api-request-shape` 用同一个标识写下不同的字节，来源保留了每一次，所以每次是一份新的 Observation。文本相同的两次输入有各自的 `sourceId`，是两次交互。
 
 工具调用用 `callId` 作依据，所以结果能在同一会话的任何一段中引用它，见[引用](#references)。调用和结果按来源记录的结构区分，`kind`、`actor` 这些解析结果不进入识别依据。
 

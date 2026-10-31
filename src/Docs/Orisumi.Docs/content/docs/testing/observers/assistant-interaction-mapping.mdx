@@ -30,7 +30,8 @@ Claude Code 和 Codex 把用户的输入、工具结果和产品注入的上下�
 | Claude Code 的 `api-request`、`api-request-blob`，Codex 的 `token_count` | 不形成交互 |
 | Claude Code 的 `thinking` block 文字为空、带签名 | 形成推理，片段是空的 `text` 和 `opaque` |
 | Codex 出现不认识的事件类型 | 记下诊断，不形成交互 |
-| 同一会话的 session_meta 行字节发生变化 | 摘要参与识别依据，形成另一份上下文 Observation |
+| Codex 子 Agent 的 rollout 在首行之后带着复制的 `session_meta`、消息和 `turn_context` | 复制的部分不形成交互，也不改变读取上下文；子 Agent 自己的交互属于它的会话，发起会话的消息只有一份 Observation |
+| Codex `item-8` 的推理之间穿插另一轮的 `exec-` `FileChange`，之后出现 `item-9` | `FileChange` 形成调用和结果；推理保留到 `item-9`，只形成一次，内容和原始材料取最后一行 |
 
 ## 测试实现 [#implementation]
 
@@ -43,8 +44,8 @@ Claude Code 和 Codex 把用户的输入、工具结果和产品注入的上下�
 - 不认识的 Codex 事件作为诊断：`AssistantMappingTests.UnsupportedCodexEventsAreDiagnosedRatherThanSilentlyTreatedAsImported`。
 - Claude Code 的 `mode` 记录不形成交互：`AssistantMappingTests.ClaudeModeRowsAreNotInteractions`。
 - Codex 的工具调用形成调用和结果两次交互：见 [Assistant Interaction Relations](./assistant-interaction-relations.mdx)。
-
-- session_meta 字节变化：`AssistantMappingTests.ChangedSessionMetadataBytesCreateAnotherContextObservation`。
+- 子 Agent 的复制历史跨读取批次和重启后仍被排除，会话身份和读取上下文保持正确，`session_meta` 的识别依据只用会话 id：`AssistantMappingTests.CodexSubagentCopiedHistoryDoesNotChangeSessionOrContext`。
+- 编号推理之间穿插文件修改，并跨轮询和重启保留：`AssistantMappingTests.CodexNumberedReasoningIgnoresInterleavedExecFileChanges`。
 
 未覆盖：`isCompactSummary` 的行和 `attachment` 行形成上下文；`api-request` 不形成交互。
 

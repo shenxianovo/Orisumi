@@ -13,8 +13,11 @@ internal static partial class CodexSource
         var row = document.RootElement;
         var type = row.Required("type");
         var payload = row.At("payload");
+        // A subagent rollout copies its parent's history before its own records.
+        if (context.Session is not null && row.Integer("ordinal") < context.HistoryStart) return [];
         if (type == "session_meta")
         {
+            context.HistoryStart = payload.Integer("subagent_history_start_ordinal");
             var spawn = payload.At("source").At("subagent").At("thread_spawn");
             context.Session = new("codex", payload.Required("id"), context.Session?.Title, payload.Text("originator"),
                 spawn.Text("parent_thread_id"), payload.Text("agent_path") ?? spawn.Text("agent_path"), spawn.Text("tool_call_id"));
@@ -39,7 +42,7 @@ internal static partial class CodexSource
         {
             var nextId = payload.At("item").Required("id");
             foreach (var (id, pending) in context.Reasoning.ToArray())
-                if (IsSessionItem(id) && id != nextId)
+                if (IsSessionItem(id) && IsSessionItem(nextId) && id != nextId)
                 {
                     context.Reasoning.Remove(id);
                     using var completed = JsonDocument.Parse(pending.Entry);

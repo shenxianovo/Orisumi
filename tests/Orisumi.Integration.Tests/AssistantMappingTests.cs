@@ -231,16 +231,76 @@ public sealed class AssistantMappingTests
     }
 
     [Test, Property("caseId", "assistant-interaction-mapping")]
-    public async Task ChangedSessionMetadataBytesCreateAnotherContextObservation()
+    public async Task CodexNumberedReasoningIgnoresInterleavedExecFileChanges()
     {
         using var f = new AssistantTestFixture();
-        var path = f.Write("codex/sessions/rollout-one.jsonl", Meta("one"));
+        var change = Fields(Encoding.UTF8.GetString(Item("FileChange", "exec-change", Fields("""{"changes":{},"stdout":"ok","status":"completed"}"""))));
+        change["payload"]!["turn_id"] = "other-turn";
+        var path = f.Write("codex/sessions/rollout-one.jsonl", Meta("one"),
+            Item("Reasoning", "item-8", Fields("""{"summary_text":["first"],"raw_content":[]}""")),
+            Json(change));
         await f.Collector.PollAsync();
-        await File.AppendAllTextAsync(path, Encoding.UTF8.GetString(Meta("one")).Replace("{", "{ ") + "\n");
+        await Assert.That(f.Interactions().Any(v => Content(v).Text("kind") == "reasoning")).IsFalse();
+        f.Restart();
+        var last = Item("Reasoning", "item-8", Fields("""{"summary_text":["first","last"],"raw_content":[]}"""));
+        await File.AppendAllTextAsync(path, Encoding.UTF8.GetString(last) + "\n"
+            + Encoding.UTF8.GetString(Item("AgentMessage", "item-9", Fields("""{"text":"done"}"""))) + "\n");
         await f.Collector.PollAsync();
-        var contexts = f.Interactions().Where(v => Content(v).Text("sourceKind") == "session_meta").ToArray();
-        await Assert.That(contexts.Length).IsEqualTo(2);
-        await Assert.That(contexts.All(v => v.PreviousVersionId is null)).IsTrue();
+        await Assert.That(f.Diagnostics.Count).IsEqualTo(0);
+        var reasoning = f.Interactions().Single(v => Content(v).Text("kind") == "reasoning");
+        await Assert.That(Content(reasoning).GetProperty("parts")[1].Text("text")).IsEqualTo("last");
+        await Assert.That(reasoning.PreviousVersionId).IsNull();
+        await Assert.That(await f.Bytes(Content(reasoning).GetProperty("sourceEntries")[0].Text("digest")!)).IsEquivalentTo(last);
+        await Assert.That(f.Interactions().Count(v => Content(v).Text("sourceId") == "exec-change")).IsEqualTo(2);
+    }
+
+    [Test, Property("caseId", "assistant-interaction-mapping")]
+    public async Task CodexSubagentCopiedHistoryDoesNotChangeSessionOrContext()
+    {
+        using var f = new AssistantTestFixture();
+        var parentMessage = Item("UserMessage", "parent-message", Fields("""{"content":[{"type":"text","text":"parent task"}]}"""));
+        var parentContext = Json(new { type = "response_item", timestamp = "2026-10-30T10:00:00Z", payload = new
+        { type = "message", id = "parent-context", role = "developer", content = new[] { new { type = "input_text", text = "Instructions" } } } });
+        f.Write("codex/sessions/rollout-parent.jsonl", Meta("parent"), parentContext, parentMessage);
+        var metadata = Fields(Encoding.UTF8.GetString(Meta("child", "parent")));
+        metadata["ordinal"] = 0;
+        metadata["payload"]!["subagent_history_start_ordinal"] = 19;
+        var copiedMeta = Fields(Encoding.UTF8.GetString(Meta("parent")));
+        copiedMeta["ordinal"] = 1;
+        var copiedMessage = Json(new { ordinal = 2, type = "response_item", timestamp = "2026-10-30T11:00:00Z",
+            metadata = new { client_authored = false, inherited_user_message = true }, payload = new
+            { type = "message", id = "parent-message", role = "user", content = new[] { new { type = "input_text", text = "parent task" } },
+                internal_chat_message_metadata_passthrough = new { content_item_kinds = UserKinds } } });
+        var copiedContext = Fields(Encoding.UTF8.GetString(parentContext));
+        copiedContext["ordinal"] = 3;
+        copiedContext["timestamp"] = "2026-10-30T11:00:00Z";
+        var rows = new List<byte[]> { Json(metadata), Json(copiedMeta), copiedMessage, Json(copiedContext) };
+        for (var ordinal = 4; ordinal < 19; ordinal++)
+            rows.Add(Json(new { ordinal, type = "turn_context", payload = new { model = "parent-model", cwd = "/parent", turn_id = "parent-turn" } }));
+        var ownMessage = Fields(Encoding.UTF8.GetString(Item("UserMessage", "child-message", Fields("""{"content":[{"type":"text","text":"child task"}]}"""))));
+        ownMessage["ordinal"] = 19;
+        rows.Add(Json(ownMessage));
+        var path = f.Write("codex/sessions/rollout-child.jsonl", rows.ToArray());
+        var source = new SourceFile(path, "codex");
+        await f.Collector.ReadFileAsync(source);
+        f.Restart();
+        await f.Collector.ReadFileAsync(source);
+        await f.Collector.PollAsync();
+
+        await Assert.That(f.Diagnostics.Count).IsEqualTo(0);
+        var interactions = f.Interactions();
+        await Assert.That(interactions.Count).IsEqualTo(5);
+        var original = interactions.Single(v => Content(v).Text("sourceId") == "parent-message");
+        await Assert.That(SessionsOf(f, [original]).Single()).IsEqualTo("parent");
+        var child = interactions.Single(v => Content(v).Text("sourceId") == "child-message");
+        await Assert.That(SessionsOf(f, [child]).Single()).IsEqualTo("child");
+        await Assert.That(Content(child).Text("actor")).IsEqualTo("agent");
+        await Assert.That(Content(child).Text("model")).IsNull();
+        await Assert.That(Content(child).Text("workingDirectory")).IsNull();
+        var session = new SessionInfo("codex", "child");
+        var batch = new AssistantBatch(null);
+        batch.Add(session, CodexSource.Read(Json(metadata), new(), null).Single());
+        await Assert.That(batch.Writes.Single().Key!.Value).IsEqualTo("child");
     }
 
     [Test, Property("caseId", "assistant-interaction-relations")]

@@ -35,7 +35,7 @@ internal sealed class AssistantBatch(Ref? device)
     {
         var call = interaction.Kind == "tool-call";
         var value = call ? interaction.CallId! : interaction.SourceId + (info.Product == "codex" && interaction.Kind == "tool-result" ? "/result" : "");
-        if (interaction.SourceKind is "session_meta" or "api-request-shape") value += "/" + BinaryValue.ComputeDigest(interaction.SourceEntries[0]);
+        if (interaction.SourceKind == "api-request-shape") value += "/" + BinaryValue.ComputeDigest(interaction.SourceEntries[0]);
         var key = Key(info.Product, call ? "tool-call" : "interaction", value, info.SourceSessionId);
         var tool = interaction.Kind == "tool-result" && interaction.CallId is { } id
             ? Ref.Recognize(AssistantRegistration.InteractionSchemaId, Key(info.Product, "tool-call", id, info.SourceSessionId)) : null;

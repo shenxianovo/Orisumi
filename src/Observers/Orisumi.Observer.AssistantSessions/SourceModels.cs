@@ -25,6 +25,7 @@ internal sealed class SourceContext
     public string? Model { get; set; }
     public string? WorkingDirectory { get; set; }
     public string? TimeZone { get; set; }
+    public int? HistoryStart { get; set; }
     public Dictionary<string, PendingReasoning> Reasoning { get; set; } = new(StringComparer.Ordinal);
 }
 
