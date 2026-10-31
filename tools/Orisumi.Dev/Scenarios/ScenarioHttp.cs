@@ -33,15 +33,15 @@ internal sealed class ScenarioEntity
 {
     public Guid EntityId { get; private set; }
     public Guid VersionId { get; private set; }
-    public object Observer { get; } = new { schemaId = Guid.CreateVersion7(), key = new { scope = (string?)null, scheme = "smoke", value = Guid.NewGuid().ToString() } };
+    public object Observer { get; } = new { schemaId = Guid.Parse("019e1bbb-ec00-7000-8000-000000000012"), key = new { scope = (string?)null, scheme = "smoke", value = Guid.NewGuid().ToString() } };
     public static ScenarioEntity Create() => new();
     public async Task SubmitAsync(ScenarioHttp http, string api, CancellationToken token)
     {
         var reference = JsonSerializer.SerializeToElement(Observer);
-        var schemaId = reference.GetProperty("schemaId").GetGuid();
+        var schemaId = Guid.CreateVersion7();
         var body = JsonSerializer.Serialize(new { observer = Observer,
-            schemas = new[] { new { schemaId, content = new { displayName = "Smoke", description = "Smoke scenario", resourceName = "smoke-" + Guid.NewGuid().ToString("N"), fields = new { } } } },
-            writes = new[] { new { schemaId, key = reference.GetProperty("key"), content = new { } } } });
+            schemas = new[] { new { schemaId, content = new { displayName = "Smoke", description = "Smoke scenario", resourceName = "smoke-" + Guid.NewGuid().ToString("N"), kind = "observation", immutable = false, fields = new { } } } },
+            writes = new[] { new { schemaId, key = reference.GetProperty("key"), content = new { }, formation = "direct" } } });
         var saved = await http.RequestAsync("POST", api + "/writes", 200, token, body);
         var version = saved!.Value.GetProperty("results")[0].GetProperty("version");
         EntityId = version.GetProperty("entityId").GetGuid();
