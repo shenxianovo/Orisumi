@@ -52,11 +52,7 @@ internal static class VerificationPlanner
         if (selection.HasFlag(CheckSelection.Unknown)) return new("full-fallback", request.Base, paths, Full(repository));
         var steps = new List<VerificationStep>();
         if (selection.HasFlag(CheckSelection.Build)) steps.Add(Build(repository));
-        if (selection.HasFlag(CheckSelection.Model)) steps.Add(ModelTests(repository));
-        if (selection.HasFlag(CheckSelection.Backend)) steps.Add(IntegrationTests(repository));
         if (selection.HasFlag(CheckSelection.Cli)) steps.Add(CliTests(repository));
-        if (selection.HasFlag(CheckSelection.Frontend)) steps.Add(Frontend(repository));
-        if (selection.HasFlag(CheckSelection.Mac)) steps.AddRange(Mac(repository));
         if (selection.HasFlag(CheckSelection.Docs)) steps.AddRange(Docs(repository));
         else if (selection.HasFlag(CheckSelection.DocsCheck)) steps.Add(DocsCheck(repository));
         return new("changed", request.Base, paths, steps);
@@ -72,22 +68,10 @@ internal static class VerificationPlanner
         return isProjectDocument ? (selection & ~CheckSelection.Unknown) | CheckSelection.DocsCheck : selection;
     }
 
-    // The first matching area wins, so the OpenAPI contract precedes the rest of the docs site.
     private static readonly (string[] Prefixes, CheckSelection Selection)[] Areas =
     [
-        (["src/Docs/Orisumi.Docs/content/docs/api/openapi.json"],
-            CheckSelection.Build | CheckSelection.Model | CheckSelection.Backend | CheckSelection.Docs),
         (["src/Docs/Orisumi.Docs/"], CheckSelection.Docs),
-        (["tools/Orisumi.Dev/", "tests/Orisumi.Dev.Tests/", ".agents/skills/verify-orisumi/"],
-            CheckSelection.Build | CheckSelection.Cli),
-        (["tests/Orisumi.Model.Tests/"], CheckSelection.Build | CheckSelection.Model),
-        (["src/Core/", "src/Backend/", "tests/Orisumi.Integration.Tests/", "tests/Orisumi.Testing/"],
-            CheckSelection.Build | CheckSelection.Model | CheckSelection.Backend),
-        // Observer tests live in the integration test project.
-        (["src/Observers/"], CheckSelection.Build | CheckSelection.Backend),
-        (["src/Clients/Orisumi.Web/"], CheckSelection.Frontend),
-        (["src/Clients/Orisumi.Mac/"], CheckSelection.Mac),
-        (["tools/Orisumi.AppHost/", "docker/nginx/"], CheckSelection.Build),
+        (["tools/Orisumi.Dev/", "tests/Orisumi.Dev.Tests/"], CheckSelection.Build | CheckSelection.Cli),
         ([".scratch/"], CheckSelection.None),
     ];
 
@@ -104,28 +88,9 @@ internal static class VerificationPlanner
     private static VerificationStep Build(RepositoryContext repository) =>
         new("dotnet-build", "dotnet", ["build", repository.Path("Orisumi.slnx"), "--verbosity", "minimal"]);
 
-    private static VerificationStep ModelTests(RepositoryContext repository) =>
-        new("model-tests", "dotnet", ["test", "--project",
-            repository.Path("tests", "Orisumi.Model.Tests", "Orisumi.Model.Tests.csproj")]);
-
-    private static VerificationStep IntegrationTests(RepositoryContext repository) =>
-        new("integration-tests", "dotnet", ["test", "--project",
-            repository.Path("tests", "Orisumi.Integration.Tests", "Orisumi.Integration.Tests.csproj")]);
-
     private static VerificationStep CliTests(RepositoryContext repository) =>
         new("developer-cli-tests", "dotnet", ["test", "--project",
             repository.Path("tests", "Orisumi.Dev.Tests", "Orisumi.Dev.Tests.csproj")]);
-
-    private static VerificationStep Frontend(RepositoryContext repository) =>
-        new("frontend-verify", "npm", ["--prefix", repository.Path("src", "Clients", "Orisumi.Web"), "run", "verify"]);
-
-    private static IReadOnlyList<VerificationStep> Mac(RepositoryContext repository) =>
-    [
-        new("mac-test", "swift", ["test", "--package-path", repository.Path("src", "Clients", "Orisumi.Mac", "OrisumiClient")]),
-        new("mac-build", "xcodebuild", ["-project", repository.Path("src", "Clients", "Orisumi.Mac", "Orisumi.xcodeproj"),
-            "-scheme", "Orisumi", "-configuration", "Debug", "-destination", MacCommand.Destination,
-            "-derivedDataPath", repository.Path(".artifacts", "mac"), "-quiet", "build"]),
-    ];
 
     private static VerificationStep DocsCheck(RepositoryContext repository) =>
         new("docs-check", "pnpm", ["--dir", repository.Path("src", "Docs", "Orisumi.Docs"), "docs:check"]);
@@ -141,10 +106,8 @@ internal static class VerificationPlanner
         ];
     }
 
-    // The macOS client builds only on macOS.
     private static IReadOnlyList<VerificationStep> Full(RepositoryContext repository) =>
-        [Build(repository), ModelTests(repository), IntegrationTests(repository), CliTests(repository), Frontend(repository), .. Docs(repository),
-            .. OperatingSystem.IsMacOS() ? Mac(repository) : []];
+        [Build(repository), CliTests(repository), .. Docs(repository)];
 
     private static async Task<IReadOnlyList<string>> ChangedPathsAsync(
         IProcessRunner runner, string baseRef, CancellationToken cancellationToken)
@@ -161,7 +124,7 @@ internal static class VerificationPlanner
     }
 
     [Flags]
-    private enum CheckSelection { None = 0, Build = 1, Backend = 2, Cli = 4, Docs = 8, Unknown = 16, Model = 32, DocsCheck = 64, Frontend = 128, Mac = 256 }
+    private enum CheckSelection { None = 0, Build = 1, Cli = 2, Docs = 4, DocsCheck = 8, Unknown = 16 }
 }
 
 internal static class VerificationReporter

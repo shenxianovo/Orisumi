@@ -1,0 +1,9 @@
+{
+  "title": "Requirements",
+  "description": "用户确认的需求",
+  "icon": "ListChecks",
+  "root": true,
+  "pages": [
+    "index"
+  ]
+}

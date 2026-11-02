@@ -1,15 +1,10 @@
-// Checks that the project's documents are consistent: links, anchors, Core rule numbers and actors,
-// deprecated terms, ADR sections, JSON examples and sidebar entries. Project documents are the
-// docs site content, every README.md and AGENTS.md, and the agent skills under .agents/.
-// Application sources under src/ and tests/ are checked for Core rules that do not exist and for deprecated terms.
+// Checks that the project's documents are consistent: links, anchors, JSON examples, frontmatter and sidebar entries.
+// Project documents are the docs site content, every README.md and AGENTS.md, and the agent skills under .agents/.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, dirname, join, normalize, relative } from 'node:path';
+import { basename, dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  adrIndexRows, adrStructure, anchorsOf, deprecatedTerms, findTerm, frontmatter, jsonBlocks, lineAt, linksOf,
-  isCheckedSource, ruleHeadings, rulePrefixes, ruleReferences, type Finding, type Rule,
-} from '../lib/docs-check.ts';
+import { anchorsOf, frontmatter, jsonBlocks, lineAt, linksOf, type Finding } from '../lib/docs-check.ts';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
   cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8',
@@ -21,9 +16,7 @@ const isProjectDocument = (file: string) => file.startsWith(`${docs}/`)
 const tracked = execFileSync('git', ['-c', 'core.quotepath=off', 'ls-files', '-co', '--exclude-standard'], {
   cwd: root, encoding: 'utf8',
 }).split('\n').filter((file) => file && !file.includes('node_modules/') && existsSync(join(root, file)));
-const files = tracked.filter((file) => /\.mdx?$/.test(file) || file === `${docs}/api/openapi.json`)
-  .filter(isProjectDocument);
-const sources = tracked.filter(isCheckedSource);
+const files = tracked.filter((file) => /\.mdx?$/.test(file)).filter(isProjectDocument);
 
 const texts = new Map(files.map((file) => [file, readFileSync(join(root, file), 'utf8')]));
 const read = (file: string) => texts.get(file) ?? readFileSync(join(root, file), 'utf8');
@@ -37,7 +30,7 @@ const anchors = (file: string) => {
 /** Resolve a link to a repository file, or null when it leaves the repository's documents. */
 function resolveLink(from: string, target: string): { file: string; anchor: string } | null | 'skip' {
   const [path, anchor = ''] = target.split('#');
-  if (/^[a-z]+:/i.test(path) || path.startsWith('/api/') || path.startsWith('/llms') || path.startsWith('/og/')) return 'skip';
+  if (/^[a-z]+:/i.test(path) || path.startsWith('/llms') || path.startsWith('/og/')) return 'skip';
   if (!path) return { file: from, anchor };
   if (path.startsWith('/')) {
     for (const candidate of [`${docs}${path}.mdx`, `${docs}${path}/index.mdx`]) {
@@ -49,87 +42,26 @@ function resolveLink(from: string, target: string): { file: string; anchor: stri
   return existsSync(join(root, file)) ? { file, anchor } : null;
 }
 
-// Core rules: headings define rules, the Conventions page's prefix table defines which page owns a prefix.
-const prefixes = rulePrefixes(read(`${docs}/core/conventions.mdx`));
-const rules = new Map<string, Rule>();
-for (const [prefix, page] of prefixes) {
-  const file = `${docs}/core/${page}`;
-  const result = ruleHeadings(file, read(file), prefix);
-  findings.push(...result.findings);
-  for (const rule of result.rules) rules.set(rule.id, rule);
-}
-
-const glossaryFile = `${docs}/core/glossary.mdx`;
-const deprecated = deprecatedTerms(read(glossaryFile));
-
 for (const [file, text] of texts) {
-  const at = (index: number) => lineAt(text, index);
-
   for (const link of linksOf(text)) {
     const resolved = resolveLink(file, link.target);
     if (resolved === 'skip') continue;
     if (!resolved) {
-      findings.push({ file, line: at(link.index), check: 'link', message: `${link.target} does not exist` });
+      findings.push({ file, line: lineAt(text, link.index), check: 'link', message: `${link.target} does not exist` });
       continue;
     }
     const isDocument = /\.mdx?$/.test(resolved.file);
     if (resolved.anchor && isDocument && !anchors(resolved.file).has(decodeURIComponent(resolved.anchor))) {
-      findings.push({ file, line: at(link.index), check: 'anchor', message: `${link.target} has no anchor #${resolved.anchor}` });
-    }
-    const rule = rules.get(link.text);
-    if (rule && (resolved.file !== rule.file || resolved.anchor !== link.text.toLowerCase())) {
-      findings.push({ file, line: at(link.index), check: 'rule-link',
-        message: `[${link.text}] must link to ${relative(dirname(file), rule.file)}#${link.text.toLowerCase()}` });
+      findings.push({ file, line: lineAt(text, link.index), check: 'anchor', message: `${link.target} has no anchor #${resolved.anchor}` });
     }
   }
 
-  for (const reference of ruleReferences(text, new Set(prefixes.keys()))) {
-    if (!rules.has(reference.id)) {
-      findings.push({ file, line: at(reference.index), check: 'rule-reference', message: `${reference.id} does not exist` });
-    }
-  }
-
-  for (const term of deprecated.terms) {
-    for (const index of findTerm(text, term)) {
-      if (file === glossaryFile && index >= deprecated.section[0] && index < deprecated.section[1]) continue;
-      findings.push({ file, line: at(index), check: 'deprecated-term', message: `"${term}" is no longer used; see the Glossary` });
-    }
-  }
-
-  if (file.endsWith('.md') || file.endsWith('.mdx')) findings.push(...jsonBlocks(file, text));
+  findings.push(...jsonBlocks(file, text));
 
   if (file.startsWith(`${docs}/`) && file.endsWith('.mdx')) {
     const fields = frontmatter(text);
     for (const field of ['title', 'description']) {
       if (!fields?.[field]) findings.push({ file, line: 1, check: 'frontmatter', message: `missing ${field}` });
-    }
-    if (file.startsWith(`${docs}/adr/`) && basename(file) !== 'index.mdx') findings.push(...adrStructure(file, text));
-  }
-}
-
-// The ADR index repeats each ADR's description, so the two must stay identical.
-const adrIndex = `${docs}/adr/index.mdx`;
-for (const row of adrIndexRows(read(adrIndex))) {
-  const page = `${docs}/adr/${row.slug}.mdx`;
-  if (!existsSync(join(root, page))) continue;
-  const description = frontmatter(read(page))?.description;
-  if (description !== row.description) {
-    findings.push({ file: adrIndex, line: lineAt(read(adrIndex), row.index), check: 'adr-index',
-      message: `${row.slug}: the decision column must equal the ADR's description` });
-  }
-}
-
-for (const file of sources) {
-  const text = readFileSync(join(root, file), 'utf8');
-  for (const reference of ruleReferences(text, new Set(prefixes.keys()))) {
-    if (!rules.has(reference.id)) {
-      findings.push({ file, line: lineAt(text, reference.index), check: 'rule-reference', message: `${reference.id} does not exist` });
-    }
-  }
-  // A term with a space is prose; in code it would match a type followed by a name, such as `Observation Content`.
-  for (const term of deprecated.terms.filter((candidate) => !/\s/.test(candidate))) {
-    for (const index of findTerm(text, term)) {
-      findings.push({ file, line: lineAt(text, index), check: 'deprecated-term', message: `"${term}" is no longer used; see the Glossary` });
     }
   }
 }
@@ -145,9 +77,6 @@ function walk(directory: string): string[] {
   });
 }
 const docFiles = walk(docs);
-// The API section also lists the pages generated from the contract, one per operationId.
-const operationPages = new Set(Object.values(JSON.parse(read(`${docs}/api/openapi.json`)).paths as Record<string, Record<string, { operationId?: string }>>)
-  .flatMap((operations) => Object.values(operations).map((operation) => `${docs}/api/${operation.operationId}`)));
 for (const metaFile of docFiles.filter((file) => basename(file) === 'meta.json')) {
   const directory = dirname(metaFile);
   metaDirs.add(directory);
@@ -156,7 +85,7 @@ for (const metaFile of docFiles.filter((file) => basename(file) === 'meta.json')
     if (entry === '...' || entry === 'z...a') { wildcard.add(directory); continue; }
     if (/^---.*---$/.test(entry) || entry.startsWith('!') || entry.startsWith('[')) continue;
     const target = normalize(join(directory, entry));
-    if (!existsSync(join(root, `${target}.mdx`)) && !existsSync(join(root, target)) && !operationPages.has(target)) {
+    if (!existsSync(join(root, `${target}.mdx`)) && !existsSync(join(root, target))) {
       findings.push({ file: metaFile, line: 1, check: 'sidebar', message: `"${entry}" does not exist` });
     }
     listed.add(target);
@@ -174,6 +103,5 @@ for (const file of docFiles.filter((path) => path.endsWith('.mdx'))) {
 }
 
 for (const finding of findings) console.log(`${finding.file}:${finding.line}: [${finding.check}] ${finding.message}`);
-const checked = `${files.length} documents and ${sources.length} sources`;
-console.log(findings.length ? `\n${findings.length} problem(s) in ${checked}.` : `Checked ${checked}.`);
+console.log(findings.length ? `\n${findings.length} problem(s) in ${files.length} documents.` : `Checked ${files.length} documents.`);
 process.exitCode = findings.length ? 1 : 0;

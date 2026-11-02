@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import {
-  adrIndexRows, adrStructure, anchorsOf, deprecatedTerms, findTerm, isCheckedSource, jsonBlocks, linksOf, ruleActorProblem, ruleHeadings,
-  rulePrefixes, ruleReferences,
-  slugify,
-} from '../lib/docs-check.ts';
+import { anchorsOf, frontmatter, jsonBlocks, linksOf, slugify } from '../lib/docs-check.ts';
 
 test('slugs keep CJK text and drop punctuation like github-slugger', () => {
   assert.equal(slugify('API 遥测验证'), 'api-遥测验证');
@@ -21,60 +17,9 @@ test('links inside code are not links', () => {
   assert.deepEqual(links.map((link) => link.target), ['./a.mdx']);
 });
 
-test('the Core prefix table maps prefixes to pages', () => {
-  const prefixes = rulePrefixes('| `ENTITY` | [IEntity](./model/entity.mdx) |\n| `TIME` | [Time](./rules/time.mdx) |\n');
-  assert.deepEqual([...prefixes], [['ENTITY', 'model/entity.mdx'], ['TIME', 'rules/time.mdx']]);
-});
-
-test('rule headings need their page prefix, a matching anchor and ascending numbers', () => {
-  const page = ['### TIME-1 a [#time-1]', '### TIME-3 b [#time-3]', '### TIME-2 c [#time-2]', '### TIME-4 d [#time-5]', '### ENTITY-9 e [#entity-9]']
-    .map((heading) => `${heading}\n\n定义\n`).join('');
-  const { rules, findings } = ruleHeadings('time.mdx', page, 'TIME');
-  assert.equal(rules.length, 5);
-  assert.deepEqual(findings.map((finding) => finding.line), [7, 10, 13]);
-});
-
-test('the first paragraph under a rule names its actors or marks it as a definition', () => {
-  assert.equal(ruleActorProblem('定义'), null);
-  assert.equal(ruleActorProblem('执行方：写入方、后端'), null);
-  assert.match(ruleActorProblem('执行方：前端')!, /unknown actor 前端/);
-  assert.match(ruleActorProblem('执行方：后端、后端')!, /twice/);
-  assert.match(ruleActorProblem('正文')!, /first paragraph/);
-  const { findings } = ruleHeadings('time.mdx', '### TIME-1 a [#time-1]\n\n### TIME-2 b [#time-2]\n\n执行方：后端\n', 'TIME');
-  assert.deepEqual(findings.map((finding) => [finding.line, finding.check]), [[1, 'rule-actor']]);
-});
-
-test('rule references only count known prefixes', () => {
-  const found = ruleReferences('见 TIME-4、UTF-8 和 IDENTITY-3。', new Set(['TIME', 'IDENTITY', 'ENTITY']));
-  assert.deepEqual(found.map((reference) => reference.id), ['TIME-4', 'IDENTITY-3']);
-});
-
-test('application sources under src and tests are checked, the docs site is not', () => {
-  assert.equal(isCheckedSource('src/Core/Orisumi.Core/VersionRules.cs'), true);
-  assert.equal(isCheckedSource('tests/Orisumi.Model.Tests/VersionTests.cs'), true);
-  assert.equal(isCheckedSource('src/Clients/Orisumi.Web/src/components/entity/Content.tsx'), true);
-  assert.equal(isCheckedSource('src/Clients/Orisumi.Mac/OrisumiClient/Sources/OrisumiClient/RuntimeProtocol.swift'), true);
-  assert.equal(isCheckedSource('tools/Orisumi.Dev/Program.cs'), false);
-  assert.equal(isCheckedSource('src/Docs/Orisumi.Docs/lib/docs-check.ts'), false);
-});
-
-test('ADR index rows give the slug and the decision column', () => {
-  const rows = adrIndexRows('| 分组 | ADR | 决定 |\n| --- | --- | --- |\n| Model | [实体模型](./entity-model.mdx) | 实体表达身份 |\n');
-  assert.deepEqual(rows.map(({ slug, description }) => ({ slug, description })), [{ slug: 'entity-model', description: '实体表达身份' }]);
-});
-
-test('deprecated terms come from the Glossary table and ASCII terms match whole words', () => {
-  const glossary = '## 时间\n| `x` | y |\n## 不再使用的术语 [#deprecated]\n| 术语 | 替代 |\n| `ITimed`、`OBS-` | z |\n';
-  assert.deepEqual(deprecatedTerms(glossary).terms, ['ITimed', 'OBS-']);
-  assert.deepEqual(findTerm('OBSERVATION-6 and OBS-6', 'OBS-'), [18]);
-  assert.deepEqual(findTerm('不再说采集程序了', '采集程序'), [3]);
-});
-
-test('ADRs need the template sections in order', () => {
-  const sections = (names: string[]) => names.map((name) => `## ${name} [#x]`).join('\n');
-  assert.deepEqual(adrStructure('a.mdx', sections(['背景', '决定', '理由', '代价', '规则位置'])), []);
-  assert.deepEqual(adrStructure('a.mdx', sections(['背景', '决定', '规则', '理由', '代价', '规则位置'])), []);
-  assert.equal(adrStructure('a.mdx', sections(['背景', '决定', '理由', '影响'])).length, 1);
+test('frontmatter reads title and description', () => {
+  assert.deepEqual(frontmatter('---\ntitle: "Orisumi"\ndescription: 重写中\n---\n'), { title: 'Orisumi', description: '重写中' });
+  assert.equal(frontmatter('# 没有 frontmatter\n'), null);
 });
 
 test('JSON examples must parse', () => {

@@ -3,9 +3,6 @@ import { lucideIconsPlugin } from 'fumadocs-core/source/lucide-icons';
 import { docsRoute } from './routes';
 import { defineDocs } from 'fumadocs-mdx/macro';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
-import { openapi } from './openapi';
-import { buildGraph, graphSections, type Section } from './build-graph';
-import { posix } from 'node:path';
 
 const docs = defineDocs({
   dir: 'content/docs',
@@ -24,13 +21,17 @@ const docs = defineDocs({
 export const source = loader(
   {
     docs: docs.toFumadocsSource(),
-    openapi: await openapi.staticSource({ baseDir: 'api' }),
   },
   {
     baseUrl: docsRoute,
-    plugins: [lucideIconsPlugin(), openapi.loaderPlugin()],
+    plugins: [lucideIconsPlugin()],
   },
 );
+
+export interface Section {
+  slug: string;
+  name: string;
+}
 
 type TreeNode = ReturnType<typeof source.getPageTree>['children'][number];
 
@@ -45,17 +46,4 @@ export function getSections(): Section[] {
     const url = node.type === 'folder' && node.root ? firstUrl(node) : undefined;
     return url ? [{ slug: url.split('/')[1], name: String(node.name) }] : [];
   });
-}
-
-export function getDocumentationGraph() {
-  const sections = getSections();
-  return buildGraph(
-    source.getPages().filter((page) => page.type === 'docs'),
-    graphSections.map((slug) => {
-      const section = sections.find((item) => item.slug === slug);
-      if (!section) throw new Error(`Graph section "${slug}" is not a section of the sidebar`);
-      return section;
-    }),
-    (href, page) => source.getPageByHref(href, { dir: posix.dirname(page.path) })?.page.url,
-  );
 }

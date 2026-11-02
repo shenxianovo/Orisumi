@@ -17,7 +17,6 @@ internal sealed class VerificationCommand(
     TextWriter output,
     TextWriter? error = null)
 {
-    private const string Limitation = "Container startup and browser interaction are verified separately.";
     private const int FailureLines = 20;
     private const string QualityLimitation = "Quality findings guide review; scans must complete, but findings do not fail the run.";
 
@@ -29,7 +28,7 @@ internal sealed class VerificationCommand(
         var checks = new Command("checks", "Run build and automated checks; scope selects changed paths or all checks");
         var scope = new Option<string>("--scope")
         {
-            Description = "Check selection; all excludes scenarios and quality analysis",
+            Description = "Check selection; all excludes quality analysis",
             DefaultValueFactory = _ => "changed",
         };
         scope.AcceptOnlyFromAmong("changed", "all");
@@ -46,7 +45,6 @@ internal sealed class VerificationCommand(
             parse.GetValue(scope) == "all" ? "full" : "changed", parse.GetValue(baseRef),
             parse.GetValue(plan), parse.GetValue(json), parse.GetValue(quality)), token));
         command.Subcommands.Add(checks);
-        command.Subcommands.Add(new ScenarioCommand(repository, runner, output).CreateCommand());
         return command;
     }
 
@@ -67,7 +65,7 @@ internal sealed class VerificationCommand(
         var console = Terminal.Create(progress);
         VerificationReporter.WriteHeading(console, plan, request.Quality);
         var execution = new VerificationCommand(repository, runner, progress);
-        string[] limitations = request.Quality ? [Limitation, QualityLimitation] : [Limitation];
+        string[] limitations = request.Quality ? [QualityLimitation] : [];
         string? directory = null;
         var exitCode = 1;
         var clock = Stopwatch.StartNew();

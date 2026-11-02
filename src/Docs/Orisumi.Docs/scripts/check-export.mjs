@@ -3,16 +3,15 @@ import { access, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 const output = resolve('out');
-for (const path of ['index.html', '404.html', 'start/index.html', 'core/index.html',
-  'testing/reports/integration/index.html', 'core/model/observation.md',
+for (const path of ['index.html', '404.html', 'start/index.html', 'start.md',
   'llms.txt', 'llms-full.txt', 'og/start/image.png', '.nojekyll']) {
   await access(join(output, path));
 }
 
 const index = JSON.parse(await readFile(join(output, 'api/search'), 'utf8'));
 assert.ok(index && typeof index === 'object', 'Search must export a JSON index');
-const markdown = await readFile(join(output, 'core/model/observation.md'), 'utf8');
-assert.match(markdown, /^# Observation/m);
+const markdown = await readFile(join(output, 'start.md'), 'utf8');
+assert.match(markdown, /^# Orisumi/m);
 
 // Check the real output: every root-relative asset, page and Markdown link must exist.
 const missing = new Set();

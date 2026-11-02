@@ -13,7 +13,7 @@ export async function GET(_req: Request, { params }: RouteContext<'/llms.mdx/[[.
 
   return new Response(await docsLlms.page(page), {
     headers: {
-      'Content-Type': page.type === 'openapi' ? 'application/json' : 'text/markdown; charset=utf-8',
+      'Content-Type': 'text/markdown; charset=utf-8',
     },
   });
 }

@@ -2,13 +2,6 @@
   "title": "Orisumi 文档",
   "pages": [
     "start",
-    "core",
-    "observers",
-    "hosting",
-    "api",
-    "storage",
-    "clients",
-    "adr",
-    "testing"
+    "requirements"
   ]
 }

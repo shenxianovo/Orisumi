@@ -1,8 +1,5 @@
 import { asMarkdown, md } from 'fumadocs-core/server';
 import type { ReactNode } from 'react';
-import { DocumentationGraph } from './documentation-graph';
-import { ModelRelations } from './model-relations';
-import { ObserverStructure } from './observer-structure';
 
 // Markdown forms of the Fumadocs UI components used in pages. Pages render the originals from `./mdx`.
 
@@ -25,8 +22,8 @@ async function Card({ title, href, children }: { title: ReactNode; href?: string
 }
 
 /**
- * Components for the exported Markdown of a page. Components left out, such as the test reports, stay as JSX.
+ * Components for the exported Markdown of a page. Components left out stay as JSX.
  */
 export function getMarkdownComponents() {
-  return { Callout, Cards, Card, DocumentationGraph, ModelRelations, ObserverStructure };
+  return { Callout, Cards, Card };
 }

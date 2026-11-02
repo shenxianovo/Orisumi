@@ -1,11 +1,9 @@
 {
   "title": "Start",
-  "description": "Orisumi 是什么，以及怎样读这份文档",
+  "description": "Orisumi 是什么",
   "icon": "Compass",
   "root": true,
   "pages": [
-    "index",
-    "walkthrough",
-    "graph"
+    "index"
   ]
 }

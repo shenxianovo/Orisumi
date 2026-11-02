@@ -1,6 +1,6 @@
 import { RootProvider } from 'fumadocs-ui/provider/next';
 import './global.css';
-import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import { i18nProvider } from 'fumadocs-ui/i18n';
 import { translations } from '@/lib/translations';
 import { appName, siteUrl } from '@/lib/site-config';
@@ -10,8 +10,10 @@ import type { Metadata } from 'next';
 import { SiteFavicon } from '@/components/site-icon';
 import Script from 'next/script';
 
-const inter = Inter({
-  subsets: ['latin'],
+// Inter ships with the dependencies, so the dev server and the build never fetch fonts from Google.
+const inter = localFont({
+  src: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
+  weight: '100 900',
 });
 
 // One search filter per section of the sidebar. The value is the first URL segment, the `tag` of the search index.

@@ -1,8 +1,0 @@
-{
-  "appHost": {
-    "path": "tools/Orisumi.AppHost/Orisumi.AppHost.csproj"
-  },
-  "features": {
-    "defaultWatchEnabled": true
-  }
-}

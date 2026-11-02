@@ -9,8 +9,6 @@ import {
 } from 'fumadocs-ui/layouts/spacious/page';
 import { notFound, redirect } from 'next/navigation';
 import { getMDXComponents } from '@/components/mdx';
-import { OpenAPIPage } from '@/components/api-page';
-import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import { createRelativeLink } from 'fumadocs-ui/mdx';
 import { getPageImageUrl, getPageMarkdownUrl } from '@/lib/routes';
@@ -26,34 +24,17 @@ export default async function Page(props: PageProps<'/[[...slug]]'>) {
   if (!page) notFound();
 
   const markdownUrl = getPageMarkdownUrl(page).url;
-  const contentPath = page.type === 'openapi'
-    ? `${gitConfig.contentPath}/api/openapi.json`
-    : `${gitConfig.contentPath}/${page.path}`;
-  let content: ReactNode;
-
-  if (page.type === 'openapi') {
-    content = <OpenAPIPage {...page.data.getOpenAPIPageProps()} />;
-  } else {
-    const MDX = page.data.body;
-    content = (
-      <MDX
-        components={getMDXComponents({
-          a: createRelativeLink(source, page),
-        })}
-      />
-    );
-  }
+  const contentPath = `${gitConfig.contentPath}/${page.path}`;
+  const MDX = page.data.body;
 
   return (
     <DocsPage
       toc={page.data.toc}
-      full={page.type === 'openapi' ? true : page.data.full}
+      full={page.data.full}
       tableOfContent={{ style: 'clerk' }}
     >
       <DocsTitle>{page.data.title}</DocsTitle>
-      {page.type === 'docs' && (
-        <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
-      )}
+      <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
       <div className="flex flex-row gap-2 items-center border-b pb-6">
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
@@ -61,7 +42,9 @@ export default async function Page(props: PageProps<'/[[...slug]]'>) {
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${contentPath}`}
         />
       </div>
-      <DocsBody>{content}</DocsBody>
+      <DocsBody>
+        <MDX components={getMDXComponents({ a: createRelativeLink(source, page) })} />
+      </DocsBody>
     </DocsPage>
   );
 }

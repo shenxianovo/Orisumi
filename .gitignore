@@ -8,7 +8,6 @@ obj/
 
 .env
 .env.*
-!.env.example
 .local/
 .artifacts/
 
@@ -23,11 +22,3 @@ playwright-report/
 test-results/
 
 .DS_Store
-
-# Aspire generated deployment output
-aspire-output/
-
-# Swift and Xcode
-.build/
-.swiftpm/
-xcuserdata/

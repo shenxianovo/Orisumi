@@ -15,9 +15,7 @@ internal sealed class DeveloperCli(
         {
             new HelpOption { Recursive = true },
             new VersionOption(),
-            new EnvironmentCommand(repository, runner, output).CreateCommand(),
-            new MacCommand(repository, runner, output).CreateCommand(),
-            new ObserversCommand(repository, runner, output).CreateCommand(),
+            new DocsCommand(repository, runner, output).CreateCommand(),
             new VerificationCommand(repository, runner, output, error).CreateCommand(),
             Group("analyze", "Analyze code structure and size",
                 new QualityCommand(repository, runner, output).CreateCommand(),
@@ -46,7 +44,7 @@ internal sealed class DeveloperCli(
             Output = output,
             Error = error,
             EnableDefaultExceptionHandler = false,
-            // Program owns cancellation. Allow evidence and environment cleanup to finish.
+            // Program owns cancellation. Allow evidence cleanup to finish.
             ProcessTerminationTimeout = null,
         };
         try

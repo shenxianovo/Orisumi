@@ -11,7 +11,7 @@ public sealed class CliContractTests
     [Arguments(130)]
     public async Task JsonExecutionReportsTheOutcomeWithoutProgressOnStdout(int exitCode)
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         using var error = new StringWriter();
         var cli = new DeveloperCli(fixture.Repository, new CheckRunner(exitCode), fixture.Output, error);
         var actual = await cli.RunAsync(["verify", "checks", "--base", "HEAD", "--json"], CancellationToken.None);
@@ -24,18 +24,14 @@ public sealed class CliContractTests
 
     [Test]
     [Arguments("")]
-    [Arguments("env")]
-    [Arguments("env telemetry")]
-    [Arguments("env volumes")]
-    [Arguments("mac")]
-    [Arguments("observers")]
+    [Arguments("docs")]
     [Arguments("verify")]
     [Arguments("analyze")]
     [Arguments("runs")]
     [Arguments("tool")]
     public async Task GroupsShowHelpWithoutPerformingOperations(string path)
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         var cli = new DeveloperCli(fixture.Repository, fixture.Runner, fixture.Output, TextWriter.Null);
         await Assert.That(await cli.RunAsync(path.Split(' ', StringSplitOptions.RemoveEmptyEntries), CancellationToken.None)).IsEqualTo(0);
         await Assert.That(fixture.Runner.Calls.Count).IsEqualTo(0);
@@ -50,46 +46,15 @@ public sealed class CliContractTests
     [Arguments("loc")]
     [Arguments("install")]
     [Arguments("artifacts list")]
-    [Arguments("env otel traces api")]
-    [Arguments("mac build --debug")]
-    [Arguments("mac run --configuration invalid")]
     [Arguments("verify checks --scope invalid")]
     [Arguments("verify checks --scope all --base HEAD")]
     [Arguments("verify checks --scope all --quality")]
     public async Task InvalidCommandsDoNotPerformOperations(string arguments)
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         var cli = new DeveloperCli(fixture.Repository, fixture.Runner, fixture.Output, TextWriter.Null);
         await Assert.That(await cli.RunAsync(arguments.Split(' '), CancellationToken.None)).IsEqualTo(2);
         await Assert.That(fixture.Runner.Calls.Count).IsEqualTo(0);
-    }
-
-    [Test]
-    [Arguments("logs")]
-    [Arguments("spans")]
-    [Arguments("traces")]
-    public async Task TelemetryForwardsTheSelectedKindAndOptionalResource(string kind)
-    {
-        using var fixture = new EnvironmentFixture();
-        var cli = new DeveloperCli(fixture.Repository, fixture.Runner, fixture.Output, TextWriter.Null);
-        foreach (string[] target in new[] { Array.Empty<string>(), new[] { "migrate" } })
-        {
-            await Assert.That(await cli.RunAsync(["env", "telemetry", kind, .. target], CancellationToken.None)).IsEqualTo(0);
-            await Assert.That(fixture.Runner.Calls.Last().Args.SequenceEqual(
-                new[] { "otel", kind }.Concat(target).Concat(["--apphost", fixture.Manager.AppHost]))).IsTrue();
-        }
-    }
-
-    [Test]
-    public async Task VolumesListShowsAllCheckoutsWithoutDeletingAnything()
-    {
-        using var fixture = new EnvironmentFixture();
-        fixture.Runner.VolumeInventory = true;
-        var cli = new DeveloperCli(fixture.Repository, fixture.Runner, fixture.Output, TextWriter.Null);
-        await Assert.That(await cli.RunAsync(["env", "volumes", "list", "--json"], CancellationToken.None)).IsEqualTo(0);
-        using var result = JsonDocument.Parse(fixture.Output.ToString());
-        await Assert.That(result.RootElement.GetArrayLength()).IsEqualTo(2);
-        await Assert.That(fixture.Runner.Calls.Any(call => call.Args.Contains("rm"))).IsFalse();
     }
 
     [Test]
@@ -97,7 +62,7 @@ public sealed class CliContractTests
     [Arguments("all", false)]
     public async Task ScopePlansDoNotExecuteChecksOrCreateEvidence(string scope, bool quality)
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         var runner = new CheckRunner(0);
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
         string[] selection = quality ? ["--base", "HEAD", "--quality"] : [];
@@ -114,7 +79,7 @@ public sealed class CliContractTests
     [Arguments(false)]
     public async Task DefaultChangedScopeOnlyInfersHeadForDirtyWorktrees(bool dirty)
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         var runner = new CheckRunner(0) { Dirty = dirty };
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
         var code = await cli.RunAsync(["verify", "checks", "--plan", "--json"], CancellationToken.None);
@@ -127,7 +92,7 @@ public sealed class CliContractTests
     [Test]
     public async Task CombinedJsonReportsQualityFailureSeparatelyFromPassingChecks()
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         var runner = new CheckRunner(0);
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
         var code = await cli.RunAsync(["verify", "checks", "--base", "HEAD", "--quality", "--json"], CancellationToken.None);
@@ -141,7 +106,7 @@ public sealed class CliContractTests
     [Test]
     public async Task CancellationProducesAJsonResultAndPreservesPartialEvidence()
     {
-        using var fixture = new EnvironmentFixture();
+        using var fixture = new CliFixture();
         var runner = new CheckRunner(0) { Cancel = true };
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
         await Assert.That(async () => await cli.RunAsync(["verify", "checks", "--base", "HEAD", "--json"], CancellationToken.None))
@@ -152,6 +117,26 @@ public sealed class CliContractTests
         await Assert.That(File.ReadAllText(Path.Combine(run.Directory, "dotnet-build.log"))).IsEqualTo("partial output");
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(run.Directory, "manifest.json")));
         await Assert.That(manifest.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);
+    }
+
+    private sealed class CliFixture : IDisposable
+    {
+        public RepositoryContext Repository { get; } = new(Path.Combine(Path.GetTempPath(), "orisumi-cli-tests-" + Guid.NewGuid().ToString("N")));
+        public CallRunner Runner { get; } = new();
+        public StringWriter Output { get; } = new();
+        public CliFixture() => Directory.CreateDirectory(Repository.Root);
+        public void Dispose() { Output.Dispose(); Directory.Delete(Repository.Root, true); }
+    }
+
+    private sealed class CallRunner : IProcessRunner
+    {
+        public List<(string File, string[] Args)> Calls { get; } = [];
+        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
+            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken)
+        {
+            Calls.Add((fileName, arguments.ToArray()));
+            return Task.FromResult(new ProcessResult(0, "", ""));
+        }
     }
 
     private sealed class CheckRunner(int exitCode) : IProcessRunner
