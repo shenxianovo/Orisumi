@@ -13,10 +13,9 @@ description: "Claude Code 与 Codex 本机会话中的交互"
 
 | 业务类型 | 用途 | 资源名 |
 | --- | --- | --- |
-| [Assistant Sessions Observer](./assistant-sessions-observer.mdx) | 程序实例的描述 | `assistant-sessions-observers` |
 | [Assistant Session](./assistant-session.mdx) | 事物：来源中的一个会话，包括子 Agent 的会话 | `assistant-sessions` |
 | [Assistant Interaction](./assistant-interaction.mdx) | 观测：会话中的一次交互 | `assistant-interactions` |
-| [Name](../../core/rules/understanding.mdx#name) | 观测：会话的一次标题，见 [Assistant Session · 标题](./assistant-session.mdx#titles) | `names` |
+| [Name](../../core/model/common-types.mdx#name) | 观测：会话的一次标题，见 [Assistant Session · 标题](./assistant-session.mdx#titles) | `names` |
 | [Assistant Subagent](./assistant-subagent.mdx) | 观测：子 Agent 的会话和发起它的会话 | `assistant-subagents` |
 
 ```mermaid
@@ -24,21 +23,20 @@ flowchart LR
   I[Assistant Interaction] -->|observerId| R[助手会话 Observer]
   I -->|sessionId| S[Assistant Session]
   I -->|deviceId| D[Device]
-  I -->|toolCallVersionId| I
+  I -->|toolCallId| I
   L[Name] -->|thingId| S
   G[Assistant Subagent] -->|sessionId| S
   G -->|parentSessionId| S
-  click R "/observers/assistant-sessions/assistant-sessions-observer"
   click I "/observers/assistant-sessions/assistant-interaction"
   click S "/observers/assistant-sessions/assistant-session"
   click D "/observers/device-state/device"
-  click L "/core/rules/understanding#name"
+  click L "/core/model/common-types#name"
   click G "/observers/assistant-sessions/assistant-subagent"
 ```
 
 ## 程序实例 [#instance]
 
-一个助手会话 Observer 读取所在设备上当前用户的日志目录。程序读的是本机日志，所以每次交互的 `deviceId` 是运行上下文中的运行设备，程序启动时写入设备描述，见 [Hosting · 运行上下文](../../hosting/index.mdx#context)。
+一个助手会话 Observer 读取所在设备上当前用户的日志目录，用公共的 [Observer 描述](../../core/model/common-types.mdx#observer-descriptions)说明自己。程序读的是本机日志，所以每次交互的 `deviceId` 是运行上下文中的运行设备，程序启动时写入设备描述，见 [Hosting · 运行上下文](../../hosting/index.mdx#context)。
 
 程序实例把采集状态保存在自己的数据目录中（见 [Runtime · 数据目录](../../hosting/runtime.mdx#data)）：
 
@@ -113,7 +111,7 @@ flowchart LR
 | --- | --- |
 | 一个子 Agent 的会话 | [子 Agent 关系](./assistant-subagent.mdx) |
 | 一次标题 | [Name](./assistant-session.mdx#titles)，带识别依据和时间 |
-| 一次交互 | [交互](./assistant-interaction.mdx)，带识别依据和时间；提到会话，引用调用；原始记录的字节先上传 |
+| 一次交互 | [交互](./assistant-interaction.mdx)，带识别依据、时间和[说话人](./assistant-interaction.mdx#speaker)；提到会话，引用调用；原始记录的字节先上传 |
 
 会话是事物，第一次被提到时由后端创建，不用单独写入。
 

@@ -19,21 +19,24 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 | --- | --- |
 | 筛选 path 和 resourceName | 只返回匹配项，筛选先于分页 |
 | 嵌套字段名含斜线和波浪号 | path 按 JSON Pointer 转义 |
-| 分别查 current 和 all，升序和降序分页 | 返回对应版本范围，页间不重复 |
-| 删除目标后再次查询 | 引用方、path、targetEntityId 和 targetVersionId 保留 |
-| 查询引用事物的 Observation | targetEntityId 是事物身份，targetVersionId 为 null |
+| 分别用 view=current 和 view=all，升序和降序分页 | current 不含被隐藏的引用方，all 全部返回；页间不重复 |
+| 删除目标后再次查询 | 引用方、path 和 targetId 保留 |
+| 查询引用事物的 Observation | targetId 是 `thingId` |
+| 查询 Observation 的引用方，引用方把它列在 InputSet 中 | 返回引用方，path 是 `/inputSetId` |
+| 查询被替换的 Observation 的引用方 | 返回替换者，path 是 `/replaces/0` |
+| 两个事物由 Same-As 连起来，查询其中一个的引用方 | 只返回引用这个 id 的，不展开 |
 | 按 /observerId 查询作者的引用方 | 找到该作者的 Observation |
 
 ## 测试实现 [#implementation]
 
 方法位于 `tests/Orisumi.Integration.Tests/`：
 
-- 路径、类型、版本范围、分页和删除：`ReferrerApiTests.ReferencesFilterBeforePagingKeepPathsAndSurviveTargetDeletion`。
+- 路径、类型、分页和删除：`ReferrerApiTests.ReferencesFilterBeforePagingKeepPathsAndSurviveTargetDeletion`。
 
 - 事物引用：`UnderstandingApiTests.ThingNamesPreferPeopleThenLatestAndDeletionRetainsReferences`。
 - 作者路径和被否定输入：`UnderstandingApiTests.DeniedInputRemainsTraceableThroughInputSetAndReferrers`。
 
-未覆盖：筛选和翻页期间发生并发写入。
+未覆盖：`/inputSetId`、`/replaces/0` 和不展开 Same-As，由实现任务补上测试；筛选和翻页期间发生并发写入。
 
 ## 执行结果 [#results]
 

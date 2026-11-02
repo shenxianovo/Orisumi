@@ -11,13 +11,13 @@ description: "Observer 页的章节和每一章写什么"
 
 | 业务类型 | 用途 | 资源名 |
 | --- | --- | --- |
-| [Example Entity](./example-entity.mdx) | 这种业务类型的作用，例如程序实例的描述、被提到的事物或一种观测 | 待定 |
+| [Example Type](./example-type.mdx) | 这种业务类型的作用，例如被提到的事物或一种观测 | 待定 |
 
-每行是一种已定义的业务类型，链接到它的业务类型页。还没定义 EntitySchema 的业务类型列在“待定”中。
+每行是一种已定义的业务类型，链接到它的业务类型页。还没定义 Schema 的业务类型列在“待定”中。
 
 ## 程序实例 [#instance]
 
-写程序实例怎样划分、什么情况算独立的实例。程序实例的身份由托管方保存，见 [OBSERVER-4](../../../core/model/observer.mdx#observer-4)，这里只写业务上的特殊情况。程序实例的描述写在它的业务类型页。
+写程序实例怎样划分、什么情况算独立的实例。程序实例的身份由托管方保存，见 [OBSERVER-4](../../../core/model/observer.mdx#observer-4)，这里只写业务上的特殊情况。程序实例的描述用公共的 [Observer 描述](../../../core/model/common-types.mdx#observer-descriptions)。
 
 ## 采集 [#collection]
 
@@ -29,13 +29,13 @@ description: "Observer 页的章节和每一章写什么"
 
 | 业务类型 | 事实时间 |
 | --- | --- |
-| Example Entity | 时间点还是时段，各边界取自哪个来源字段 |
+| Example Type | 时间点还是时段，各边界取自哪个来源字段 |
 
 完整的边界规则写在业务类型页。事物没有事实时间，这里不用列出。
 
 ## 写入 [#submission]
 
-写接入时声明哪些业务类型，一次写入包含什么，业务代码何时写入、何时补全，以及依据和时间怎样取值。操作的语义链接到 [API · Writing](../../../api/writing.mdx)。
+写接入时声明哪些业务类型，一次写入包含什么，业务代码何时写入、何时再写一份替换，以及依据和时间怎样取值。操作的语义链接到 [API · Writing](../../../api/writing.mdx)。
 
 ## 实现 [#implementation]
 

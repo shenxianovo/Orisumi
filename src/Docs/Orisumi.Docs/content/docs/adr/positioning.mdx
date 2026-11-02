@@ -25,7 +25,7 @@ Orisumi 的长期背景是一个以人为持续主体的个人数字环境。终
 
 浏览器历史、助手会话这类数据，说明的是 Orisumi 在某个时间观察到了什么。把它们当作权威副本，Orisumi 就要负责同步和冲突处理，而它无法确认外部状态。
 
-软件替换后，读取方要能在没有原软件的情况下理解数据。EntitySchema 声明字段和业务含义，每份 Observation 固定引用解释它的 Schema 版本，并用统一的结构说明谁作出陈述、怎么来的、依据什么、事实何时成立。
+软件替换后，读取方要能在没有原软件的情况下理解数据。Schema 声明字段和业务含义，每份 Observation 固定引用解释它的 SchemaRevision，并用统一的结构说明谁作出陈述、怎么来的、依据什么、事实何时成立。
 
 Agent 会更替，会话会结束，所以数据存放在 Agent 之外。
 
@@ -43,4 +43,4 @@ Agent 会更替，会话会结束，所以数据存放在 Agent 之外。
 ## 规则位置 [#details]
 
 - [Core · Overview](../core/index.mdx)
-- [Observation](../core/model/observation.mdx)、[EntitySchema](../core/model/schema.mdx)
+- [Observation](../core/model/observation.mdx)、[Schema](../core/model/schema.mdx)

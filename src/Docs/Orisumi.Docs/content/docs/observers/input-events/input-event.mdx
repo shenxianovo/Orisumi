@@ -25,7 +25,7 @@ description: "一次键盘或鼠标事件（草案）"
 
 时间点型的 Observation：`startAt = endAt = t`，表示方式见 [Observation · 事实时间](../../core/model/observation.mdx#fact-time)。
 
-## EntitySchema [#schema]
+## Schema [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -48,9 +48,9 @@ description: "一次键盘或鼠标事件（草案）"
 | `mouseMove` | 鼠标移动 |
 | `mouseWheel` | 鼠标滚动 |
 
-`kind` 是跨平台的类别，系统 API 的常量留在实现中。`key` 表示按的是哪个键，它的跨平台编码尚未确定。哪种 `kind` 使用哪些字段，由业务代码遵守；EntitySchema 只声明字段的类型、必填和可空。
+`kind` 是跨平台的类别，系统 API 的常量留在实现中。`key` 表示按的是哪个键，它的跨平台编码尚未确定。哪种 `kind` 使用哪些字段，由业务代码遵守；Schema 只声明字段的类型、必填和可空。
 
-EntitySchema 的内容：
+Schema 的内容：
 
 ```json
 {

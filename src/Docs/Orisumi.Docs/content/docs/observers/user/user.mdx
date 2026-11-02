@@ -3,7 +3,7 @@ title: "Person"
 description: "一个人：用户本人，以及模型认出的其他人"
 ---
 
-人是一个[事物](../../core/model/thing.mdx)，这种类型由[后端内置](../../core/rules/understanding.mdx#thing-types)。用户本人是其中一个，用户作为 Observer 形成的每份 Observation，都通过 `observerId` 引用它。其他人由模型从证据中认出，例如聊天对象、VRChat 的玩家或录音里的说话人。
+人是一个[事物](../../core/model/thing.mdx)，这种类型由[后端内置](../../core/model/common-types.mdx#thing-types)。用户本人是其中一个，用户作为 Observer 形成的每份 Observation，都通过 `observerId` 引用它。其他人由模型从证据中认出，例如聊天对象、VRChat 的玩家或录音里的说话人。
 
 <ObserverStructure node="USER" />
 
@@ -13,11 +13,11 @@ description: "一个人：用户本人，以及模型认出的其他人"
 
 ## 身份 [#identity]
 
-称呼是一份 [Name](../../core/rules/understanding.mdx#name)，用户填写或修改称呼时写入。账号和人是不同的事物，它们的关系由模型或用户写成[关系](../../core/rules/understanding.mdx#relation)，例如“QQ 号 123 是本人”。
+称呼是一份 [Name](../../core/model/common-types.mdx#name)，用户填写或修改称呼时写入。账号和人是不同的事物，它们的关系由模型或用户写成[关系](../../core/model/common-types.mdx#relation)，例如“QQ 号 123 是本人”。
 
 模型认出的人用它自己范围内的依据新建，见 [THING-4](../../core/model/thing.mdx#thing-4)。
 
-## EntitySchema [#schema]
+## 事物类型 [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -25,4 +25,3 @@ description: "一个人：用户本人，以及模型认出的其他人"
 | 显示名称 | 人 |
 | 说明 | 表示一个人。用户本人确认、否定或陈述时，作为 Observer 对陈述负责。 |
 | 资源名 | `people` |
-| `kind` | `thing` |

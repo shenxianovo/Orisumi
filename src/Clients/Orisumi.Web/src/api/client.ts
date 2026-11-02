@@ -1,40 +1,55 @@
 import { parseServerEvents } from "@/lib/sse";
 import type {
-  ListEntitiesQuery,
+  DeleteResult,
+  InputSet,
   ListObservationsQuery,
   ListReferrersQuery,
   ListThingsQuery,
   NarrativeEpisode,
   NarrativeEvent,
   NarrativeRequest,
+  Observation,
+  ObservationPage,
+  ObservationReadResults,
   ProblemDetails,
   ReferrerPage,
+  SchemaRevision,
+  SchemaRevisionPage,
+  SearchQuery,
   Thing,
   ThingPage,
   ThingReadResults,
-  Version,
-  VersionList,
-  VersionPage,
-  VersionReadResults,
+  ThingType,
+  ThingView,
   WriteRequest,
   WriteResponse,
 } from "./types";
 
 /** 控制台读写数据的接口，HTTP 实现读写后端。 */
 export interface OrisumiSource {
-  getVersion(versionId: string): Promise<Version>;
-  /** 一次读取最多 256 个版本。 */
-  readVersions(versionIds: string[]): Promise<VersionReadResults>;
-  /** 事物返回它自己，有版本的实体返回当前版本。 */
-  getEntity(entityId: string): Promise<Thing | Version>;
-  listEntities(query: ListEntitiesQuery): Promise<VersionPage>;
+  getObservation(observationId: string): Promise<Observation>;
+  /** 一次读取最多 256 份。 */
+  readObservations(observationIds: string[]): Promise<ObservationReadResults>;
+  getInputSet(inputSetId: string): Promise<InputSet>;
+  getSchemaRevision(schemaRevisionId: string): Promise<SchemaRevision>;
+  listSchemaRevisions(query: { resourceName?: string; limit?: number; after?: string }): Promise<SchemaRevisionPage>;
+  listThingTypes(): Promise<{ thingTypes: ThingType[] }>;
   listThings(query: ListThingsQuery): Promise<ThingPage>;
   /** 一次读取最多 256 个事物。 */
-  readThings(entityIds: string[]): Promise<ThingReadResults>;
-  listEntityVersions(entityId: string): Promise<VersionList>;
-  listReferrers(entityId: string, query: ListReferrersQuery): Promise<ReferrerPage>;
-  listObservations(query: ListObservationsQuery): Promise<VersionPage>;
-  deleteEntity(entityId: string): Promise<void>;
+  readThings(thingIds: string[]): Promise<ThingReadResults>;
+  /** 对象视图：现在的样子、关系和发生过的事。 */
+  getThing(thingId: string): Promise<ThingView>;
+  listThingReferrers(thingId: string, query: ListReferrersQuery): Promise<ReferrerPage>;
+  listObservationReferrers(observationId: string, query: ListReferrersQuery): Promise<ReferrerPage>;
+  listObservations(query: ListObservationsQuery): Promise<ObservationPage>;
+  /** 读对象视图 activity 给出的 href。 */
+  readActivity(
+    href: string,
+    query: { limit?: number; order?: "asc" | "desc"; after?: string },
+  ): Promise<ObservationPage>;
+  search(query: SearchQuery): Promise<ObservationPage>;
+  deleteObservation(observationId: string): Promise<DeleteResult>;
+  deleteThing(thingId: string): Promise<DeleteResult>;
   write(request: WriteRequest): Promise<WriteResponse>;
   /** 按摘要读取二进制内容的字节。 */
   getContent(digest: string): Promise<Blob>;
@@ -96,33 +111,35 @@ export function createHttpSource(base = "/api"): OrisumiSource {
     return JSON.parse(text) as T;
   }
 
+  const post = (body: unknown): RequestInit => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const id = encodeURIComponent;
+
   return {
-    getVersion: (versionId) => request(`/versions/${encodeURIComponent(versionId)}`),
-    readVersions: (versionIds) =>
-      request("/versions/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ versionIds }),
-      }),
-    getEntity: (entityId) => request(`/entities/${encodeURIComponent(entityId)}`),
-    listEntities: (params) => request(`/entities${query(params)}`),
+    getObservation: (observationId) => request(`/observations/${id(observationId)}`),
+    readObservations: (observationIds) => request("/observations/read", post({ observationIds })),
+    getInputSet: (inputSetId) => request(`/input-sets/${id(inputSetId)}`),
+    getSchemaRevision: (schemaRevisionId) => request(`/schema-revisions/${id(schemaRevisionId)}`),
+    listSchemaRevisions: (params) => request(`/schema-revisions${query(params)}`),
+    listThingTypes: () => request("/thing-types"),
     listThings: (params) => request(`/things${query(params)}`),
-    readThings: (entityIds) =>
-      request("/things/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entityIds }),
-      }),
-    listEntityVersions: (entityId) => request(`/entities/${encodeURIComponent(entityId)}/versions`),
-    listReferrers: (entityId, params) => request(`/entities/${encodeURIComponent(entityId)}/referrers${query(params)}`),
+    readThings: (thingIds) => request("/things/read", post({ thingIds })),
+    getThing: (thingId) => request(`/things/${id(thingId)}`),
+    listThingReferrers: (thingId, params) => request(`/things/${id(thingId)}/referrers${query(params)}`),
+    listObservationReferrers: (observationId, params) =>
+      request(`/observations/${id(observationId)}/referrers${query(params)}`),
     listObservations: (params) => request(`/observations${query(params)}`),
-    deleteEntity: (entityId) => request(`/entities/${encodeURIComponent(entityId)}`, { method: "DELETE" }),
-    write: (body) =>
-      request("/writes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }),
+    readActivity: (href, params) => {
+      const separator = href.includes("?") ? "&" : "?";
+      return request(`${href}${query(params).replace("?", separator)}`);
+    },
+    search: (params) => request(`/search${query(params)}`),
+    deleteObservation: (observationId) => request(`/observations/${id(observationId)}`, { method: "DELETE" }),
+    deleteThing: (thingId) => request(`/things/${id(thingId)}`, { method: "DELETE" }),
+    write: (body) => request("/writes", post(body)),
     getContent: async (digest) => {
       const response = await send(`/contents/${encodeURIComponent(digest)}`);
       if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
@@ -139,7 +156,7 @@ export function createHttpSource(base = "/api"): OrisumiSource {
       for await (const { event, data } of parseServerEvents(response.body!)) {
         const value = JSON.parse(data) as Record<string, unknown>;
         if (event === "episode") yield { type: "episode", episode: value as unknown as NarrativeEpisode };
-        if (event === "saved") yield { type: "saved", versionIds: value.versionIds as string[] };
+        if (event === "saved") yield { type: "saved", observationIds: value.observationIds as string[] };
         if (event === "failed") yield { type: "failed", detail: value.detail as string };
       }
     },
@@ -147,15 +164,17 @@ export function createHttpSource(base = "/api"): OrisumiSource {
 }
 
 /** 读完一个分页列表。 */
-export async function readAllPages(load: (after: string | undefined) => Promise<VersionPage>): Promise<Version[]> {
-  const versions: Version[] = [];
+export async function readAllPages(
+  load: (after: string | undefined) => Promise<ObservationPage>,
+): Promise<Observation[]> {
+  const observations: Observation[] = [];
   let after: string | undefined;
   do {
     const page = await load(after);
-    versions.push(...page.versions);
+    observations.push(...page.observations);
     after = page.next ?? undefined;
   } while (after);
-  return versions;
+  return observations;
 }
 
 /** 读完一个事物的分页列表。 */
@@ -168,4 +187,18 @@ export async function readAllThings(load: (after: string | undefined) => Promise
     after = page.next ?? undefined;
   } while (after);
   return things;
+}
+
+/** 读完修订的分页列表。 */
+export async function readAllSchemaRevisions(
+  load: (after: string | undefined) => Promise<SchemaRevisionPage>,
+): Promise<SchemaRevision[]> {
+  const revisions: SchemaRevision[] = [];
+  let after: string | undefined;
+  do {
+    const page = await load(after);
+    revisions.push(...page.schemaRevisions);
+    after = page.next ?? undefined;
+  } while (after);
+  return revisions;
 }

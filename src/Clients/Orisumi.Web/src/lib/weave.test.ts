@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { handleOf } from "@/api/types";
 import { observation, thing } from "@/test/fixtures";
 import {
   BUNDLE_AT,
@@ -24,10 +25,10 @@ import {
   type Side,
 } from "./weave";
 
-const entity = (entityId: string): Payload => ({ kind: "entity", item: thing({ entityId }) });
-const resolved = (entityId: string, side: Side, label = "x"): Resolved => ({ payload: entity(entityId), side, label });
-const neighbor = (entityId: string, side: Side, label: string, time = 0, typeName = "时段"): Neighbor => ({
-  item: thing({ entityId }),
+const entity = (thingId: string): Payload => ({ kind: "record", item: thing({ thingId }) });
+const resolved = (thingId: string, side: Side, label = "x"): Resolved => ({ payload: entity(thingId), side, label });
+const neighbor = (thingId: string, side: Side, label: string, time = 0, typeName = "时段"): Neighbor => ({
+  item: thing({ thingId }),
   side,
   label,
   typeName,
@@ -38,7 +39,7 @@ describe("plan", () => {
   it("同一边、同一个标签、同一类型超过上限时，只直接长出最近的几个，其余收成一束", () => {
     const many = Array.from({ length: BUNDLE_AT + 4 }, (_, i) => neighbor(`p${i}`, "left", `members[${i}]`, i));
     const { direct, bundles } = plan([...many, neighbor("o", "left", "来源")]);
-    expect(direct.map((n) => n.item.entityId)).toEqual([...["p9", "p8", "p7"].slice(0, SHOW_FIRST), "o"]);
+    expect(direct.map((n) => handleOf(n.item))).toEqual([...["p9", "p8", "p7"].slice(0, SHOW_FIRST), "o"]);
     expect(bundles).toHaveLength(1);
     expect(bundles[0]).toMatchObject({ more: true, members: { length: BUNDLE_AT + 4 - SHOW_FIRST } });
   });
@@ -50,7 +51,7 @@ describe("plan", () => {
       ...products,
       neighbor("period", "left", INPUT, 0, "前台应用时段"),
     ]);
-    expect(direct.map((n) => n.item.entityId)).toEqual(["preview", "period"]);
+    expect(direct.map((n) => handleOf(n.item))).toEqual(["preview", "period"]);
     expect(bundles).toHaveLength(1);
     expect(bundles[0]).toMatchObject({ more: false, members: { length: 3 } });
   });
@@ -77,13 +78,13 @@ describe("grow", () => {
     expect(Math.abs(at("a").y - at("b").y)).toBeGreaterThanOrEqual(NODE_H);
   });
 
-  it("事实时间未知的 Observation 画成结，经历画成节点，键都是它们的 EntityId；Relation 的线记下它是哪一份", () => {
+  it("事实时间未知的 Observation 画成结，经历画成节点，键都是它们的 id；Relation 的线记下它是哪一份", () => {
     const knot: Payload = {
       kind: "knot",
-      observation: observation({ entityId: "obs", startAt: null, endAt: null }),
+      observation: observation({ observationId: "obs", startAt: null, endAt: null }),
       inputSet: null,
     };
-    const merged: Payload = { kind: "entity", item: observation({ entityId: "period" }) };
+    const merged: Payload = { kind: "record", item: observation({ observationId: "period" }) };
     const weave = grow(
       start(entity("qq")),
       "qq",
@@ -95,10 +96,10 @@ describe("grow", () => {
       [],
     );
     expect(weave.nodes.map((n) => [n.key, n.kind])).toEqual([
-      ["qq", "entity"],
+      ["qq", "record"],
       ["obs", "knot"],
-      ["period", "entity"],
-      ["me", "entity"],
+      ["period", "record"],
+      ["me", "record"],
     ]);
     expect(weave.edges.find((edge) => edge.to === "me")).toEqual({
       from: "qq",
@@ -129,9 +130,9 @@ describe("reveal", () => {
     const members = Array.from({ length: REVEAL + 2 }, (_, i) => neighbor(`p${i}`, "left", "x", i));
     let weave = grow(start(entity("qq")), "qq", [], [{ members, more: false }]);
     const key = weave.nodes.find((n) => n.kind === "bundle")!.key;
-    const resolve = (list: Neighbor[]) => list.map((n) => resolved(n.item.entityId, n.side));
+    const resolve = (list: Neighbor[]) => list.map((n) => resolved(handleOf(n.item), n.side));
     weave = reveal(weave, key, resolve(nextFromBundle(weave, key)));
-    expect(weave.nodes.filter((n) => n.kind === "entity")).toHaveLength(1 + REVEAL);
+    expect(weave.nodes.filter((n) => n.kind === "record")).toHaveLength(1 + REVEAL);
     expect(weave.nodes.find((n) => n.key === key)).toMatchObject({ members: { length: 2 } });
     weave = reveal(weave, key, resolve(nextFromBundle(weave, key)));
     expect(weave.nodes.some((n) => n.key === key)).toBe(false);
@@ -146,7 +147,7 @@ describe("reveal", () => {
     weave = reveal(
       weave,
       key,
-      nextFromBundle(weave, key).map((n) => resolved(n.item.entityId, n.side)),
+      nextFromBundle(weave, key).map((n) => resolved(handleOf(n.item), n.side)),
     );
     const column = weave.nodes.filter((n) => n.col === -1).sort((a, b) => a.y - b.y);
     expect(column[0]!.key).toBe("a");

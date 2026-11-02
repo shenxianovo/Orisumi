@@ -11,10 +11,10 @@ Web 控制台打开一天时，先显示这一天做了哪几件事，例如“�
 
 ## 决定 [#decision]
 
-- 一件事是一份 [Episode](../observers/narrative/episode.mdx) Observation：事实时间是这件事的时段，内容是标题、摘要以及涉及的会话和本机应用，形成方式是推断，InputSet 列出写它时读到的版本。
-- 叙事 Observer 是一个程序实例，由 API 进程托管。它的 EntityId 由后端保存，每个部署一个，它不经过 Runtime 安装和管理。
+- 一件事是一份 [Episode](../observers/narrative/episode.mdx) Observation：事实时间是这件事的时段，内容是标题、摘要以及涉及的会话和本机应用，形成方式是推断，InputSet 列出写它时读到的 Observation。
+- 叙事 Observer 是一个程序实例，由 API 进程托管。它的 `thingId` 由后端保存，每个部署一个，它不经过 Runtime 安装和管理。
 - Web 控制台请求写某一天时，叙事 Observer 读这一天的记录，调用 OpenAI 的模型，每写完一件事就推给页面；全部写完后，一次写入这一批。
-- 重写一天时写新的一批，再为被替换的每件事写一份 `supersede` 的 Review。
+- 重写一天时写新的一批，用 `replaces` 替换这段时间原来的几件事。
 - 用户否定写错的一件事。重写时叙事 Observer 读到否定，模型不再写出这件事。
 - API Key 和模型由 API 进程的运行环境提供。
 

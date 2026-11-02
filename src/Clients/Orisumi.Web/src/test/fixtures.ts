@@ -1,4 +1,4 @@
-import type { EntitySchema, InputSet, ObservationVersion, Thing, Version } from "@/api/types";
+import type { InputSet, Observation, Schema, SchemaRevision, Thing } from "@/api/types";
 
 let counter = 0;
 
@@ -8,17 +8,16 @@ export function id(): string {
   return `0192b056-7300-7000-8000-${counter.toString(16).padStart(12, "0")}`;
 }
 
-export function observation(overrides: Partial<ObservationVersion> = {}): ObservationVersion {
+export function observation(overrides: Partial<Observation> = {}): Observation {
   return {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "observation",
-    schemaVersionId: "schema-v1",
+    observationId: id(),
+    schemaRevisionId: "schema-v1",
     observerId: "observer",
-    observerVersionId: "observer-v1",
+    speakerId: null,
+    observerDescriptionId: "observer-v1",
     formation: "direct",
-    inputSetVersionId: null,
+    inputSetId: null,
+    replaces: [],
     startAt: "2026-10-25T05:00:00.000Z",
     endAt: "2026-10-25T06:00:00.000Z",
     timeZone: "Asia/Shanghai",
@@ -30,39 +29,27 @@ export function observation(overrides: Partial<ObservationVersion> = {}): Observ
 
 export function thing(overrides: Partial<Thing> = {}): Thing {
   return {
-    entityId: id(),
-    category: "thing",
+    thingId: id(),
     schemaId: "thing-schema",
     keys: [],
     name: null,
-    nameVersionId: null,
+    nameObservationId: null,
     ...overrides,
   };
 }
 
-export function inputSet(members: string[]): Version<InputSet> {
-  return {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "input_set",
-    recordedAt: "2026-10-25T06:00:00.000Z",
-    content: { members },
-  };
+export function inputSet(members: string[]): InputSet {
+  return { inputSetId: id(), members };
 }
 
-export function schema(content: Partial<EntitySchema> & Pick<EntitySchema, "resourceName">): Version<EntitySchema> {
+export function schema(content: Partial<Schema> & Pick<Schema, "resourceName">): SchemaRevision {
   return {
-    entityId: id(),
-    versionId: id(),
-    previousVersionId: null,
-    category: "entity_schema",
+    schemaRevisionId: id(),
+    schemaId: id(),
     recordedAt: "2026-10-25T00:00:00.000Z",
     content: {
       displayName: content.resourceName,
       description: "",
-      kind: "observation",
-      immutable: false,
       fields: {},
       ...content,
     },

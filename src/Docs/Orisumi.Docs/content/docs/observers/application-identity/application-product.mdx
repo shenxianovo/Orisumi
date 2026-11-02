@@ -5,7 +5,7 @@ description: "用户认知中的一款软件"
 
 应用产品表示用户认知中的一款软件，例如 QQ。它是一个[事物](../../core/model/thing.mdx)。各设备、各平台上的 QQ 安装都是本机应用，它们的跨设备线索由[线索归属](./application-membership.mdx)指向 QQ 这个产品，规则见 [Application Identity · 归属](./index.mdx#membership)。
 
-应用产品由应用识别 Observer 新建，名字是一份 [Name](../../core/rules/understanding.mdx#name)。
+应用产品由应用识别 Observer 新建，名字是一份 [Name](../../core/model/common-types.mdx#name)。
 
 <ObserverStructure node="APPLICATION_PRODUCT" />
 
@@ -27,13 +27,13 @@ description: "用户认知中的一款软件"
 
 | 识别依据 | 值 |
 | --- | --- |
-| `scope` | 应用识别 Observer 的 EntityId |
+| `scope` | 应用识别 Observer 的 `thingId` |
 | `scheme` | `application-identity.product` |
 | `value` | 模型给出的产品名称 |
 
-名称不是产品的身份。软件改名时写一份新的 Name，产品不变。
+名称不是产品的身份。软件改名时写一份新的 Name，产品不变。新一代模型写入前先读已有的产品并沿用依据，所以产品跨代保持同一个 `thingId`；线索归属是判断，可以变，产品留着，见 [THING-4](../../core/model/thing.mdx#thing-4)。
 
-## EntitySchema [#schema]
+## 事物类型 [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -41,4 +41,3 @@ description: "用户认知中的一款软件"
 | 显示名称 | 应用产品 |
 | 说明 | 表示用户认知中的一款软件。名字是 Name，属于它的线索是线索归属。 |
 | 资源名 | `application-products` |
-| `kind` | `thing` |

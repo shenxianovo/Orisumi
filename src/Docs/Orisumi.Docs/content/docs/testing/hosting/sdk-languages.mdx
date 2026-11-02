@@ -18,11 +18,11 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 | 操作 | 预期结果 |
 | --- | --- |
 | Python Observer 从环境读取地址并发 HTTP | 未接入时本地转发也返回 202；标准输入关闭后能完成最后一次写入并退出 |
-| .NET Fixture 声明类型、写入，再直接读后端 | 读到后端保存的版本 |
-| 脚本重复导入相同的带 key 内容和时间 | 不形成新版本或新观测 |
+| .NET Fixture 声明类型、写入，再直接读后端 | 读到后端保存的 Observation |
+| 脚本重复导入相同的带 key 内容和时间 | 什么都不发生 |
 | 批次超过 10 MiB，内容含嵌套文件 | 顺序拆分，文件先上传 |
-| 读取含未知字段、大整数、省略和 null 的版本 | 保留原始 JSON 和实际 Schema 版本 |
-| 不同程序声明同一类型的新旧 Schema 内容 | 各自继续使用声明的版本 |
+| 读取含未知字段、大整数、省略和 null 的 Observation | 保留原始 JSON 和实际的 SchemaRevision |
+| 不同程序声明同一类型的新旧 Schema 内容 | 各自继续使用声明的修订 |
 
 ## 测试实现 [#implementation]
 
@@ -32,7 +32,7 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 - Fixture 和重复导入：`SdkTests.FixtureWritesAndReadsThroughHttpAndScriptReimportIsUnchanged`。
 - 文件、拆分、停止和保真：`SdkTests.NestedFilesUploadBeforeOrderedBatchesAndReadPreservesJson`。
 
-未覆盖：Python 直接后端的持久自动化测试尚未加入。2026-10-31 已用 Python 标准库在临时环境中写入并读回实例、Schema、Observation，核对新旧 Schema、30 位整数和未知字段；可重复步骤是用两个 Observer 分别声明新旧类型，再读取各自结果中的 VersionId。
+未覆盖：Python 直接后端的持久自动化测试尚未加入。2026-10-31 已用 Python 标准库在临时环境中写入并读回实例、Schema、Observation，核对新旧 Schema、30 位整数和未知字段；可重复步骤是用两个 Observer 分别声明新旧类型，再读取各自结果中的 `schemaRevisionId`。
 
 ## 执行结果 [#results]
 

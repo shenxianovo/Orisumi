@@ -9,27 +9,23 @@ public sealed partial record BinaryValue(string Digest, string MediaType, long S
     public static string ComputeDigest(ReadOnlySpan<byte> data) => "sha256:" + Convert.ToHexStringLower(SHA256.HashData(data));
     public static bool ValidDigest(string? digest) => digest is not null && DigestPattern().IsMatch(digest);
 
-    public static bool IsValid(JsonElement value) => EntitySchemaRules.UniqueProperties(value)
+    public static bool IsValid(JsonElement value) => SchemaRules.UniqueProperties(value)
         && value.EnumerateObject().Count() == 3
         && value.TryGetProperty("digest", out var digest) && digest.ValueKind == JsonValueKind.String && ValidDigest(digest.GetString())
         && value.TryGetProperty("mediaType", out var mediaType) && mediaType.ValueKind == JsonValueKind.String && MediaTypePattern().IsMatch(mediaType.GetString()!)
-        && value.TryGetProperty("size", out var size) && EntitySchemaRules.IsInteger(size)
+        && value.TryGetProperty("size", out var size) && SchemaRules.IsInteger(size)
         && size.TryGetDecimal(out var length) && length is >= 0 and <= long.MaxValue;
 
     public static BinaryValue Read(JsonElement value)
     {
-        VersionRules.Require(IsValid(value), "BINARY-1", "Invalid binary content descriptor.");
+        ObservationRules.Require(IsValid(value), "BINARY-1", "Invalid binary content descriptor.");
         return new(value.GetProperty("digest").GetString()!, value.GetProperty("mediaType").GetString()!, (long)value.GetProperty("size").GetDecimal());
     }
 
-    public static IReadOnlyList<BinaryValue> Collect(VersionSubmission version, EntitySchema? schema)
+    public static IReadOnlyList<BinaryValue> Collect(Observation observation, Schema schema)
     {
         var result = new List<BinaryValue>();
-        if (version.Content is Observation reading)
-        {
-            VersionRules.Require(schema is not null, "SCHEMA-2", "Binary enumeration needs the version's Schema.");
-            CollectObject(schema!.Fields, reading.Fields, result);
-        }
+        CollectObject(schema.Fields, observation.Content, result);
         return result;
     }
 

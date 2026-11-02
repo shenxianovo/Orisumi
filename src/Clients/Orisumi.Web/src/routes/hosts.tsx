@@ -29,7 +29,7 @@ export function HostsPage() {
     return host && !instance.removed && runState(host, instance) === "running";
   }).length;
   const waiting = all.filter((instance) => !instance.removed && !synced(instance)).length;
-  const instance = all.find((item) => item.entityId === selected);
+  const instance = all.find((item) => item.thingId === selected);
   const host = list.find((item) => item.hostId === instance?.hostId);
   const error = hosts.error ?? instances.error;
 
@@ -81,7 +81,7 @@ export function HostsPage() {
               instances={all.filter((entry) => entry.hostId === item.hostId)}
               now={now}
               selected={selected}
-              onSelect={(entityId) => setSelected(entityId === selected ? undefined : entityId)}
+              onSelect={(thingId) => setSelected(thingId === selected ? undefined : thingId)}
               onInstall={() => setInstalling(item)}
               onPair={() => setPairing({ host: item })}
             />
@@ -90,7 +90,7 @@ export function HostsPage() {
       )}
       {instance && host && (
         <InstancePanel
-          key={instance.entityId}
+          key={instance.thingId}
           host={host}
           instance={instance}
           now={now}

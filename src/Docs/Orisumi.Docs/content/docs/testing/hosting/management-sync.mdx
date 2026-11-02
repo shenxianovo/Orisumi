@@ -32,7 +32,7 @@ Runtime 使用独立的数据目录，运行一个由测试控制的 Observer。
 | 后端接受了停用，Runtime 还没收到 | 管理入口读到 `enabled` 为 `false`，`status.appliedRevision` 小于 `revision`，界面显示等待设备同步 |
 | Runtime 离线 18 分钟 | 托管方的 `connected` 为 `false`；界面显示运行状态未知，写出最近一次报告的时刻 |
 | 远程删除实例 | Runtime 停止进程，报告 `state` 为 `stopped`；之后不再启动它 |
-| 删除后本机 `install` 同一个包 | 得到新的 EntityId 和实例目录 |
+| 删除后本机 `install` 同一个包 | 得到新的 `thingId` 和实例目录 |
 | 托管方被移除 | Runtime 停止同步和发送，`host.connection` 为 `revoked`，不再自动重试；Observer 照常运行 |
 | 远程安装，执行中结束 Runtime | 管理入口看到 `unconfirmed`；Runtime 重启后不执行这个操作 |
 

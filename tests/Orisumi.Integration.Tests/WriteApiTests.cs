@@ -12,7 +12,7 @@ public sealed class WriteApiTests
     internal static readonly object UnknownTime = new { startAt = (string?)null, endAt = (string?)null, timeZone = (string?)null };
 
     [Test, Property("caseId", "api-writes")]
-    public async Task RecognitionVersionsObservationsAndSequenceFollowTheWriteContract()
+    public async Task RecognitionReplacementsAndSequenceFollowTheWriteContract()
     {
         await using var db = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(db.ConnectionString);
@@ -21,21 +21,21 @@ public sealed class WriteApiTests
         var schema = await writer.DeclareAsync(fields: NameFields);
         var first = await writer.WriteAsync(schema, new { name = "one" }, time: UnknownTime);
         var second = await writer.WriteAsync(schema, new { name = "one" }, time: UnknownTime);
-        await Assert.That(first.EntityId != second.EntityId).IsTrue();
+        await Assert.That(first.ObservationId != second.ObservationId).IsTrue();
         using var readings = await http.GetAsync("/observations?resourceName=items");
-        await Assert.That((await WriteClient.JsonAsync(readings)).GetProperty("versions").GetArrayLength()).IsEqualTo(2);
+        await Assert.That((await WriteClient.JsonAsync(readings)).GetProperty("observations").GetArrayLength()).IsEqualTo(2);
         var keyed = await writer.WriteAsync(schema, new { name = "one" }, "key", time: UnknownTime);
         var same = await writer.SendAsync([WriteClient.Write(schema, new { name = "one" }, "key", time: UnknownTime)]);
         await Assert.That(same.GetProperty("results")[0].GetProperty("changed").GetBoolean()).IsFalse();
-        var observation = VersionJson.ReadSaved(same.GetProperty("results")[0].GetProperty("version"));
+        var observation = ObservationJson.ReadSaved(same.GetProperty("results")[0].GetProperty("observation"));
         var repeated = await writer.SendAsync([WriteClient.Write(schema, new { name = "one" }, "key", time: UnknownTime)]);
-        await Assert.That(repeated.GetProperty("results")[0].GetProperty("version").GetProperty("versionId").GetGuid()).IsEqualTo(observation.VersionId.Value);
+        await Assert.That(repeated.GetProperty("results")[0].GetProperty("observation").GetProperty("observationId").GetGuid()).IsEqualTo(observation.ObservationId);
         var changed = await writer.WriteAsync(schema, new { name = "two" }, "key");
         var reverted = await writer.WriteAsync(schema, new { name = "one" }, "key");
-        await Assert.That(changed.PreviousVersionId).IsEqualTo(keyed.VersionId);
-        await Assert.That(reverted.PreviousVersionId).IsEqualTo(changed.VersionId);
+        await Assert.That(changed.Replaces.SingleOrDefault()).IsEqualTo(keyed.ObservationId);
+        await Assert.That(reverted.Replaces.SingleOrDefault()).IsEqualTo(changed.ObservationId);
         var timed = await writer.SendAsync([WriteClient.Write(schema, new { name = "one" }, "key", time: new { startAt = "2026-10-31T00:00:00Z", endAt = (string?)null, timeZone = "Asia/Shanghai" })]);
-        await Assert.That(timed.GetProperty("results")[0].GetProperty("version").GetProperty("previousVersionId").GetGuid()).IsEqualTo(reverted.VersionId.Value);
+        await Assert.That(timed.GetProperty("results")[0].GetProperty("observation").GetProperty("replaces")[0].GetGuid()).IsEqualTo(reverted.ObservationId);
         var sequenced = await writer.SendAsync([WriteClient.Write(schema, new { name = "temperature" })], sequence: 10);
         await Assert.That(sequenced.GetProperty("results").GetArrayLength()).IsEqualTo(1);
         foreach (var sequence in new long[] { 10, 9 })
@@ -47,7 +47,7 @@ public sealed class WriteApiTests
     }
 
     [Test, Property("caseId", "api-writes")]
-    public async Task WrongShapeOnAnExistingEntityAndLongKeysRejectOnlyThatWrite()
+    public async Task WrongShapeOnAnExistingObservationAndLongKeysRejectOnlyThatWrite()
     {
         await using var db = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(db.ConnectionString);
@@ -89,9 +89,9 @@ public sealed class WriteApiTests
         var invalid = new { startAt = "2026-10-31T02:00:00Z", endAt = "2026-10-31T01:00:00Z", timeZone = (string?)null };
         var results = (await writer.SendAsync([
             WriteClient.Write(schema, new { name = "before" }, "before"),
-            WriteClient.Write(schema, new { name = "reject" }, "retry", time: invalid, inputs: [writer.Observer.VersionId]),
-            WriteClient.Write(schema, new { name = "after" }, "after", time: UnknownTime, inputs: [writer.Observer.VersionId]),
-            WriteClient.Write(EntityId.New(), new { }),
+            WriteClient.Write(schema, new { name = "reject" }, "retry", time: invalid, inputs: [writer.Observer.ObservationId]),
+            WriteClient.Write(schema, new { name = "after" }, "after", time: UnknownTime, inputs: [writer.Observer.ObservationId]),
+            WriteClient.Write(Guid.CreateVersion7(), new { }),
             WriteClient.Write(schema, new { name = "nul\0" }),
             WriteClient.Write(schema, new { name = "last" })], sequence: 1)).GetProperty("results");
         await Assert.That(results[1].GetProperty("error").GetProperty("rule").GetString()).IsEqualTo("OBSERVATION-6");
@@ -100,16 +100,15 @@ public sealed class WriteApiTests
         await Assert.That(results[5].GetProperty("changed").GetBoolean()).IsTrue();
         await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "recognition_keys")).IsEqualTo(keysBefore + 2);
         await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "observations")).IsEqualTo(observationsBefore + 3);
-        using var inputs = await http.GetAsync("/entities?category=input_set");
-        await Assert.That((await WriteClient.JsonAsync(inputs)).GetProperty("versions").GetArrayLength()).IsEqualTo(1);
+        await Assert.That(await BinaryContentTests.Count(db.ConnectionString, "input_sets")).IsEqualTo(1);
         var corrected = await writer.WriteAsync(schema, new { name = "reject" }, "retry", time: UnknownTime);
-        await Assert.That(corrected.PreviousVersionId).IsNull();
+        await Assert.That(corrected.Replaces.Length).IsEqualTo(0);
         var duplicate = await writer.SendAsync([], sequence: 1);
         await Assert.That(duplicate.GetProperty("duplicate").GetBoolean()).IsTrue();
     }
 
     [Test, Property("caseId", "api-write-references")]
-    public async Task ReferencesResolveInOrderAndCompareSavedVersionIds()
+    public async Task ReferencesResolveInOrderAndCompareSavedIds()
     {
         await using var db = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(db.ConnectionString);
@@ -117,33 +116,58 @@ public sealed class WriteApiTests
         var writer = new WriteClient(http); await writer.InitializeAsync();
         var schema = await writer.DeclareAsync(fields: NameFields);
         var links = await writer.DeclareAsync("links", """
-            {"targetVersionId":{"type":"reference","target":"version","description":"Target","required":true,"nullable":false},
-             "optionalVersionId":{"type":"reference","target":"version","description":"Optional","required":true,"nullable":true},
+            {"targetId":{"type":"reference","target":"observation","description":"Target","required":true,"nullable":false},
+             "optionalObservationId":{"type":"reference","target":"observation","description":"Optional","required":true,"nullable":true},
              "text":{"type":"string","description":"Literal","required":true,"nullable":false},
-             "nested":{"type":"array","description":"Links","required":true,"nullable":false,"items":{"type":"object","description":"Link","nullable":false,"fields":{"targetVersionId":{"type":"reference","target":"version","description":"Target","required":true,"nullable":false}}}}}
+             "nested":{"type":"array","description":"Links","required":true,"nullable":false,"items":{"type":"object","description":"Link","nullable":false,"fields":{"targetId":{"type":"reference","target":"observation","description":"Target","required":true,"nullable":false}}}}}
             """);
         var target = await writer.WriteAsync(schema, new { name = "first" }, "target");
-        object Content(object reference) => new { targetVersionId = reference, optionalVersionId = new { entityId = Guid.CreateVersion7() }, text = target.VersionId.Value.ToString(), nested = new[] { new { targetVersionId = reference } } };
-        var original = await writer.WriteAsync(links, Content(target.VersionId.Value), "link");
+        object Content(object reference) => new { targetId = reference, optionalObservationId = Guid.CreateVersion7(), text = target.ObservationId.ToString(), nested = new[] { new { targetId = reference } } };
+        var original = await writer.WriteAsync(links, Content(target.ObservationId), "link");
         var next = await writer.WriteAsync(schema, new { name = "second" }, "target");
-        var same = await writer.WriteAsync(links, Content(new { entityId = target.EntityId.Value }), "link");
-        await Assert.That(same.PreviousVersionId).IsEqualTo(original.VersionId);
-        var byKey = await writer.WriteAsync(links, Content(new { schemaId = schema.Value, key = new { scope = (string?)null, scheme = "test", value = "target" } }));
-        var fields = ((Observation)byKey.Content).Fields;
-        await Assert.That(fields.GetProperty("targetVersionId").GetGuid()).IsEqualTo(next.VersionId.Value);
-        await Assert.That(fields.GetProperty("optionalVersionId").ValueKind).IsEqualTo(JsonValueKind.Null);
-        await Assert.That(fields.GetProperty("text").GetString()).IsEqualTo(target.VersionId.Value.ToString());
-        using var deleted = await http.DeleteAsync($"/entities/{target.EntityId.Value}"); deleted.EnsureSuccessStatusCode();
-        var rejected = (await writer.SendAsync([WriteClient.Write(links, Content(new { entityId = target.EntityId.Value }))])).GetProperty("results")[0];
-        await Assert.That(rejected.GetProperty("error").GetProperty("rule").GetString()).IsEqualTo("ENTITY-6");
+        var same = await writer.WriteAsync(links, Content(target.ObservationId), "link");
+        await Assert.That(same.ObservationId).IsEqualTo(original.ObservationId);
+        var byKey = await writer.WriteAsync(links, Content(new { schemaId = schema, key = new { scope = (string?)null, scheme = "test", value = "target" } }));
+        var fields = byKey.Content;
+        await Assert.That(fields.GetProperty("targetId").GetGuid()).IsEqualTo(next.ObservationId);
+        await Assert.That(fields.GetProperty("optionalObservationId").ValueKind).IsEqualTo(JsonValueKind.Null);
+        await Assert.That(fields.GetProperty("text").GetString()).IsEqualTo(target.ObservationId.ToString());
+        using var deleted = await http.DeleteAsync($"/observations/{target.ObservationId}"); deleted.EnsureSuccessStatusCode();
+        var rejected = (await writer.SendAsync([WriteClient.Write(links, Content(target.ObservationId))])).GetProperty("results")[0];
+        await Assert.That(rejected.GetProperty("error").GetProperty("rule").GetString()).IsEqualTo("REFERENCE-3");
         var ordered = await writer.SendAsync([
-            WriteClient.Write(schema, new { name = "recreated" }, "target"),
-            WriteClient.Write(links, Content(new { schemaId = schema.Value, key = new { scope = (string?)null, scheme = "test", value = "target" } }))]);
-        await Assert.That(ordered.GetProperty("results")[1].TryGetProperty("version", out _)).IsTrue();
+            WriteClient.Write(schema, new { name = "third" }, "another-target"),
+            WriteClient.Write(links, Content(new { schemaId = schema, key = new { scope = (string?)null, scheme = "test", value = "another-target" } }))]);
+        await Assert.That(ordered.GetProperty("results")[1].TryGetProperty("observation", out _)).IsTrue();
+    }
+
+    [Test, Property("caseId", "api-write-references"), Property("caseId", "storage-transactions")]
+    public async Task RejectedWritesRollbackRecognizedThingsAndGlobalKeysIgnoreObserverAndRevision()
+    {
+        await using var db = await DatabaseFixture.CreateAsync();
+        await using var factory = new OrisumiApiFactory(db.ConnectionString);
+        using var http = factory.CreateClient();
+        var writer = new WriteClient(http); await writer.InitializeAsync();
+        var type = await writer.DeclareThingAsync("objects");
+        const string fields = """{"objectId":{"type":"reference","target":"thing","role":"about","description":"Object","required":true,"nullable":false},"name":{"type":"string","description":"Name","required":true,"nullable":false}}""";
+        var schema = await writer.DeclareAsync(fields: fields);
+        var reference = new { schemaId = type, key = new { scope = (string?)null, scheme = "native", value = "source" } };
+        var rejected = await writer.SendAsync([WriteClient.Write(schema, new { objectId = reference })]);
+        await Assert.That(rejected.GetProperty("results")[0].GetProperty("error").GetProperty("rule").GetString()).IsEqualTo("SCHEMA-11");
+        var things = await http.GetFromJsonAsync<JsonElement>("things?resourceName=objects");
+        await Assert.That(things.GetProperty("things").GetArrayLength()).IsEqualTo(0);
+        var first = await writer.WriteAsync(schema, new { objectId = reference, name = "same" }, "source");
+        var second = new WriteClient(http); await second.InitializeAsync();
+        await second.DeclareAsync(fields: fields.Replace("Name", "New description", StringComparison.Ordinal), schemaId: schema);
+        var same = await second.WriteAsync(schema, new { objectId = first.Content.GetProperty("objectId").GetGuid(), name = "same" }, "source", formation: "stated");
+        await Assert.That(same.ObservationId).IsEqualTo(first.ObservationId);
+        var changed = (await second.SendAsync([WriteClient.Write(schema, new { objectId = reference, name = "changed" }, "source")])).GetProperty("results")[0];
+        await Assert.That(changed.GetProperty("replaced")[0].GetGuid()).IsEqualTo(first.ObservationId);
+        await Assert.That(changed.GetProperty("observation").GetProperty("observerId").GetGuid()).IsEqualTo(second.ObserverId);
     }
 
     [Test, Property("caseId", "api-reading"), Property("caseId", "api-deletion")]
-    public async Task DeletionRemovesRecognitionAndBatchReadPreservesOrderDuplicatesAndStatus()
+    public async Task DeletionTombstonesRecognitionAndBatchReadPreservesOrderDuplicatesAndStatus()
     {
         await using var db = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(db.ConnectionString);
@@ -151,13 +175,14 @@ public sealed class WriteApiTests
         var writer = new WriteClient(http); await writer.InitializeAsync();
         var schema = await writer.DeclareAsync();
         var first = await writer.WriteAsync(schema, new { }, "key");
-        using var deleted = await http.DeleteAsync($"/entities/{first.EntityId.Value}"); deleted.EnsureSuccessStatusCode();
-        var recreated = await writer.WriteAsync(schema, new { }, "key");
-        await Assert.That(recreated.EntityId != first.EntityId).IsTrue();
-        using var read = await http.PostAsJsonAsync("/versions/read", new { versionIds = new[] { recreated.VersionId.Value, Guid.CreateVersion7(), first.VersionId.Value, recreated.VersionId.Value } });
+        using var deleted = await http.DeleteAsync($"/observations/{first.ObservationId}"); deleted.EnsureSuccessStatusCode();
+        var skipped = await writer.SendAsync([WriteClient.Write(schema, new { }, "key")]);
+        await Assert.That(skipped.GetProperty("results")[0].GetProperty("skipped").GetBoolean()).IsTrue();
+        var recreated = await writer.WriteAsync(schema, new { }, "another-key");
+        using var read = await http.PostAsJsonAsync("/observations/read", new { observationIds = new[] { recreated.ObservationId, Guid.CreateVersion7(), first.ObservationId, recreated.ObservationId } });
         var results = (await WriteClient.JsonAsync(read)).GetProperty("results").EnumerateArray().ToArray();
         await Assert.That(results.Select(r => r.GetProperty("status").GetString()).SequenceEqual(["found", "not_found", "deleted", "found"])).IsTrue();
-        using var excessive = await http.PostAsJsonAsync("/versions/read", new { versionIds = Enumerable.Repeat(first.VersionId.Value, 257) });
+        using var excessive = await http.PostAsJsonAsync("/observations/read", new { observationIds = Enumerable.Repeat(first.ObservationId, 257) });
         await Assert.That(excessive.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         using var old = await http.PostAsJsonAsync("/versions", new { versions = Array.Empty<object>() });
         await Assert.That(old.StatusCode).IsEqualTo(HttpStatusCode.NotFound);
@@ -174,15 +199,15 @@ public sealed class WriteApiTests
             WriteClient.Write(schema, new { }, time: UnknownTime),
             WriteClient.Write(schema, new { }, time: new { startAt = "2026-10-31T01:00:00Z", endAt = (string?)null, timeZone = (string?)null }),
             WriteClient.Write(schema, new { }, time: new { startAt = (string?)null, endAt = "2026-10-31T02:00:00Z", timeZone = (string?)null })])).GetProperty("results");
-        var observations = results.EnumerateArray().Select(r => r.GetProperty("version").GetProperty("entityId").GetGuid()).ToArray();
+        var observations = results.EnumerateArray().Select(r => r.GetProperty("observation").GetProperty("observationId").GetGuid()).ToArray();
         foreach (var order in new[] { "asc", "desc" })
         {
             var actual = new List<Guid>(); string? cursor = null;
             do
             {
-                using var response = await http.GetAsync($"/observations?order={order}&limit=1&observerId={writer.ObserverId.Value}&resourceName=items" + (cursor is null ? "" : "&after=" + Uri.EscapeDataString(cursor)));
+                using var response = await http.GetAsync($"/observations?order={order}&limit=1&observerId={writer.ObserverId}&resourceName=items" + (cursor is null ? "" : "&after=" + Uri.EscapeDataString(cursor)));
                 response.EnsureSuccessStatusCode(); var page = await WriteClient.JsonAsync(response);
-                actual.AddRange(page.GetProperty("versions").EnumerateArray().Select(v => v.GetProperty("entityId").GetGuid()));
+                actual.AddRange(page.GetProperty("observations").EnumerateArray().Select(v => v.GetProperty("observationId").GetGuid()));
                 cursor = page.GetProperty("next").GetString();
                 if (cursor is not null)
                 {
@@ -195,7 +220,7 @@ public sealed class WriteApiTests
         using var half = await http.GetAsync("/observations?from=2026-10-31T00:00:00Z");
         await Assert.That(half.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         using var range = await http.GetAsync("/observations?from=2026-10-31T01:00:00Z&to=2026-10-31T02:00:00Z");
-        await Assert.That((await WriteClient.JsonAsync(range)).GetProperty("versions").GetArrayLength()).IsEqualTo(1);
+        await Assert.That((await WriteClient.JsonAsync(range)).GetProperty("observations").GetArrayLength()).IsEqualTo(1);
     }
 
     [Test, Property("caseId", "api-writes"), Property("caseId", "api-referrers")]
@@ -208,14 +233,14 @@ public sealed class WriteApiTests
         var schema = await writer.DeclareAsync(fields: NameFields);
         var evidence = await writer.WriteAsync(schema, new { name = "evidence" });
         var results = (await writer.SendAsync([
-            WriteClient.Write(schema, new { name = "one" }, time: UnknownTime, inputs: [writer.Observer.VersionId, evidence.VersionId]),
-            WriteClient.Write(schema, new { name = "two" }, time: UnknownTime, inputs: [evidence.VersionId, writer.Observer.VersionId])])).GetProperty("results");
-        var inputId = results[0].GetProperty("version").GetProperty("inputSetVersionId").GetGuid();
-        await Assert.That(results[1].GetProperty("version").GetProperty("inputSetVersionId").GetGuid()).IsEqualTo(inputId);
-        using var referrers = await http.GetAsync($"/entities/{evidence.EntityId.Value}/referrers?path=/content/members/1");
+            WriteClient.Write(schema, new { name = "one" }, time: UnknownTime, inputs: [writer.Observer.ObservationId, evidence.ObservationId]),
+            WriteClient.Write(schema, new { name = "two" }, time: UnknownTime, inputs: [evidence.ObservationId, writer.Observer.ObservationId])])).GetProperty("results");
+        var inputId = results[0].GetProperty("observation").GetProperty("inputSetId").GetGuid();
+        await Assert.That(results[1].GetProperty("observation").GetProperty("inputSetId").GetGuid()).IsEqualTo(inputId);
+        using var referrers = await http.GetAsync($"/observations/{evidence.ObservationId}/referrers?path=/inputSetId");
         var references = (await WriteClient.JsonAsync(referrers)).GetProperty("referrers");
-        await Assert.That(references.GetArrayLength()).IsEqualTo(1);
-        await Assert.That(references[0].GetProperty("version").GetProperty("versionId").GetGuid()).IsEqualTo(inputId);
+        await Assert.That(references.GetArrayLength()).IsEqualTo(2);
+        await Assert.That(references.EnumerateArray().All(item => item.GetProperty("observation").GetProperty("inputSetId").GetGuid() == inputId)).IsTrue();
         var undeclared = Guid.CreateVersion7();
         using var invalidSchema = await http.PostAsJsonAsync("/writes", new { observer = writer.ObserverReference, sequence = 20,
             schemas = new[] { new { schemaId = undeclared, content = new { displayName = "", description = "Invalid", resourceName = "invalid", fields = new { } } } },
@@ -223,7 +248,7 @@ public sealed class WriteApiTests
         await Assert.That(invalidSchema.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
         var valid = await writer.SendAsync([WriteClient.Write(schema, new { name = "saved" })], sequence: 20);
         await Assert.That(valid.GetProperty("results").GetArrayLength()).IsEqualTo(1);
-        using var malformed = new StringContent("{\"observer\":" + JsonSerializer.Serialize(writer.ObserverReference) + ",\"writes\":[{\"schemaId\":\"" + schema.Value + "\",\"content\":{\"name\":\"first\",\"name\":\"second\"}}]}", System.Text.Encoding.UTF8, "application/json");
+        using var malformed = new StringContent("{\"observer\":" + JsonSerializer.Serialize(writer.ObserverReference) + ",\"writes\":[{\"schemaId\":\"" + schema + "\",\"content\":{\"name\":\"first\",\"name\":\"second\"}}]}", System.Text.Encoding.UTF8, "application/json");
         using var duplicateMember = await http.PostAsync("/writes", malformed);
         await Assert.That(duplicateMember.StatusCode).IsEqualTo(HttpStatusCode.BadRequest);
     }
@@ -237,23 +262,23 @@ public sealed class WriteApiTests
         var writer = new WriteClient(http); await writer.InitializeAsync();
         var schema = await writer.DeclareAsync(fields: NameFields);
         var concurrent = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => writer.WriteAsync(schema, new { name = "one" }, "shared")));
-        await Assert.That(concurrent.Select(v => v.VersionId).Distinct().Count()).IsEqualTo(1);
+        await Assert.That(concurrent.Select(v => v.ObservationId).Distinct().Count()).IsEqualTo(1);
         var first = concurrent[0];
         var second = await writer.WriteAsync(schema, new { name = "two" }, "shared");
         var third = await writer.WriteAsync(schema, new { name = "three" }, "shared", time: new { startAt = "2026-10-06T09:00:00+08:00", endAt = "2026-10-06T01:00:01.1234567Z", timeZone = "Asia/Shanghai" });
-        using var chainResponse = await http.GetAsync($"entities/{first.EntityId.Value}/versions");
+        using var chainResponse = await http.GetAsync("observations?resourceName=items&view=all");
         var chain = await WriteClient.JsonAsync(chainResponse);
-        await Assert.That(chain.GetProperty("versions").EnumerateArray().Select(v => v.GetProperty("versionId").GetGuid()).SequenceEqual([first.VersionId.Value, second.VersionId.Value, third.VersionId.Value])).IsTrue();
-        using var readResponse = await http.GetAsync($"entities/{first.EntityId.Value}");
+        await Assert.That(chain.GetProperty("observations").EnumerateArray().Select(v => v.GetProperty("observationId").GetGuid()).ToHashSet().SetEquals([first.ObservationId, second.ObservationId, third.ObservationId])).IsTrue();
+        using var readResponse = await http.GetAsync($"observations/{third.ObservationId}");
         var read = await WriteClient.JsonAsync(readResponse);
-        await Assert.That(read.EnumerateObject().Count()).IsEqualTo(14);
+        await Assert.That(read.EnumerateObject().Count()).IsEqualTo(13);
         await Assert.That(read.GetProperty("recordedAt").GetString()!.EndsWith('Z')).IsTrue();
         var time = read;
         await Assert.That(time.GetProperty("startAt").GetString()).IsEqualTo("2026-10-06T01:00:00.000000Z");
         await Assert.That(time.GetProperty("endAt").GetString()).IsEqualTo("2026-10-06T01:00:01.123456Z");
         using var invalid = await http.PostAsJsonAsync("writes", new { observer = writer.ObserverReference, writes = Array.Empty<object>(), recordedAt = "invalid" });
-        using var missing = await http.GetAsync("entities/" + Guid.CreateVersion7());
-        using var usedSchema = await http.DeleteAsync("entities/" + schema.Value);
+        using var missing = await http.GetAsync("observations/" + Guid.CreateVersion7());
+        using var usedSchema = await http.DeleteAsync("schemas/" + schema);
         foreach (var response in new[] { invalid, missing, usedSchema })
         {
             var problem = await WriteClient.JsonAsync(response);

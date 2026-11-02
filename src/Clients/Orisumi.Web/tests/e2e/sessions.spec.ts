@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { Backend, type Thing, type Version } from "./backend";
+import { Backend, type Thing, type Observation } from "./backend";
 
 // 助手会话的档案：用内存里的后端放进一天的 Claude Code 和 Codex 交互，检查事物页的会话、
 // 工具调用与结果的配对、视图的切换，以及只在原始记录中的工具输出。
@@ -18,7 +18,7 @@ const empty = {
   sourceMessageId: null,
   sourceVersion: null,
   callId: null,
-  toolCallVersionId: null,
+  toolCallId: null,
   toolName: null,
   toolServer: null,
   isError: null,
@@ -29,7 +29,6 @@ const empty = {
 
 function seed() {
   const backend = new Backend();
-  const observerSchema = backend.schema("assistant-sessions-observers", "助手会话 Observer", "observation");
   const sessionSchema = backend.schema("assistant-sessions", "助手会话", "thing");
   const interactionSchema = backend.schema("assistant-interactions", "助手交互", "observation", {
     sessionId: thingRef,
@@ -38,24 +37,32 @@ function seed() {
     sessionId: thingRef,
     parentSessionId: thingRef,
   });
-  const observer = backend.program(observerSchema, { platform: "macos", programVersion: "0.1.0" });
+  const observer = backend.program("助手会话 Observer", "assistant-sessions", {
+    platform: "macos",
+    programVersion: "0.1.0",
+  });
 
   const session = (product: string, id: string, title: string | null) =>
-    backend.thing(sessionSchema.entityId, { scope: null, scheme: `${product}.session`, value: id }, title);
-  const interact = (session: Thing, startAt: string | null, endAt: string, content: Record<string, unknown>): Version =>
+    backend.thing(sessionSchema.schemaId, { scope: null, scheme: `${product}.session`, value: id }, title);
+  const interact = (
+    session: Thing,
+    startAt: string | null,
+    endAt: string,
+    content: Record<string, unknown>,
+  ): Observation =>
     backend.observe(
       interactionSchema,
       observer.thing,
       {
         ...empty,
-        sessionId: session.entityId,
-        sourceId: content.sourceId ?? `${session.entityId}-${endAt}`,
+        sessionId: session.thingId,
+        sourceId: content.sourceId ?? `${session.thingId}-${endAt}`,
         workingDirectory: "/Users/me/Code/Heartbeat",
         parts: [],
         sourceEntries: [],
         ...content,
       },
-      { startAt, endAt, observerVersionId: observer.description.versionId },
+      { startAt, endAt, observerDescriptionId: observer.description.observationId },
     );
   const text = (value: string, type = "text") => ({
     type,
@@ -72,8 +79,8 @@ function seed() {
   backend.observe(subagentSchema, observer.thing, {
     agentName: "web-fetch",
     spawnCallId: null,
-    sessionId: child.entityId,
-    parentSessionId: claude.entityId,
+    sessionId: child.thingId,
+    parentSessionId: claude.thingId,
   });
 
   interact(claude, null, at(9, 0), { kind: "context", actor: "application", sourceKind: "attachment/instructions" });
@@ -123,7 +130,7 @@ function seed() {
     actor: "tool",
     sourceKind: "CommandExecution",
     callId: "exec-1",
-    toolCallVersionId: call.versionId,
+    toolCallId: call.observationId,
     isError: false,
     exitCode: 0,
     parts: [{ ...text("", "text"), text: null, pointer: "/payload/item/aggregated_output" }],
@@ -153,7 +160,7 @@ test("事物页列出这一天的会话，点一个打开它的档案和对话",
 test("子 Agent 的会话写出父会话", async ({ page }) => {
   const { backend, child } = seed();
   await backend.serve(page);
-  await page.goto(`/things/${child.entityId}`);
+  await page.goto(`/things/${child.thingId}`);
   await expect(page.getByText("子 Agent，父会话")).toBeVisible();
   await expect(page.getByRole("button", { name: /讨论助手会话的建模/ })).toBeVisible();
 });
@@ -161,7 +168,7 @@ test("子 Agent 的会话写出父会话", async ({ page }) => {
 test("对话视图只有消息，过程视图把工具调用和结果合成一行", async ({ page }) => {
   const { backend, codex } = seed();
   await backend.serve(page);
-  await page.goto(`/things/${codex.entityId}`);
+  await page.goto(`/things/${codex.thingId}`);
   await expect(page.getByText("跑下文档检查")).toBeVisible();
   await expect(page.getByText("检查通过了。")).toBeVisible();
   await expect(page.getByRole("button", { name: /CommandExecution/ })).toHaveCount(0);
@@ -177,7 +184,7 @@ test("对话视图只有消息，过程视图把工具调用和结果合成一�
 test("全部视图显示上下文，推理默认收起", async ({ page }) => {
   const { backend, claude } = seed();
   await backend.serve(page);
-  await page.goto(`/things/${claude.entityId}`);
+  await page.goto(`/things/${claude.thingId}`);
   await expect(page.getByText("可以，而且时间问题会简单很多。")).toBeVisible();
   await page.getByRole("button", { name: "全部" }).click();
   await expect(page.getByRole("button", { name: /上下文 instructions/ })).toBeVisible();

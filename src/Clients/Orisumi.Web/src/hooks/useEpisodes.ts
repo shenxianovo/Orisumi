@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { useSource } from "@/api/source";
-import type { NarrativeEpisode, ObservationVersion } from "@/api/types";
+import type { NarrativeEpisode, Observation } from "@/api/types";
 import { EPISODES } from "@/lib/episodes";
 import type { dayRange } from "@/lib/time";
 import { MINUTE, SECOND } from "@/lib/time";
@@ -24,7 +24,6 @@ export function useEpisodes(range: DayRange, today: boolean) {
         from: range.from,
         to: range.to,
         resourceName: EPISODES,
-        standing: "current",
       });
       return list.sort((a, b) => (a.startAt ?? "").localeCompare(b.startAt ?? ""));
     },
@@ -46,7 +45,7 @@ const IDLE: NarrativeState = { kind: "idle" };
  * 请求叙事 Observer 写一天：这一天有记录、还没有写下的几件事时自动请求一次，之后只有“重写”才再请求。
  * 离开这一天时断开连接，叙事 Observer 照样写完，回来时读取结果。
  */
-export function useNarrative(range: DayRange, episodes: UseQueryResult<ObservationVersion[]>, hasRecords: boolean) {
+export function useNarrative(range: DayRange, episodes: UseQueryResult<Observation[]>, hasRecords: boolean) {
   const source = useSource();
   const client = useQueryClient();
   const [stage, setStage] = useState<{ key: string; state: NarrativeState }>({ key: range.key, state: IDLE });

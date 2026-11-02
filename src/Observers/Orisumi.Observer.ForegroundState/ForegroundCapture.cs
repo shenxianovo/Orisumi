@@ -17,7 +17,7 @@ internal sealed record ForegroundCapture(
             Name = reading.Name,
             Icon = ReadIcon(reading),
         };
-        var time = VersionTime.Normalize(reading.ObservedAt);
+        var time = ObservationTime.Normalize(reading.ObservedAt);
         return new(application, content, time, time, reading.TimeZone);
     }
 
@@ -28,5 +28,5 @@ internal sealed record ForegroundCapture(
         { return null; }
     }
 
-    internal ForegroundCapture Through(DateTimeOffset time) => this with { EndAt = VersionTime.Normalize(time) };
+    internal ForegroundCapture Through(DateTimeOffset time) => this with { EndAt = ObservationTime.Normalize(time) };
 }

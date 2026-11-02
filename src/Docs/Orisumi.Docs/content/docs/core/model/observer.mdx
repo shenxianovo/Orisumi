@@ -1,6 +1,6 @@
 ---
 title: "Observer"
-description: "对一份观测负责的实体"
+description: "对一份观测负责的事物"
 ---
 
 Observer 是对一份 [Observation](./observation.mdx) 负责的[事物](./thing.mdx)，也就是 `observerId` 引用的事物。程序实例、Agent 和人都可以是 Observer：前台状态 Observer 对它采集的前台时段负责，用户对自己写下的“在开会”负责。
@@ -44,7 +44,7 @@ Observer 按负责的陈述划分。例如前台状态、输入事件和设备�
 | 词 | 含义 | 例子 |
 | --- | --- | --- |
 | 程序 | 一份代码 | 前台状态 Observer 的代码 |
-| 程序实例 | 负责陈述的身份，有自己的 EntityId 和配置 | 这台 Mac 上的前台状态 Observer |
+| 程序实例 | 负责陈述的身份，有自己的 `thingId` 和配置 | 这台 Mac 上的前台状态 Observer |
 | 一次执行 | 程序实例的一次运行 | 今早开机后启动的进程 |
 | 安装包 | 分发程序的文件 | `foreground-state-0.1.0-osx-arm64.zip` |
 
@@ -52,22 +52,22 @@ Observer 按负责的陈述划分。例如前台状态、输入事件和设备�
 
 执行方：写入方
 
-程序实例在下表的变化中保持身份。程序实例是[程序实例](../rules/understanding.mdx#thing-types)这种事物。受托管的程序实例由托管方预先分配并持久保存 EntityId；直接运行的程序用识别依据认出自己。实例的信息变化时，形成它的描述的新版本，见 [OBSERVER-9](#observer-9)。
+程序实例在下表的变化中保持身份。程序实例是[程序实例](./common-types.mdx#thing-types)这种事物。受托管的程序实例由托管方预先分配并持久保存 `thingId`；直接运行的程序用识别依据认出自己。实例的信息变化时，写入新的描述，见 [OBSERVER-9](#observer-9)。
 
-| 变化 | EntityId |
+| 变化 | `thingId` |
 | --- | --- |
 | 新的一次执行，包括崩溃后重启 | 沿用 |
 | 程序升级，安装包更新 | 沿用 |
 | 卸载后重装 | 沿用 |
 | 删除实例后再次使用 | 新建 |
 
-推断 Observer 更换模型或提示词也属于升级；模型和提示词写在描述中，所以每份判断都知道自己出自哪个模型。
+推断 Observer 更换模型或提示词也属于升级。模型写在描述中，提示词写在 Observation 的业务字段里，所以每份判断都知道自己出自哪个模型、读到了什么要求。
 
 ### OBSERVER-5 一个实例一个身份 [#observer-5]
 
 执行方：写入方
 
-每个程序实例有自己的 EntityId。一个程序可以有多个程序实例，同一个托管方可以运行它们，同一个进程也可以。同时运行的不同推断方法是不同的程序实例，例如用便宜的模型做筛选、用强模型做判断。
+每个程序实例有自己的 `thingId`。一个程序可以有多个程序实例，同一个托管方可以运行它们，同一个进程也可以。同时运行的不同推断方法是不同的程序实例，例如用便宜的模型做筛选、用强模型做判断。
 
 ## 陈述 [#statements]
 
@@ -87,13 +87,13 @@ Observer 按负责的陈述划分。例如前台状态、输入事件和设备�
 | 用户经客户端确认、否定或陈述 | 用户本人 |
 | 正在和用户工作的 Agent 当场形成判断 | 这个 Agent |
 
-不同 Observer 的陈述冲突时，读取方按 [UNDERSTANDING-4](../rules/understanding.mdx#understanding-4) 取当前理解。
+不同 Observer 的陈述冲突时，后端按 [UNDERSTANDING-4](../rules/understanding.mdx#understanding-4) 算出当前理解。
 
 ### OBSERVER-7 确认与否定 [#observer-7]
 
 执行方：写入方
 
-确认或否定写成一份 [Review](../rules/understanding.mdx#review-type)。例如用户否定模型的推断：这份 Review 引用被否定的那一版推断，并写出用户的结论；用户参考过的日志列在输入集中。
+确认或否定写成一份 [Review](./review.mdx)。例如用户否定模型的推断：这份 Review 引用被否定的那份推断，并写出用户的结论；用户参考过的日志列在输入集中。
 
 ### OBSERVER-8 失败作为诊断 [#observer-8]
 
@@ -107,4 +107,4 @@ Observer 按负责的陈述划分。例如前台状态、输入事件和设备�
 
 执行方：写入方、后端
 
-程序实例和 Agent 用一份 Observation 描述自己：程序版本、平台、模型和提示词。这份描述的 Observer 是它自己，`observerVersionId` 为 `null`。之后它形成的每个版本都由后端填上当时描述的版本。描述变化时形成新版本，已有的陈述继续引用当时那一版。人没有描述，`observerVersionId` 为 `null`。
+程序实例和 Agent 用公共类型 [Observer 描述](./common-types.mdx#observer-descriptions)说明自己：平台、主机名、程序版本和模型。这份描述的 Observer 是它自己，`observerDescriptionId` 为 `null`。之后它形成的每份 Observation 都由后端填上当时的描述。描述变化时写入新的一份，替换旧的，已有的陈述继续引用当时那一份。人没有描述，`observerDescriptionId` 为 `null`。提示词写在 Observation 的业务字段里，见 [EVIDENCE-6](../rules/evidence.mdx#evidence-6)。

@@ -1,50 +1,9 @@
 [
   {
-    "schemaId": "019e1bbb-ec00-7000-8000-000000000003",
-    "content": {
-      "displayName": "前台状态 Observer",
-      "description": "表示一个前台状态 Observer 程序实例，保存它运行的平台、主机名和程序版本；它作为 Observer 对前台应用时段和窗口标题时段的观测负责。",
-      "resourceName": "foreground-state-observers",
-      "fields": {
-        "platform": {
-          "type": "string",
-          "description": "运行的平台：macos、windows、android 或 linux",
-          "nullable": false,
-          "required": true
-        },
-        "hostName": {
-          "type": "string",
-          "description": "本机的名称，读不到时为 null",
-          "nullable": true,
-          "required": true
-        },
-        "programVersion": {
-          "type": "string",
-          "description": "程序的版本，即安装包的版本",
-          "nullable": false,
-          "required": true
-        }
-      },
-      "kind": "observation",
-      "immutable": false
-    }
-  },
-  {
-    "schemaId": "019e1bbb-ec00-7000-8000-000000000002",
-    "content": {
-      "displayName": "本机应用",
-      "description": "表示某台设备上的一个应用安装。",
-      "resourceName": "local-applications",
-      "fields": {},
-      "kind": "thing",
-      "immutable": false
-    }
-  },
-  {
     "schemaId": "019e1bbb-ec00-7000-8000-000000000001",
     "content": {
       "displayName": "前台应用时段",
-      "description": "表达某个本机应用连续处于前台的一段活动，每段活动一个实体；内容保存应用引用与时段开始时读到的名称和图标，Observation 保存时段。",
+      "description": "表达某个本机应用连续处于前台的一段活动，每段活动一份 Observation；内容保存应用引用与时段开始时读到的名称和图标，事实时间是这一段的时段。",
       "resourceName": "foreground-application-periods",
       "fields": {
         "name": {
@@ -64,11 +23,10 @@
           "description": "观测设备上的本机应用",
           "nullable": false,
           "required": true,
-          "target": "thing"
+          "target": "thing",
+          "role": "part"
         }
-      },
-      "kind": "observation",
-      "immutable": false
+      }
     }
   },
   {
@@ -77,22 +35,22 @@
       "displayName": "本机应用描述",
       "description": "说明一个本机应用所在的设备和它的标识线索。事实时间未知。",
       "resourceName": "local-application-descriptions",
-      "kind": "observation",
-      "immutable": false,
       "fields": {
         "localApplicationId": {
           "type": "reference",
           "description": "被描述的本机应用",
           "required": true,
           "nullable": false,
-          "target": "thing"
+          "target": "thing",
+          "role": "about"
         },
         "deviceId": {
           "type": "reference",
           "description": "应用所在的设备",
           "required": true,
           "nullable": false,
-          "target": "thing"
+          "target": "thing",
+          "role": "mention"
         },
         "identifierIds": {
           "type": "array",
@@ -103,7 +61,8 @@
             "type": "reference",
             "description": "一条应用线索",
             "nullable": false,
-            "target": "thing"
+            "target": "thing",
+            "role": "mention"
           }
         },
         "executablePath": {
@@ -112,18 +71,10 @@
           "required": true,
           "nullable": true
         }
-      }
-    }
-  },
-  {
-    "schemaId": "019e1bbb-ec00-7000-8000-000000000015",
-    "content": {
-      "displayName": "应用线索",
-      "description": "表示一条跨设备线索，在任何设备上都指同一款软件的同一类安装。",
-      "resourceName": "application-identifiers",
-      "kind": "thing",
-      "immutable": false,
-      "fields": {}
+      },
+      "stateFields": [
+        "localApplicationId"
+      ]
     }
   }
 ]

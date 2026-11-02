@@ -1,15 +1,15 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 import { ApiError } from "@/api/client";
-import { useEntity } from "@/hooks/queries";
-import { useDescribe } from "@/hooks/useEntityInfo";
+import { useItem } from "@/hooks/queries";
+import { useDescribe } from "@/hooks/useItemInfo";
 import { cn } from "@/lib/utils";
 import { InfoMark } from "../token/Token";
 import { PanelDepth, useHighlight, useStack } from "../token/context";
 import { PanelBody } from "./bodies";
 
 /**
- * 右侧堆叠的面板。从记号打开的实体依次排在右边，最后两个展开，更早的收成窄条只露出名字。
+ * 右侧堆叠的面板。从记号打开的记录依次排在右边，最后两个展开，更早的收成窄条只露出名字。
  * 沿引用追溯时，走过的路一直留在屏幕上；点窄条回到那一层，Esc 关掉最后一个。
  */
 export function Stack() {
@@ -27,10 +27,10 @@ export function Stack() {
   if (!ids.length) return null;
   return (
     <aside aria-label="面板" className="pointer-events-none fixed inset-y-0 right-0 z-30 flex max-w-full justify-end">
-      {ids.map((entityId, index) => (
+      {ids.map((id, index) => (
         <Panel
-          key={`${index}:${entityId}`}
-          entityId={entityId}
+          key={`${index}:${id}`}
+          id={id}
           depth={index}
           expanded={index >= ids.length - 2}
           last={index === ids.length - 1}
@@ -43,35 +43,35 @@ export function Stack() {
 }
 
 function Panel({
-  entityId,
+  id,
   depth,
   expanded,
   last,
   onClose,
   onFocus,
 }: {
-  entityId: string;
+  id: string;
   depth: number;
   expanded: boolean;
   last: boolean;
   onClose: () => void;
   onFocus: () => void;
 }) {
-  const entity = useEntity(entityId);
-  const { info } = useDescribe(entity.data);
+  const record = useItem(id);
+  const { info } = useDescribe(record.data);
   const highlight = useHighlight();
-  const status = entity.error instanceof ApiError ? entity.error.status : 0;
+  const status = record.error instanceof ApiError ? record.error.status : 0;
 
   return (
     <section
-      aria-label={info ? `${info.typeName} ${info.title}` : "实体"}
+      aria-label={info ? `${info.typeName} ${info.title}` : "记录"}
       className={cn(
         "panel-enter bg-card border-line pointer-events-auto flex h-full shrink-0 flex-col overflow-hidden border-l",
         "shadow-[-24px_0_48px_-28px_rgb(0_0_0/0.4)] transition-[width] duration-200 ease-out",
         expanded ? "w-[min(420px,100vw)]" : "w-11 max-md:hidden",
         !last && expanded && "max-lg:hidden",
       )}
-      onPointerEnter={() => highlight.set(entityId)}
+      onPointerEnter={() => highlight.set(id)}
       onPointerLeave={() => highlight.set(null)}
     >
       {!expanded ? (
@@ -105,9 +105,9 @@ function Panel({
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <PanelDepth depth={depth}>
-              {entity.isError ? (
+              {record.isError ? (
                 <p className="text-fg-3 py-10 text-center text-[13px]">
-                  {status === 410 ? "这个实体已删除" : status === 404 ? "没有这个实体" : "读不到这个实体"}
+                  {status === 410 ? "这份记录已删除" : status === 404 ? "没有这份记录" : "读不到这份记录"}
                 </p>
               ) : info ? (
                 <PanelBody info={info} />

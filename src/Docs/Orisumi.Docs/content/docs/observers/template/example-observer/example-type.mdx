@@ -1,0 +1,53 @@
+---
+title: "Example Type"
+description: "业务类型页的章节和每一章写什么"
+---
+
+开头用一段话说明这种业务类型是事物还是 Observation、表示什么，以及由哪个 Observer 形成。本页的结构图借用 [Input Event](../../input-events/input-event.mdx) 的节点，实际写作时换成自己的节点。
+
+<ObserverStructure node="INPUT_CONTENT" />
+
+## 粒度 [#granularity]
+
+写什么构成一个事物或一份 Observation，何时替换，何时新写一份。用一个具体例子说明边界。结束由业务代码判断。
+
+## 身份 [#identity]
+
+写怎样认出同一个事物或同一句话的新说法：依据哪些来源标识，标识在什么范围内有效，重启或重放时怎样处理。事物的身份与程序实例的身份分开写。
+
+## 引用 [#references]
+
+| 字段 | 目标 |
+| --- | --- |
+| `<角色>Id`、`<角色>Ids` | 引用的目标及其业务含义 |
+
+字段名以 `Id` 或 `Ids` 结尾，见 [SCHEMA-8](../../../core/model/schema.mdx#schema-8)。没有引用时省略本节。
+
+## 事实时间 [#fact-time]
+
+写这份 Observation 是时间点还是时段、边界取自哪里、未知的边界怎样表示。事物省略本节，它的时间由提到它的 Observation 表达，见 [OBSERVATION-4](../../../core/model/observation.mdx#observation-4)。
+
+## Schema [#schema]
+
+| 项目 | 值 |
+| --- | --- |
+| SchemaId | 稳定的 UUIDv7，未确定时写“待定” |
+| 显示名称 | `displayName` |
+| 说明 | `description`：业务事实、粒度和事实时间的取值，必须填写 |
+| 资源名 | `resourceName`，未确定时写“待定” |
+| `stateFields` | 这个类型是状态时写，见 [SCHEMA-20](../../../core/model/schema.mdx#schema-20) |
+| `claimFields` | 这个类型有命题键时写，见 [SCHEMA-21](../../../core/model/schema.mdx#schema-21) |
+
+| 字段 | 类型 | 必填 | 可空 | description |
+| --- | --- | --- | --- | --- |
+| 字段名 | `string` 等 | 是或否 | 是或否 | 含义、来源和省略的条件 |
+
+引用和普通字段写在同一张表中，类型写 `reference` 和它的目标；目标是事物时再写 `role`，见 [SCHEMA-19](../../../core/model/schema.mdx#schema-19)。字符串字段声明 `searchable` 时写在类型中，见 [SCHEMA-22](../../../core/model/schema.mdx#schema-22)。事物类型只写前四行，标题写“事物类型”，省略这张表。对象成员和数组元素逐项列出，数组元素的“必填”写“不适用”。每行的 `description` 都要随字段定义保存，说明业务含义，以及适用的单位、取值、来源、引用目标和空值含义，见 [SCHEMA-10](../../../core/model/schema.mdx#schema-10)。声明格式见 [Schema · 字段约束](../../../core/model/schema.mdx#constraints)。
+
+## 示例 [#example]
+
+给出一份符合本页 Schema 的 `content`，格式见 [Input Event · 示例](../../input-events/input-event.mdx#example)。
+
+## 待定 [#open]
+
+- 逐项列出尚未确认的字段、约束、标识或业务规则。

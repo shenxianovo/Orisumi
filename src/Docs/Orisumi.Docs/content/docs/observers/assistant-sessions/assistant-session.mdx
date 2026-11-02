@@ -5,7 +5,7 @@ description: "Claude Code 或 Codex 中的一个会话"
 
 助手会话表示来源中的一个会话，例如 Claude Code 里讨论文档结构的那个会话，或者它为读网页派出的子 Agent 的会话。它是一个[事物](../../core/model/thing.mdx)，被它的每次[交互](./assistant-interaction.mdx)提到。会话从几点到几点，由读取方从交互的时间计算。
 
-日志和索引文件各给出会话的一部分，日志还可能被重读，所以会变的内容都写成单独的 Observation：标题是 [Name](../../core/rules/understanding.mdx#name)，发起关系是[子 Agent 关系](./assistant-subagent.mdx)，见 [IDENTITY-5](../../core/rules/identity.mdx#identity-5)。
+日志和索引文件各给出会话的一部分，日志还可能被重读，所以会变的内容都写成单独的 Observation：标题是 [Name](../../core/model/common-types.mdx#name)，发起关系是[子 Agent 关系](./assistant-subagent.mdx)，见 [IDENTITY-5](../../core/rules/identity.mdx#identity-5)。
 
 <ObserverStructure node="ASSISTANT_SESSION" />
 
@@ -23,11 +23,11 @@ Claude Code 的 `sessionId` 和 `agentId`、Codex 的会话 `id` 都由来源生
 | `scheme` | `claude-code.session` 或 `codex.session` |
 | `value` | `sessionId`、`agentId` 或会话 `id` |
 
-同一个会话的文件被复制或移动，例如 Codex 把会话移进归档目录，身份不变。用户删除一个会话后，识别依据随它删除；之后读到这个会话的数据时，它是一个新事物，见 [IDENTITY-7](../../core/rules/identity.mdx#identity-7)。
+同一个会话的文件被复制或移动，例如 Codex 把会话移进归档目录，身份不变。用户删除一个会话后，识别依据留下墓碑；之后重读到这个会话的数据时，写入被跳过，见 [HISTORY-11](../../core/rules/history.mdx#history-11)。
 
 ## 标题 [#titles]
 
-来源中一次不同的标题写成一份 Name，形成后不再变化。Codex 把一个会话命名为“整理文档结构”，之后用户改成“重写 Observer 文档”，这是两份 Name。
+来源中一次不同的标题写成一份 Name。Codex 把一个会话命名为“整理文档结构”，之后用户改成“重写 Observer 文档”，这是两份 Name。
 
 | 产品 | 来源 |
 | --- | --- |
@@ -49,7 +49,7 @@ Claude Code 的标题行没有时间和标识，同一行反复写入，所以�
 
 形成方式是 `direct`，`timeZone` 为 `null`。
 
-## EntitySchema [#schema]
+## 事物类型 [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -57,4 +57,3 @@ Claude Code 的标题行没有时间和标识，同一行反复写入，所以�
 | 显示名称 | 助手会话 |
 | 说明 | 表示 Claude Code 或 Codex 中的一个会话，包括子 Agent 的会话。产品和来源标识在识别依据中。 |
 | 资源名 | `assistant-sessions` |
-| `kind` | `thing` |

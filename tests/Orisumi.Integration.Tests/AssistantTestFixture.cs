@@ -60,14 +60,14 @@ internal sealed class AssistantTestFixture : IDisposable
         return path;
     }
 
-    internal IReadOnlyList<EntityVersion> Interactions() => Versions("assistant-interactions");
+    internal IReadOnlyList<Observation> Interactions() => Versions("assistant-interactions");
     internal IReadOnlyList<JsonElement> Sessions() => Data.ListAsync("things?resourceName=assistant-sessions").GetAwaiter().GetResult();
-    internal IReadOnlyList<EntityVersion> Titles() => Versions("names");
-    internal IReadOnlyList<EntityVersion> Subagents() => Versions("assistant-subagents");
-    private EntityVersion[] Versions(string resource) => Data.ListAsync("entities?resourceName=" + resource).GetAwaiter().GetResult().Select(VersionJson.ReadSaved).ToArray();
-    internal IReadOnlyList<EntityVersion> Observations() => Data.ListAsync("observations?resourceName=assistant-interactions").GetAwaiter().GetResult().Select(VersionJson.ReadSaved).ToArray();
+    internal IReadOnlyList<Observation> Titles() => Versions("names&view=all");
+    internal IReadOnlyList<Observation> Subagents() => Versions("assistant-subagents");
+    private Observation[] Versions(string resource) => Data.ListAsync("observations?resourceName=" + resource).GetAwaiter().GetResult().Select(ObservationJson.ReadSaved).ToArray();
+    internal IReadOnlyList<Observation> Observations() => Data.ListAsync("observations?resourceName=assistant-interactions").GetAwaiter().GetResult().Select(ObservationJson.ReadSaved).ToArray();
     internal Task<byte[]> Bytes(string digest) => _http.GetByteArrayAsync("contents/" + digest);
-    internal static JsonElement Content(EntityVersion version) => ((Observation)version.Content).Fields;
+    internal static JsonElement Content(Observation version) => version.Content;
     internal static byte[] Json(object value) => JsonSerializer.SerializeToUtf8Bytes(value, JsonSerializerOptions.Web);
     internal static byte[] ClaudeMessage(string id, object content, string type = "user", string? actor = "human",
         string? parent = null, string? cwd = "/work", bool meta = false, string sessionId = "main") => Json(new

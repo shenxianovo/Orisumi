@@ -74,7 +74,7 @@ public sealed class ScenarioTests
         public async Task ExecuteAsync(TextWriter log, CancellationToken token)
         {
             Executed = true;
-            await log.WriteLineAsync("> GET http://localhost/api/entities\n< " + (fail ? "500" : "200"));
+            await log.WriteLineAsync("> GET http://localhost/api/observations\n< " + (fail ? "500" : "200"));
             if (fail) throw new InvalidOperationException("request failed");
         }
     }

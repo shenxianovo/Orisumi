@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, readAllPages, type OrisumiSource } from "@/api/client";
 import { useSource } from "@/api/source";
-import type { BinaryValue, ObservationVersion } from "@/api/types";
+import type { BinaryValue, Observation } from "@/api/types";
 import {
   groupSessions,
   resolvePointer,
@@ -19,15 +19,15 @@ const SUBAGENTS = "assistant-subagents";
 
 /** 说明这个会话是子 Agent 的那份关系。 */
 async function subagentOf(source: OrisumiSource, sessionId: string): Promise<SessionMeta> {
-  const page = await source.listReferrers(sessionId, {
+  const page = await source.listThingReferrers(sessionId, {
     resourceName: SUBAGENTS,
     path: "/content/sessionId",
     order: "desc",
     limit: 1,
   });
-  const relation = page.referrers[0]?.version.content as
+  const relation = page.referrers[0]?.observation.content as
     { parentSessionId: string; agentName: string | null } | undefined;
-  return { parentEntityId: relation?.parentSessionId ?? null, agentName: relation?.agentName ?? null };
+  return { parentThingId: relation?.parentSessionId ?? null, agentName: relation?.agentName ?? null };
 }
 
 /**
@@ -56,7 +56,7 @@ export function useConversations(key: string) {
         // 资源名还没有登记时按没有数据处理。
         if (error instanceof ApiError && error.status === 404) return [];
         throw error;
-      }) as Promise<ObservationVersion<InteractionContent>[]>,
+      }) as Promise<Observation<InteractionContent>[]>,
     refetchInterval: today ? DAY_INTERVAL : false,
   });
 
@@ -64,7 +64,7 @@ export function useConversations(key: string) {
     queryKey: ["conversations", range.key, observations.dataUpdatedAt],
     queryFn: async () => {
       const interactions = observations.data!.map(toInteraction);
-      const sessionIds = [...new Set(interactions.map((i) => i.version.content.sessionId))];
+      const sessionIds = [...new Set(interactions.map((i) => i.observation.content.sessionId))];
       const sessions = await readThings(client, source, sessionIds);
       const metas = new Map<string, SessionMeta>();
       await pool(sessionIds, 8, async (sessionId) => {

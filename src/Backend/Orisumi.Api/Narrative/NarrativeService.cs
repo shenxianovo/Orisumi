@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Orisumi.Core;
 
 namespace Orisumi.Api.Narrative;
@@ -22,8 +22,9 @@ internal sealed partial class NarrativeService(IServiceScopeFactory scopes, INar
         }
     }
     internal void End(NarrativeRequest request) { lock (gate) active.Remove(request); }
-    private static ObserverDescription Description(string model) => new(NarrativeData.ObserverSchema,
-        JsonSerializer.SerializeToElement(new { programVersion = typeof(NarrativeService).Assembly.GetName().Version!.ToString(), model = "openai/" + model }));
+    private static JsonElement Description(string model) => JsonSerializer.SerializeToElement(new
+    { platform = OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : "linux", hostName = Environment.MachineName,
+        programVersion = typeof(NarrativeService).Assembly.GetName().Version!.ToString(), model = "openai/" + model, decisionModel = (string?)null });
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -43,7 +44,7 @@ internal sealed partial class NarrativeService(IServiceScopeFactory scopes, INar
         {
             using var scope = scopes.CreateScope();
             var evidence = await scope.ServiceProvider.GetRequiredService<NarrativeReader>().ReadAsync(request, token);
-            if (evidence.Empty) { await emit("saved", new { versionIds = Array.Empty<Guid>() }); return; }
+            if (evidence.Empty) { await emit("saved", new { observationIds = Array.Empty<Guid>() }); return; }
             var episodes = new List<NarrativeEpisode>();
             var used = new HashSet<Guid>();
             await foreach (var line in model.LinesAsync(evidence.Input, token))
@@ -52,15 +53,12 @@ internal sealed partial class NarrativeService(IServiceScopeFactory scopes, INar
                 episodes.Add(episode); await emit("episode", episode);
             }
             if (episodes.Count == 0) throw new InvalidDataException("模型没有写出有效的事。");
-            var writes = episodes.Select(e => new EntityWrite(NarrativeData.EpisodeSchema,
+            var writes = episodes.Select(e => new ObservationWrite(NarrativeData.EpisodeSchema,
                 JsonSerializer.SerializeToElement(new { e.Title, e.Summary, e.SessionIds, e.LocalApplicationIds }, NarrativeData.Json), "inferred",
-                Time: new(e.StartAt, e.EndAt, request.TimeZone), Inputs: evidence.Inputs)).ToList();
-            writes.AddRange(evidence.Previous.Where(v => !evidence.Confirmed.Contains(v.EntityId.Value)).Select(v =>
-                new EntityWrite(BuiltInSchemas.Review, JsonSerializer.SerializeToElement(new { targetVersionId = v.VersionId.Value,
-                    verdict = "supersede", text = (string?)null }), "inferred", Inputs: evidence.Inputs)));
+                Time: new(e.StartAt, e.EndAt, request.TimeZone), Inputs: evidence.Inputs, Replaces: evidence.Previous.Select(item => item.ObservationId).ToArray())).ToList();
             var saved = await scope.ServiceProvider.GetRequiredService<WriteService>().WriteAtomicAsync(
                 new(NarrativeData.Observer, writes, NarrativeData.Schemas, Description: Description(model.Model)), token);
-            await emit("saved", new { versionIds = saved.Results.Take(episodes.Count).Select(r => r.Version!.VersionId.Value).ToArray() });
+            await emit("saved", new { observationIds = saved.Results.Take(episodes.Count).Select(r => r.Observation!.ObservationId).ToArray() });
         }
         catch (Exception exception)
         {

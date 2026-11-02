@@ -1,9 +1,9 @@
 ---
 title: "Integration Guide"
-description: "接入新来源时，依次确定事实、Observer、实体、EntitySchema、身份、时间、历史和写入，再验收"
+description: "接入新来源时，依次确定事实、Observer、事物与观测、Schema、身份、时间、历史和写入，再验收"
 ---
 
-接入一个新来源，要写的是业务规则和读取来源的代码。Observer 只发送：说出一份 Observation 的完整内容、形成方式、识别依据和事实时间，见 [API · Writing](../api/writing.mdx)。事物、版本、引用和 InputSet 怎样组织由后端负责，断网和程序运行由[托管方](../hosting/index.mdx)负责。任何语言都可以，能发 HTTP 请求就行。
+接入一个新来源，要写的是业务规则和读取来源的代码。Observer 只发送：说出一份 Observation 的完整内容、形成方式、识别依据和事实时间，见 [API · Writing](../api/writing.mdx)。事物、替换、引用和 InputSet 怎样组织由后端负责，断网和程序运行由[托管方](../hosting/index.mdx)负责。任何语言都可以，能发 HTTP 请求就行。
 
 下面九个问题依次回答，前面的结论是后面的前提。已确认的结论写进这个 Observer 的 Observer 页和业务类型页，格式见 [Document Template](./template/index.mdx)；还没确认的写进“待定”。
 
@@ -15,11 +15,11 @@ description: "接入新来源时，依次确定事实、Observer、实体、Enti
 
 | 来源 | 建模 | 例子 |
 | --- | --- | --- |
-| 保留历史 | 每条来源数据一份不变的 Observation，类型声明 `immutable`，变化是新的 Observation | 日志中的一次交互、一次改名、一次访问 |
-| 只给当前状态 | 一个对象一份 Observation，每次写入完整内容，变化形成新版本 | 日历事件 |
+| 保留历史 | 每条来源数据一份 Observation，变化是新的 Observation | 日志中的一次交互、一次改名、一次访问 |
+| 只给当前状态 | 一个对象一个识别依据，每次写入完整内容，变化时新的一份替换旧的 | 日历事件 |
 | 错过就没有 | 持续的事实是一份 Observation，时段结束时写入 | 前台时段 |
 
-被提到的对象是事物，它自己没有内容，见 [Thing](../core/model/thing.mdx)。关于它的内容如果来自不同的来源，各写成单独的 Observation。例如助手会话是事物，标题是单独的 [Name](./assistant-sessions/assistant-session.mdx#titles)。用业务例子检验，一次读取多半是在补全已有的观测，见 [IDENTITY-4](../core/rules/identity.mdx#identity-4)。
+被提到的对象是事物，它自己没有内容，见 [Thing](../core/model/thing.mdx)。关于它的内容如果来自不同的来源，各写成单独的 Observation。例如助手会话是事物，标题是单独的 [Name](./assistant-sessions/assistant-session.mdx#titles)。用业务例子检验，一次读取多半是在重复已有的观测，见 [OBSERVATION-19](../core/model/observation.mdx#observation-19)。
 
 结论写进 Observer 页的开头和业务类型页的“粒度”。
 
@@ -33,27 +33,36 @@ description: "接入新来源时，依次确定事实、Observer、实体、Enti
 
 列出来源提到哪些对象，它们是事物；再列出来源给出哪些陈述，它们是 Observation，说明每种 Observation 提到谁。
 
-例如同一封邮件被两个 Observer 读到：邮件是一个事物，两个 Observer 对它各有一份 Observation。正文从 A 改成 B 时，形成这份 Observation 的新版本，A 留在旧版本中，见 [HISTORY-3](../core/rules/history.mdx#history-3)。
+例如同一封邮件被两个 Observer 读到：邮件是一个事物，两个 Observer 对它各有一份 Observation。正文从 A 改成 B 时，新的一份替换原来的一份，A 仍然保留，见 [OBSERVATION-18](../core/model/observation.mdx#observation-18)。
 
 只记下来源给出的内容，提到来源中的对象。来源没有直接给出的关系留给模型，见 [UNDERSTANDING-1](../core/rules/understanding.mdx#understanding-1)。例如 QQ 的消息只提到 QQ 号，“这个号是本人”由模型另外陈述。
 
-关系都写成 Observation 中的引用，见 [ENTITY-9](../core/model/entity.mdx#entity-9)。指向事物或陈述时用 `reference` 字段；写在普通字符串里的标识只是属性。文件用 `binary` 字段，例如应用的图标，见 [Binary](../core/model/binary.mdx)。
+关系都写成 Observation 中的引用，见 [REFERENCE-5](../core/rules/references.mdx#reference-5)。指向事物或陈述时用 `reference` 字段；写在普通字符串里的标识只是属性。文件用 `binary` 字段，例如应用的图标，见 [Binary](../core/model/binary.mdx)。
 
-## 4. EntitySchema [#schema]
+## 4. Schema [#schema]
 
-为每种业务类型写一个 EntitySchema。每个字段写明 `type`、`description`、`required` 和 `nullable`；对象声明成员，数组声明元素。对象成员和数组元素也写 `description`，数组元素不写 `required`。说明保存业务含义，以及适用的单位、取值、来源和引用角色，见 [SCHEMA-10](../core/model/schema.mdx#schema-10)。引用声明 `target`，可以出现在任何层级，名字按 [SCHEMA-8](../core/model/schema.mdx#schema-8) 区分事物、版本和数组。外部系统的标识保存为普通属性。完整的规则见 [EntitySchema · 字段约束](../core/model/schema.mdx#constraints)。
+为每种业务类型写一个 Schema。每个字段写明 `type`、`description`、`required` 和 `nullable`；对象声明成员，数组声明元素。对象成员和数组元素也写 `description`，数组元素不写 `required`。说明保存业务含义，以及适用的单位、取值、来源和引用角色，见 [SCHEMA-10](../core/model/schema.mdx#schema-10)。引用声明 `target`，可以出现在任何层级，名字按 [SCHEMA-8](../core/model/schema.mdx#schema-8) 写。外部系统的标识保存为普通属性。完整的规则见 [Schema · 字段约束](../core/model/schema.mdx#constraints)。
 
-为业务类型选择稳定的 SchemaId 和唯一的资源名。结构或约束变化时，形成同一 EntitySchema 的新版本；业务含义变化时，新建一个 EntitySchema，见 [SCHEMA-15](../core/model/schema.mdx#schema-15) 和 [SCHEMA-16](../core/model/schema.mdx#schema-16)。
+再回答四个问题，它们决定后端和读取方怎样理解这种类型，见 [Schema · 类型的声明](../core/model/schema.mdx#declarations)：
 
-一种业务类型的含义、粒度、身份、时间、EntitySchema 和示例，集中写在同一个业务类型页。别的 Observer 用同一种业务类型时，共用这些规则。代码使用同一份[业务类型的声明](../api/sdk.mdx#definitions)。
+| 声明 | 问题 | 例子 |
+| --- | --- | --- |
+| `role` | 这份 Observation 和被引用的事物是什么关系：关于它、是它的一部分，还是提到它。删除事物时按它决定移除什么 | 助手交互的 `sessionId` 是 `part` |
+| `stateFields` | 这是不是状态：同一组字段值下默认只取一条 | 设备描述是 `deviceId` |
+| `claimFields` | 什么算同一个命题：否定要跨代生效 | 线索归属是 `identifierId`、`productId` |
+| `searchable` | 这个字符串字段是人或模型写下的文字吗 | Episode 的 `title` |
+
+事物的类型只声明名称和说明。为业务类型选择稳定的 SchemaId 和唯一的资源名。结构或约束变化时，形成同一 Schema 的新修订；业务含义变化时，新建一个 Schema，见 [SCHEMA-15](../core/model/schema.mdx#schema-15) 和 [SCHEMA-16](../core/model/schema.mdx#schema-16)。
+
+一种业务类型的含义、粒度、身份、时间、Schema 和示例，集中写在同一个业务类型页。别的 Observer 用同一种业务类型时，共用这些规则。代码使用同一份[业务类型的声明](../api/sdk.mdx#definitions)。
 
 ## 5. 身份 [#identity]
 
-说明怎样认出同一个对象。来源有稳定的标识时，写明[识别依据](../api/writing.mdx#recognition)：作用范围、标识方案和值怎样组成，例如本机应用的范围是设备，值是包标识和路径，再给出输入输出样例。范围由业务决定，例如一个账号、一台设备、一个仓库或一个日历，范围不同的同名标识属于不同的实体，见 [IDENTITY-6](../core/rules/identity.mdx#identity-6)。
+说明怎样认出同一个对象。来源有稳定的标识时，写明[识别依据](../api/writing.mdx#recognition)：作用范围、标识方案和值怎样组成，例如本机应用的范围是设备，值是包标识和路径，再给出输入输出样例。范围由业务决定，例如一个账号、一台设备、一个仓库或一个日历，范围不同的同名标识属于不同的事物，见 [IDENTITY-6](../core/rules/identity.mdx#identity-6)。
 
-来源没有稳定标识时，写明能用哪些证据识别、怎样识别，证据不足的字段保持未知。没有自然身份的对象每次新建，例如一次温度读数。
+来源没有稳定标识时，写明能用哪些证据识别、怎样识别，证据不足的字段保持未知。没有自然身份的 Observation 每次都是新的一份，例如一次温度读数。
 
-重读同一份来源时，相同的依据和内容什么都不发生，所以业务代码不用查询，也不用比较。这要求内容只由来源决定：写入时不混入读取时刻这样每次都变的值。两份内容相同，只说明内容相同；是不是同一次发生，要靠证据判断。
+重读同一份来源时，相同的依据和内容什么都不发生，所以业务代码不用查询，也不用比较。修好解析器后重读时，内容变了的那些条替换旧的。这要求内容只由来源决定：写入时不混入读取时刻这样每次都变的值。两份内容相同，只说明内容相同；是不是同一次发生，要靠证据判断。
 
 ## 6. 时间 [#time]
 
@@ -65,11 +74,11 @@ description: "接入新来源时，依次确定事实、Observer、实体、Enti
 
 ## 7. 历史 [#history]
 
-确定业务要保留什么：原始材料、当前状态，还是每一次变化。原始材料的保存方式写进 EntitySchema，见 [HISTORY-4](../core/rules/history.mdx#history-4)。
+确定业务要保留什么：原始材料、当前状态，还是每一次变化。原始材料的保存方式写进 Schema，见 [HISTORY-4](../core/rules/history.mdx#history-4)。
 
-当前状态通过同一份 Observation 的新版本更新，旧版本自动保留。依据它的推断引用当时读到的那一版，见 [ENTITY-4](../core/model/entity.mdx#entity-4)。
+当前状态的变化用同一个识别依据再写一份，旧的自动保留。依据它的推断引用当时读到的那一份，见 [REFERENCE-1](../core/rules/references.mdx#reference-1)。
 
-每个版本保存完整内容：新版本中省略的字段，在这一版中就不存在，见 [VERSION-1](../core/model/version.mdx#version-1) 和 [SCHEMA-13](../core/model/schema.mdx#schema-13)。
+每份 Observation 保存完整内容：新的一份中省略的字段，在这一份中就不存在，见 [OBSERVATION-14](../core/model/observation.mdx#observation-14) 和 [SCHEMA-13](../core/model/schema.mdx#schema-13)。
 
 ## 8. 写入 [#submission]
 
@@ -84,7 +93,7 @@ await data.write(
 )
 ```
 
-提到事物写它的识别依据，不用先写入；引用陈述时被引用的先写入，例子见 [SDK · 引用和识别依据](../api/sdk.mdx#references)。形成方式如实声明，见 [OBSERVATION-11](../core/model/observation.mdx#observation-11)。依据已保存的数据形成观测时，`inputs` 列出实际用到的版本。
+提到事物写它的识别依据，不用先写入；引用陈述时被引用的先写入，例子见 [SDK · 引用和识别依据](../api/sdk.mdx#references)。形成方式如实声明，见 [OBSERVATION-11](../core/model/observation.mdx#observation-11)。依据已保存的数据形成观测时，`inputs` 列出实际用到的 Observation。
 
 写给本地转发时，写入收下就返回，所以读取进度在写入之后保存就行，断网时照常运行。需要结果的程序直接写给后端，见[两个地址](../api/writing.mdx#endpoints)。什么时候写入、何时算事实结束，见 [TIME-4](../core/rules/time.mdx#time-4)，写进 Observer 页的“写入”。
 
@@ -98,9 +107,9 @@ await data.write(
 
 ## 9. 验收 [#read-back]
 
-在本地环境中跑一段真实来源，确认[被拒绝的写入](../hosting/runtime.mdx#forwarding)为空，再用 `GET /versions/{versionId}` 读回业务类型页的示例（见 [API · Reading](../api/reading.mdx#versions)），检查保存和读取是否一致：
+在本地环境中跑一段真实来源，确认[被拒绝的写入](../hosting/runtime.mdx#forwarding)为空，再用 `GET /observations/{observationId}` 读回业务类型页的示例（见 [API · Reading](../api/reading.mdx#reads)），检查保存和读取是否一致：
 
-- Observation 的 `schemaVersionId` 指向它所用的 Schema 版本，`observerVersionId` 指向当时的描述，`formation` 是声明的形成方式。
-- 每个版本都带有后端赋值的 `recordedAt`。
+- Observation 的 `schemaRevisionId` 指向它所用的 SchemaRevision，`observerDescriptionId` 指向当时的描述，`formation` 是声明的形成方式。
+- 每份 Observation 都带有后端赋值的 `recordedAt`。
 - 省略的字段和值为 `null` 的字段，读回后仍能区分。
 - 用同样的识别依据再写入一次，什么都不发生。

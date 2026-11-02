@@ -46,7 +46,7 @@ export function useOperation(hostId: string) {
   const lost = progress.isError ? ({ ...started!, state: "unconfirmed" } as Operation) : undefined;
   const operation = lost ?? progress.data ?? started;
 
-  async function start(action: Action, target: { entityId?: string; packageId?: string; newInstance?: boolean } = {}) {
+  async function start(action: Action, target: { thingId?: string; packageId?: string } = {}) {
     setError(undefined);
     try {
       setStarted(await management<Operation>(`/hosts/${hostId}/operations`, "POST", { action, ...target }));

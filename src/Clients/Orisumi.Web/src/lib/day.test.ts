@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
 import type { Thing } from "@/api/types";
 import { observation, thing } from "@/test/fixtures";
-import { groupThings, summarize, type Experience } from "./day";
+import { groupThings, remaining, summarize, type Experience } from "./day";
 
 const MIN = 60_000;
 const from = Date.parse("2026-10-29T00:00:00Z");
 const to = from + 24 * 60 * MIN;
 
-const chrome = thing({ entityId: "chrome" });
-const code = thing({ entityId: "code" });
+const chrome = thing({ thingId: "chrome" });
+const code = thing({ thingId: "code" });
 
 function experience(id: string, start: number, end: number, target: Thing | null): Experience {
   return {
     observationId: id,
-    observation: observation({ entityId: id }),
+    observation: observation({ observationId: id }),
     observerId: "observer",
     writtenAt: end,
     contentType: "periods",
     contentTypeName: "前台应用时段",
     contentTitle: null,
-    things: target ? [{ thing: target, title: target.entityId, typeName: "本机应用" }] : [],
+    things: target ? [{ thing: target, title: target.thingId, typeName: "本机应用" }] : [],
     start,
     end,
   };
@@ -53,9 +53,9 @@ describe("summarize", () => {
 
 describe("groupThings", () => {
   it("两台设备上的同一款软件合成一行，时长相加，彼此之间不算切换", () => {
-    const macA = thing({ entityId: "qq-mac-a" });
-    const macB = thing({ entityId: "qq-mac-b" });
-    const qq = thing({ entityId: "qq" });
+    const macA = thing({ thingId: "qq-mac-a" });
+    const macB = thing({ thingId: "qq-mac-b" });
+    const qq = thing({ thingId: "qq" });
     const grouped = groupThings(
       [
         experience("a", from, from + 10 * MIN, macA),
@@ -70,5 +70,33 @@ describe("groupThings", () => {
       ["chrome", 5],
     ]);
     expect(day.switches).toBe(1);
+  });
+});
+
+describe("remaining", () => {
+  it("减去被否定的时段，剩下的按时间分段", () => {
+    expect(
+      remaining(0, 100, [
+        { start: 20, end: 40 },
+        { start: 60, end: 70 },
+      ]),
+    ).toEqual([
+      [0, 20],
+      [40, 60],
+      [70, 100],
+    ]);
+  });
+
+  it("否定覆盖全部时什么都不剩", () => {
+    expect(remaining(10, 20, [{ start: 0, end: 30 }])).toEqual([]);
+  });
+});
+
+describe("summarize 裁掉部分否定", () => {
+  it("时长和段落都不含被否定的时段", () => {
+    const period = { ...experience("a", from, from + 60 * MIN, code), denied: [{ start: from, end: from + 45 * MIN }] };
+    const { things } = summarize([period], from, to);
+    expect(things[0]!.total).toBe(15 * MIN);
+    expect(things[0]!.segments).toHaveLength(1);
   });
 });

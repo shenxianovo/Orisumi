@@ -18,7 +18,7 @@ description: "一次判断：一条跨设备线索属于哪个应用产品"
 | 变化 | 结果 |
 | --- | --- |
 | 应用识别 Observer 判断一条未归属的线索 | 新建 |
-| 换了模型后重新判断 | 新建，再写一份 `supersede` 的 Review 取代旧判断 |
+| 换了模型后重新判断 | 新建，用 `replaces` 替换旧判断，或者写一条 [Adoption](../../core/model/adoption.mdx) |
 | 用户发现归错了 | 用户写一份 `deny` 的 Review，判断保持原样 |
 
 ## 引用 [#references]
@@ -32,7 +32,7 @@ description: "一次判断：一条跨设备线索属于哪个应用产品"
 
 `startAt`、`endAt` 和 `timeZone` 都是 `null`：这款软件从什么时候起有这条线索，判断时不知道，见 [OBSERVATION-5](../../core/model/observation.mdx#observation-5)。
 
-## EntitySchema [#schema]
+## Schema [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -40,13 +40,12 @@ description: "一次判断：一条跨设备线索属于哪个应用产品"
 | 显示名称 | 线索归属 |
 | 说明 | 表示一次判断：一条跨设备线索属于一个应用产品。当前理解中的线索归属决定线索属于哪个产品。 |
 | 资源名 | `application-memberships` |
-| `kind` | `observation` |
-| `immutable` | `true` |
+| `claimFields` | `identifierId`、`productId` |
 
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
-| `identifierId` | `reference`，目标为事物 | 是 | 否 | 一条应用线索 |
-| `productId` | `reference`，目标为事物 | 是 | 否 | 线索属于的应用产品 |
+| `identifierId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 一条应用线索 |
+| `productId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 线索属于的应用产品 |
 
 ## 示例 [#example]
 

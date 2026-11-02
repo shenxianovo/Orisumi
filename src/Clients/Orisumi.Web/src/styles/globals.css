@@ -2,7 +2,7 @@
 
 /*
   中性灰阶，浅色和深色各一套。强调色就是正文的墨色。
-  彩色只用于数据：Observer 类别和实体类型的标记，定义在 src/lib/categories.ts。infer 是推断的陈述。
+  彩色只用于数据：Observer 类别和事物类型的标记，定义在 src/lib/categories.ts。infer 是推断的陈述。
   主题由 <html data-theme> 决定：没有这个属性时跟随系统。
 
   表面分三层：page 是纸面，side 是侧栏，card 是放在纸面上的卡片；panel 是卡片里的浅色填充。

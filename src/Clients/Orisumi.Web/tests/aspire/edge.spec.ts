@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { uuidv7 } from "../../src/lib/uuid";
 
-// 经本地环境的 Web 入口验证：页面、同源 API、Vite HMR WebSocket，以及真实数据在档案、面板、类型图、Observer 页面和实体页中的展示。
+// 经本地环境的 Web 入口验证：页面、同源 API、Vite HMR WebSocket，以及真实数据在档案、面板、类型图、Observer 页面和 Observation 页中的展示。
 // 运行前先 `orisumi env up web`，入口地址取自 `orisumi env status --json`，默认是主检出目录的 8081。
 const BASE = process.env.WEB_URL ?? "http://localhost:8081";
 
@@ -11,6 +11,7 @@ const string = (description: string) => ({ type: "string", description, required
 const thingRef = (description: string) => ({
   type: "reference",
   target: "thing",
+  role: "part",
   description,
   required: true,
   nullable: false,
@@ -21,52 +22,63 @@ interface Declared {
   content: Record<string, unknown>;
 }
 
-function declare(displayName: string, resourceName: string, kind: "thing" | "observation", fields = {}): Declared {
+interface ThingDeclared {
+  schemaId: string;
+  displayName: string;
+  description: string;
+  resourceName: string;
+}
+
+function declare(displayName: string, resourceName: string, fields = {}): Declared {
   return {
     schemaId: uuidv7(),
-    content: { displayName, description: `Web e2e 写入的${displayName}`, resourceName, kind, immutable: false, fields },
+    content: { displayName, description: `Web e2e 写入的${displayName}`, resourceName, fields },
   };
+}
+
+function declareThing(displayName: string, resourceName: string) {
+  return { schemaId: uuidv7(), displayName, description: `Web e2e 写入的${displayName}`, resourceName };
 }
 
 /**
  * 以一个直接运行的程序实例写入：声明类型、写下描述，再写入 Observation。返回保存的 Observation，
- * 以及清理时要删除的实体：Observer 写下的全部 Observation、提到的事物、Observer 自己，最后是类型。
+ * 以及清理时要删除的记录：Observer 写下的全部 Observation、提到的事物、Observer 自己，最后是类型。
  */
 async function write(
   request: APIRequestContext,
-  description: Declared,
+  observerName: string,
   schemas: Declared[],
   writes: Record<string, unknown>[],
+  thingTypes: ThingDeclared[] = [],
 ) {
   const response = await request.post(`${BASE}/api/writes`, {
     data: {
-      observer: { schemaId: PROGRAM, key: { scope: null, scheme: "e2e.instance", value: uuidv7() } },
-      schemas: [description, ...schemas],
-      description: { schemaId: description.schemaId, content: { label: "e2e" } },
+      observer: { schemaId: PROGRAM, key: { scope: null, scheme: "e2e.instance", value: observerName } },
+      thingTypes,
+      schemas,
+      description: { platform: "e2e", hostName: null, programVersion: "0", model: null, decisionModel: null },
       writes,
     },
   });
   expect(response.status(), await response.text()).toBe(200);
-  const results = (await response.json()) as { results: { version?: Record<string, unknown>; error?: unknown }[] };
+  const results = (await response.json()) as { results: { observation?: Record<string, unknown>; error?: unknown }[] };
   expect(
-    results.results.every((result) => result.version),
+    results.results.every((result) => result.observation),
     JSON.stringify(results),
   ).toBe(true);
-  const saved = results.results.map((result) => result.version!);
+  const saved = results.results.map((result) => result.observation!);
   const observerId = saved[0]!.observerId as string;
   return {
     saved,
     observerId,
     async cleanup(things: string[] = []) {
-      const written = await request.get(`${BASE}/api/entities/${observerId}/referrers?path=/observerId&limit=1000`);
-      const referrers = ((await written.json()) as { referrers: { version: { entityId: string } }[] }).referrers;
-      for (const entityId of [
-        ...new Set(referrers.map((r) => r.version.entityId)),
-        ...things,
-        observerId,
-        ...[description, ...schemas].map((schema) => schema.schemaId),
-      ])
-        await request.delete(`${BASE}/api/entities/${entityId}`);
+      const written = await request.get(`${BASE}/api/things/${observerId}/referrers?path=/observerId&limit=1000`);
+      const referrers = ((await written.json()) as { referrers: { observation: { observationId: string } }[] })
+        .referrers;
+      for (const { observation } of referrers)
+        await request.delete(`${BASE}/api/observations/${observation.observationId}`);
+      for (const thingId of [...things, observerId]) await request.delete(`${BASE}/api/things/${thingId}`);
+      for (const schema of [...schemas, ...thingTypes]) await request.delete(`${BASE}/api/schemas/${schema.schemaId}`);
     },
   };
 }
@@ -75,13 +87,10 @@ async function seed(request: APIRequestContext) {
   const stamp = Date.now();
   const name = `E2E Observer ${stamp}`;
   const now = new Date().toISOString();
-  const observer = declare(name, `e2e-observers-${stamp}`, "observation", { label: string("Smoke test label") });
-  const content = declare(`E2E 内容 ${stamp}`, `e2e-contents-${stamp}`, "observation", {
-    label: string("Smoke test label"),
-  });
+  const content = declare(`E2E 内容 ${stamp}`, `e2e-contents-${stamp}`, { label: string("Smoke test label") });
   const written = await write(
     request,
-    observer,
+    name,
     [content],
     [
       {
@@ -109,10 +118,10 @@ test("web edge: page loads, same-origin API works, HMR websocket opens", async (
   await expect.poll(() => wsUrls.length, { timeout: 10_000 }).toBeGreaterThan(0);
   expect(wsUrls.some((u) => u.startsWith(BASE.replace(/^http/, "ws")))).toBe(true);
 
-  const res = await page.request.get(`${BASE}/api/entities/0192b056-7300-7000-8000-0000000000ff`);
+  const res = await page.request.get(`${BASE}/api/things/0192b056-7300-7000-8000-0000000000ff`);
   expect(res.status()).toBe(404);
 
-  await page.goto(`${BASE}/entities`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${BASE}/records`, { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("link", { name: "原始记录", exact: true })).toBeVisible();
 
   const viteWsErrors = consoleErrors.filter((t) => /WebSocket|vite/i.test(t));
@@ -132,10 +141,9 @@ test("web edge: a submitted Observation gets a row on the Observer page and open
     const panel = page.getByRole("region", { name: new RegExp(data.name) });
     await expect(panel.getByRole("heading", { name: data.name })).toBeVisible();
     await panel.getByText("ID 和原始数据").click();
-    await panel.getByRole("link", { name: "实体页 →" }).click();
+    await panel.getByRole("link", { name: "档案 →" }).click();
     await expect(page.getByRole("heading", { name: data.name })).toBeVisible();
-    // 引用 Observer 的是它的描述和它写下的那一份。
-    await expect(page.getByRole("list", { name: "被引用" }).getByRole("link")).toHaveCount(2);
+    await expect(page.getByRole("paragraph").filter({ hasText: /^程序实例$/ })).toBeVisible();
   } finally {
     await data.cleanup();
   }
@@ -151,17 +159,16 @@ async function seedThing(request: APIRequestContext) {
     seenAs: `E2E 应用 ${stamp}`,
     observer: `E2E 观测者 ${stamp}`,
   };
-  const thing = declare(names.thingType, names.thingResource, "thing");
-  const period = declare(`E2E 时段 ${stamp}`, `e2e-periods-${stamp}`, "observation", {
+  const thing = declareThing(names.thingType, names.thingResource);
+  const period = declare(`E2E 时段 ${stamp}`, `e2e-periods-${stamp}`, {
     name: string("当时读到的名字"),
     thingId: thingRef("这一段关于的事物"),
   });
-  const observer = declare(names.observer, `e2e-thing-observers-${stamp}`, "observation", { label: string("标签") });
   const end = Date.now() - 2 * 60_000;
   const written = await write(
     request,
-    observer,
-    [thing, period],
+    names.observer,
+    [period],
     [
       {
         schemaId: period.schemaId,
@@ -177,6 +184,7 @@ async function seedThing(request: APIRequestContext) {
         },
       },
     ],
+    [thing],
   );
   const thingId = (written.saved[0]!.content as { thingId: string }).thingId;
   return { names, thingId, cleanup: () => written.cleanup([thingId]) };
@@ -191,7 +199,8 @@ test("web edge: a thing has an archive, opens stacked panels, shows on the type 
     await page.goto(`${BASE}/things/${data.thingId}`);
     await expect(page.getByRole("heading", { name: data.names.thing })).toBeVisible();
 
-    // 点档案里的陈述推出它的面板。
+    // 经历按类型收成一束，点开后点其中一份，推出它的面板。
+    await page.getByRole("button", { name: /份E2E 时段/ }).click();
     await page.getByRole("button", { name: new RegExp(data.names.seenAs) }).click();
     const panels = page.getByRole("complementary", { name: "面板" });
     await expect(panels.getByRole("heading", { name: data.names.seenAs })).toBeVisible();
@@ -208,13 +217,13 @@ test("web edge: a thing has an archive, opens stacked panels, shows on the type 
     await page.keyboard.press("Escape");
     await expect(observer).toHaveCount(0);
 
-    // 类型图里事物在“事物”一列，选中后列出它的实体。
-    await page.goto(`${BASE}/entities?type=${data.names.thingResource}`);
+    // 类型图里事物在“事物”一列，选中后列出它的数据。
+    await page.goto(`${BASE}/records?type=${data.names.thingResource}`);
     await expect(page.getByRole("button", { name: new RegExp(data.names.thingType), pressed: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: data.names.thingType })).toBeVisible();
     await expect(page.getByRole("button", { name: new RegExp(data.names.thing) }).first()).toBeVisible();
 
-    // 点类型下的实体，从它开始织：事物左边长出提到它的时段，时段左边长出 Observer；停在 Observer 上时，路上的标签亮起。
+    // 点类型下的事物，从它开始织：事物左边长出提到它的时段，时段左边长出 Observer；停在 Observer 上时，路上的标签亮起。
     await page
       .getByRole("button", { name: new RegExp(data.names.thing) })
       .first()

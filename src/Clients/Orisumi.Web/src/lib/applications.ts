@@ -1,4 +1,4 @@
-import type { ObservationVersion, Thing } from "@/api/types";
+import type { Observation, Thing } from "@/api/types";
 import { distinctSegment } from "./roles";
 
 // 应用产品和本机应用的归属：本机应用描述里的跨设备线索在当前理解中有线索归属时，它属于线索归属指向的产品。
@@ -17,7 +17,7 @@ export interface Identifier {
 
 /** 一条线索：线索这个事物，以及它的识别依据。 */
 export interface Clue extends Identifier {
-  entityId: string;
+  thingId: string;
 }
 
 /** 能跨设备复用的 scheme，见 Local Application · 标识线索。 */
@@ -36,7 +36,7 @@ export function platformOf(identifier: Identifier): string {
 
 export function clueOf(thing: Thing): Clue {
   const key = thing.keys[0];
-  return { entityId: thing.entityId, scheme: key?.scheme ?? "", value: key?.value ?? thing.entityId };
+  return { thingId: thing.thingId, scheme: key?.scheme ?? "", value: key?.value ?? thing.thingId };
 }
 
 export interface MembershipContent {
@@ -52,7 +52,7 @@ export interface DescriptionContent {
 }
 
 export interface Membership {
-  version: ObservationVersion;
+  observation: Observation;
   clue: Clue;
 }
 
@@ -64,8 +64,8 @@ export interface Product {
 
 export interface Install {
   thing: Thing;
-  /** 最近保存的本机应用描述。 */
-  description: ObservationVersion | null;
+  /** 默认视图中的本机应用描述。 */
+  description: Observation | null;
   /** 跨设备线索，按它们归属。 */
   clues: Clue[];
   executablePath: string | null;
@@ -86,37 +86,38 @@ export interface Catalog {
 export interface CatalogInput {
   products: readonly Thing[];
   /** 当前理解中的线索归属。 */
-  memberships: readonly ObservationVersion[];
+  memberships: readonly Observation[];
   clues: ReadonlyMap<string, Thing>;
   installs: readonly Thing[];
-  descriptions: readonly ObservationVersion[];
+  descriptions: readonly Observation[];
 }
 
 export function buildCatalog(input: CatalogInput): Catalog {
   const products = new Map<string, Product>(
     input.products.map((thing) => [
-      thing.entityId,
+      thing.thingId,
       { thing, name: thing.name ?? thing.keys[0]?.value ?? "应用产品", memberships: [] },
     ]),
   );
   const owners = new Map<string, Product>();
-  for (const version of input.memberships) {
-    const content = version.content as unknown as MembershipContent;
+  for (const observation of input.memberships) {
+    const content = observation.content as unknown as MembershipContent;
     const product = products.get(content.productId);
     const clue = input.clues.get(content.identifierId);
     // 指向的产品或线索已删除时，这条线索未归属。
     if (!product || !clue) continue;
-    product.memberships.push({ version, clue: clueOf(clue) });
-    owners.set(clue.entityId, product);
+    product.memberships.push({ observation, clue: clueOf(clue) });
+    owners.set(clue.thingId, product);
   }
-  const latest = new Map<string, ObservationVersion>();
-  for (const description of input.descriptions) {
-    const owner = (description.content as unknown as DescriptionContent).localApplicationId;
-    const known = latest.get(owner);
-    if (!known || description.recordedAt > known.recordedAt) latest.set(owner, description);
-  }
+  // 本机应用描述是状态，默认视图里每个本机应用只有一份。
+  const latest = new Map<string, Observation>(
+    input.descriptions.map((description) => [
+      (description.content as unknown as DescriptionContent).localApplicationId,
+      description,
+    ]),
+  );
   const installs = input.installs.map((thing): Install => {
-    const description = latest.get(thing.entityId) ?? null;
+    const description = latest.get(thing.thingId) ?? null;
     const content = description?.content as unknown as DescriptionContent | undefined;
     const clues = (content?.identifierIds ?? []).flatMap((id) => {
       const clue = input.clues.get(id);
@@ -127,8 +128,8 @@ export function buildCatalog(input: CatalogInput): Catalog {
   const byClue = new Map<string, Install[]>();
   const byEntity = new Map<string, Install>();
   for (const install of installs) {
-    byEntity.set(install.thing.entityId, install);
-    for (const clue of install.clues) byClue.set(clue.entityId, [...(byClue.get(clue.entityId) ?? []), install]);
+    byEntity.set(install.thing.thingId, install);
+    for (const clue of install.clues) byClue.set(clue.thingId, [...(byClue.get(clue.thingId) ?? []), install]);
   }
 
   const ownerOf = (clueId: string) => owners.get(clueId) ?? null;
@@ -137,7 +138,7 @@ export function buildCatalog(input: CatalogInput): Catalog {
     installs,
     ownerOf,
     productOf: (thing) =>
-      (byEntity.get(thing.entityId)?.clues ?? []).map((clue) => ownerOf(clue.entityId)).find((p) => p !== null) ?? null,
+      (byEntity.get(thing.thingId)?.clues ?? []).map((clue) => ownerOf(clue.thingId)).find((p) => p !== null) ?? null,
     installsOf: (clueId) => byClue.get(clueId) ?? [],
   };
 }

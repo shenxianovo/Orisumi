@@ -32,7 +32,7 @@ public sealed class AssistantSubmissionTests
         await Assert.That(fixture.Diagnostics.All(message => message.Contains("missing.png", StringComparison.Ordinal))).IsTrue();
         foreach (var version in versions)
         {
-            using var response = await http.GetAsync("versions/" + version.VersionId.Value);
+            using var response = await http.GetAsync("observations/" + version.ObservationId);
             response.EnsureSuccessStatusCode();
             var saved = (await WriteClient.JsonAsync(response)).GetProperty("content");
             var originals = new List<JsonDocument>();
@@ -64,13 +64,13 @@ public sealed class AssistantSubmissionTests
             finally { foreach (var original in originals) original.Dispose(); }
         }
         // The two tool occurrences share one stored source blob.
-        var tools = versions.Where(version => ((Observation)version.Content).Fields.GetProperty("sourceId").GetString() == "call").ToArray();
-        var digest = ((Observation)tools[0].Content).Fields.GetProperty("sourceEntries")[0].GetProperty("digest").GetString();
-        await Assert.That(((Observation)tools[1].Content).Fields.GetProperty("sourceEntries")[0].GetProperty("digest").GetString()).IsEqualTo(digest);
+        var tools = versions.Where(version => version.Content.GetProperty("sourceId").GetString() == "call").ToArray();
+        var digest = tools[0].Content.GetProperty("sourceEntries")[0].GetProperty("digest").GetString();
+        await Assert.That(tools[1].Content.GetProperty("sourceEntries")[0].GetProperty("digest").GetString()).IsEqualTo(digest);
     }
 
     [Test, Property("caseId", "assistant-session-reading")]
-    public async Task DeletedSessionIsRecreatedWhenNewSourceDataArrives()
+    public async Task DeletedSessionStaysDeletedWhenSourceLogsAreReadAgain()
     {
         await using var database = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(database.ConnectionString);
@@ -79,17 +79,17 @@ public sealed class AssistantSubmissionTests
         var path = fixture.Write("claude/projects/project/main.jsonl", ClaudeMessage("first", "hello"));
         await fixture.Collector.PollAsync();
         var original = fixture.Interactions().Single();
-        using (var deleted = await http.DeleteAsync("entities/" + original.EntityId.Value)) deleted.EnsureSuccessStatusCode();
+        using (var deleted = await http.DeleteAsync("observations/" + original.ObservationId)) deleted.EnsureSuccessStatusCode();
         File.Copy(path, Path.Combine(Path.GetDirectoryName(path)!, "copy.jsonl"));
         await fixture.Collector.PollAsync();
-        await Assert.That(fixture.Interactions().Count).IsEqualTo(1);
-        using (var read = await http.GetAsync("entities/" + original.EntityId.Value)) await Assert.That(read.StatusCode).IsEqualTo(HttpStatusCode.Gone);
+        await Assert.That(fixture.Interactions().Count).IsEqualTo(0);
+        using (var read = await http.GetAsync("observations/" + original.ObservationId)) await Assert.That(read.StatusCode).IsEqualTo(HttpStatusCode.Gone);
         var conversation = fixture.Sessions().Single();
-        using (var deleted = await http.DeleteAsync("entities/" + conversation.GetProperty("entityId").GetGuid())) deleted.EnsureSuccessStatusCode();
+        using (var deleted = await http.DeleteAsync("things/" + conversation.GetProperty("thingId").GetGuid())) deleted.EnsureSuccessStatusCode();
         await File.AppendAllTextAsync(path, Encoding.UTF8.GetString(ClaudeMessage("second", "later")) + "\n");
         await fixture.Collector.PollAsync();
-        await Assert.That(fixture.Interactions().Count).IsEqualTo(2);
-        await Assert.That(fixture.Sessions().Single().GetProperty("entityId").GetGuid() == conversation.GetProperty("entityId").GetGuid()).IsFalse();
+        await Assert.That(fixture.Interactions().Count).IsEqualTo(0);
+        await Assert.That(fixture.Sessions().Count).IsEqualTo(0);
         await Assert.That(fixture.Diagnostics.Count).IsEqualTo(0);
     }
 }

@@ -1,9 +1,9 @@
 ---
 title: "Overview"
-description: "Core 的全貌：事物、观测、版本，以及谁决定什么"
+description: "Core 的全貌：事物、不可变的观测、三种内建语义，以及谁决定什么"
 ---
 
-Core 定义 Orisumi 中所有数据共用的结构：数据怎样标识、怎样更新、怎样互相引用，以及一份观测由哪几部分组成。各类型的细节在类型页，跨类型的规则在规则页。
+Core 定义 Orisumi 中所有数据共用的结构：数据怎样标识、怎样互相引用、变化怎样表达，以及一份观测由哪几部分组成。各类型的细节在类型页，跨类型的规则在规则页。
 
 ## 事物与观测 [#things]
 
@@ -12,46 +12,59 @@ Orisumi 的数据只有两种：
 - [事物](./model/thing.mdx)是被提到的对象，例如这台 Mac、一个 Codex 会话、QQ 号 123、用户本人。它只有身份，没有内容。
 - [Observation](./model/observation.mdx) 是一份陈述，例如“14:00 到 16:00 VS Code 在前台”“QQ 号 123 是本人”。它说明谁负责、说了什么、怎么来的、依据什么、事实何时成立。
 
-关于事物的一切都是陈述：设备叫什么、会话的标题、账号是谁的。实体之间的关系都写成 Observation 中的引用，所以每条关系都有时间、责任和来由。
+关于事物的一切都是陈述：设备叫什么、会话的标题、账号是谁的。事物之间的关系都写成 Observation 中的引用，所以每条关系都有时间、责任和来由。同一时刻可以并存多种说法，例如来源记下的名字和模型判断的名字。
 
 | 概念 | 回答的问题 | 身份 |
 | --- | --- | --- |
-| 实体 | 是哪一项数据 | `EntityId` |
-| 版本 | 这份陈述的哪一次内容 | `VersionId` |
-| 业务类型 | 是哪一种业务数据 | SchemaId，也就是 EntitySchema 的 `EntityId` |
+| 事物 | 说的是谁 | `thingId` |
+| Observation | 说了什么 | `observationId` |
+| 业务类型 | 是哪一种业务数据 | SchemaId |
 
-Observation 的内容保存在[版本](./model/version.mdx)中：每次修改形成一个新版本，旧版本原样保留。引用事物时写 EntityId，引用陈述时写 VersionId，所以一份推断依据的内容事后不会改变。
+Observation 保存后不可变。事实有了新的说法，就再写一份，用 `replaces` 说明它替换哪一份，见 [OBSERVATION-18](./model/observation.mdx#observation-18)。引用的目标只有事物和 Observation，值是对应的 id，所以一份推断依据的内容事后不会改变，见 [References](./rules/references.mdx)。
 
-业务字段中的文件，例如应用的图标，是[二进制内容](./model/binary.mdx)：版本中保存它的描述，字节单独保存。
+业务字段中的文件，例如应用的图标，是[二进制内容](./model/binary.mdx)：Observation 中保存它的描述，字节单独保存。
 
 ## 支撑结构 [#support]
 
 | 类型 | 内容 |
 | --- | --- |
-| [EntitySchema](./model/schema.mdx) | 一种业务类型；它的每个版本是一版字段、约束和含义 |
-| [InputSet](./model/input-set.mdx) | 一次处理实际用到的版本 |
+| [Schema](./model/schema.mdx) | 一种 Observation 类型，每次修改是一条 SchemaRevision |
+| 事物类型 | 一种事物，只有名称和说明，见 [Schema · 事物类型](./model/schema.mdx#thing-types) |
+| [InputSet](./model/input-set.mdx) | 一次处理实际用到的 Observation，是一个值 |
 
 [Observer](./model/observer.mdx) 是一种角色，由事物承担：程序实例、Agent 和人都可以是 Observer。
+
+## 内建语义 [#semantics]
+
+后端只检查一般业务类型的结构，只有三种语义由 Core 定义，后端理解它们：
+
+| 语义 | 例子 | 位置 |
+| --- | --- | --- |
+| 否定 | 用户说这条推断错了，或者这两小时不是我在用这台电脑 | [Review](./model/review.mdx) |
+| 替换 | 修好解析器后重读日志，新的说法替换旧的 | [OBSERVATION-18](./model/observation.mdx#observation-18) |
+| 同一 | 重装系统前后的两个设备事物是同一台机器 | [Same-As](./model/same-as.mdx) |
+
+默认视图由后端按这三种语义算出，所有读取方共用，见 [UNDERSTANDING-4](./rules/understanding.mdx#understanding-4)。模型判断换代时，[Adoption](./model/adoption.mdx) 说明用哪一代。
 
 ## 模型关系 [#relations]
 
 <ModelRelations />
 
-Observation 引用它的 Schema 版本、Observer 和 InputSet，业务字段引用事物或其他 Observation。InputSet 引用它的输入。每个版本还引用同一实体的前一版本。
+Observation 引用它的 SchemaRevision、Observer 和 InputSet，业务字段引用事物或其他 Observation，`replaces` 指向被替换的 Observation。InputSet 的成员是 Observation。Review、Same-As 和 Adoption 都是 Observation。
 
 ## 证据与理解 [#understanding]
 
-Observer 记下来源给出的内容，这是证据。来源给不出的关系，由模型读证据形成，用户只在发现错误时否定，这是理解。判断互不覆盖，当前理解是没有被否定也没有被取代的陈述，见 [Understanding](./rules/understanding.mdx)。
+Observer 记下来源给出的内容，这是证据。来源给不出的关系，由模型读证据形成，用户只在发现错误时否定，这是理解。判断互不覆盖，当前理解是默认视图中的陈述，见 [Understanding](./rules/understanding.mdx)。
 
 ## 谁决定什么 [#responsibility]
 
-新增一个来源时，要写的是业务规则和读取来源的代码；数据怎样组织成实体和版本、程序怎样运行，都由公共的部分负责。四种职责如下，例子取自前台状态 Observer：
+新增一个来源时，要写的是业务规则和读取来源的代码；数据怎样组织成事物和 Observation、程序怎样运行，都由公共的部分负责。四种职责如下，例子取自前台状态 Observer：
 
 | 职责 | 决定或承担什么 | 例子 |
 | --- | --- | --- |
-| 业务规则 | EntitySchema、实体身份、粒度、何时形成新版本、事实时间的取值、结束条件、原始材料的保留。一种业务类型的规则由使用它的 Observer 共用 | 同一设备上包标识和路径都相同的是同一个本机应用 |
+| 业务规则 | Schema、事物的身份、粒度、何时再写一条、事实时间的取值、结束条件、原始材料的保留。一种业务类型的规则由使用它的 Observer 共用 | 同一设备上包标识和路径都相同的是同一个本机应用 |
 | Observer 的业务代码 | 读取来源，解释材料，判断对象与观测的连续性，决定内容、事实时间、形成方式和实际用到的输入 | 读到 VS Code 在前台，判断这一段到 16:00 结束 |
-| 数据能力 | 认出和创建事物，组织 Observation、版本、固定引用、InputSet 和二进制内容；查询、删除；按 Core 的规则校验并保存，赋值保存时间 | 把 16:00 这一段保存下来 |
+| 数据能力 | 认出和创建事物，组织 Observation、替换、引用、InputSet 和二进制内容；查询、算默认视图、搜索、删除；按 Core 的规则校验并保存，赋值保存时间 | 把 16:00 这一段保存下来 |
 | 托管方 | 管理程序实例和配置，提供运行上下文，启动、停止程序并报告运行状态；断网时留住写入，联网后转发 | 启动前台状态 Observer，交给它实例身份和设置 |
 
-后端的 API 提供数据能力，它只检查结构，事实层面的判断由业务规则和业务代码负责。业务代码只发送：说出一份 Observation 的完整内容、识别依据和事实时间，见 [API · Writing](../api/writing.mdx)。任何语言都能发 HTTP 请求，[SDK](../api/sdk.mdx) 只是方便。托管方的当前实现是 Runtime。职责不对应进程：一个程序可以直接运行，不经过托管方。这样分工的理由见 [ADR · 单向写入与托管的分工](../adr/data-capability.mdx)。
+后端的 API 提供数据能力。它检查结构并理解三种内建语义，事实层面的判断由业务规则和业务代码负责。业务代码只发送：说出一份 Observation 的完整内容、识别依据和事实时间，见 [API · Writing](../api/writing.mdx)。任何语言都能发 HTTP 请求，[SDK](../api/sdk.mdx) 只是方便。托管方的当前实现是 Runtime。职责不对应进程：一个程序可以直接运行，不经过托管方。这样分工的理由见 [ADR · 单向写入与托管的分工](../adr/data-capability.mdx)。

@@ -2,14 +2,15 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2, Maximize, Minus, Plus, Quote } from "lucide-react";
 import { isObservation } from "@/api/types";
-import { timeLabel, useChanges, useDescribe, useThingInfo } from "@/hooks/useEntityInfo";
-import { useStanding } from "@/hooks/useStanding";
+import { timeLabel, useChanges, useDescribe, useThingInfo } from "@/hooks/useItemInfo";
+import { useObservationStatus } from "@/hooks/useStatus";
 import { FORMATION_NAMES } from "@/lib/common";
 import { useWeave } from "@/hooks/useWeave";
 import { cn } from "@/lib/utils";
 import {
   bounds,
   edgeGeometry,
+  payloadKey,
   heightOf,
   linked,
   NODE_W,
@@ -235,12 +236,9 @@ export function WeaveCanvas({ rootId }: { rootId: string }) {
                 void toggle(node.key);
               },
             };
-            if (node.kind === "entity") return <EntityCard key={node.key} {...props} />;
+            if (node.kind === "record") return <RecordCard key={node.key} {...props} />;
             const observer = node.payload.kind === "knot" ? node.payload.observation.observerId : null;
-            const source = weave.nodes.find(
-              (item) =>
-                item.kind === "entity" && item.payload.kind === "entity" && item.payload.item.entityId === observer,
-            );
+            const source = weave.nodes.find((item) => item.kind === "record" && payloadKey(item.payload) === observer);
             return (
               <KnotCard
                 key={node.key}
@@ -358,7 +356,7 @@ function Frame({
           {!root && (
             <button
               type="button"
-              onClick={() => void navigate({ to: "/entities", search: { root: panelId } })}
+              onClick={() => void navigate({ to: "/records", search: { root: panelId } })}
               className="bg-card border-line text-fg-2 hover:text-fg shadow-card cursor-pointer rounded-md border px-2 py-0.5 text-xs"
             >
               从这里开始
@@ -391,10 +389,10 @@ function Toggle({ node, busy }: { node: ItemNode; busy: boolean }) {
   );
 }
 
-/** 一个实体：记号、名字；经历的下面写事实时间和记下它的 Observer，其余写类型名。 */
-function EntityCard(props: CardProps) {
+/** 一项记录：记号、名字；经历的下面写事实时间和记下它的 Observer，其余写类型名。 */
+function RecordCard(props: CardProps) {
   const { node, onHover, onClick } = props;
-  const payload = node.payload.kind === "entity" ? node.payload : null;
+  const payload = node.payload.kind === "record" ? node.payload : null;
   const { info } = useDescribe(payload?.item);
   const observation = payload && isObservation(payload.item) ? payload.item : null;
   const observer = useThingInfo(observation?.observerId);
@@ -410,7 +408,7 @@ function EntityCard(props: CardProps) {
       <button
         type="button"
         aria-expanded={node.expanded}
-        aria-label={info ? `${info.typeName} ${info.title}` : "实体"}
+        aria-label={info ? `${info.typeName} ${info.title}` : "记录"}
         onClick={onClick}
         onPointerEnter={() => onHover(true)}
         onPointerLeave={() => onHover(false)}
@@ -443,22 +441,18 @@ function KnotCard(props: CardProps & { sourceShown: boolean; onSource: () => voi
   const payload = node.payload.kind === "knot" ? node.payload : null;
   const observation = payload?.observation ?? null;
   const observer = useThingInfo(observation?.observerId);
-  const standing = useStanding(observation, payload?.inputSet ?? null);
+  const status = useObservationStatus(observation);
   const who = observer.info?.title ?? "…";
   const when = observation ? timeLabel(observation.startAt, observation.endAt) : "";
   const formation = observation ? (FORMATION_NAMES[observation.formation] ?? observation.formation) : "";
-  const inputs = payload?.inputSet?.content.members.length ?? 0;
+  const inputs = payload?.inputSet?.members.length ?? 0;
   const changes = useChanges(observation)?.join("；") ?? "…";
   return (
     <Frame node={node} root={props.root} selected={props.selected} panelId={node.key}>
       <div
         onPointerEnter={() => onHover(true)}
         onPointerLeave={() => onHover(false)}
-        className={cn(
-          "bg-panel relative rounded-[28px] pl-1.5",
-          cardClass(props),
-          standing.verdict === "supersede" && "opacity-55",
-        )}
+        className={cn("bg-panel relative rounded-[28px] pl-1.5", cardClass(props), status.replaced && "opacity-55")}
       >
         <button
           type="button"
@@ -490,18 +484,14 @@ function KnotCard(props: CardProps & { sourceShown: boolean; onSource: () => voi
           </button>
           <span
             title={changes}
-            className={cn(
-              "text-fg-2 line-clamp-2 text-xs wrap-anywhere",
-              standing.verdict === "deny" && "line-through",
-            )}
+            className={cn("text-fg-2 line-clamp-2 text-xs wrap-anywhere", status.denied && "line-through")}
           >
             {changes}
           </span>
           <span className="text-fg-3 block truncate text-[11px] tabular-nums">
-            {standing.verdict === "deny" ? "已否定" : standing.verdict === "supersede" ? "已被取代" : formation} ·{" "}
-            {when}
+            {status.denied ? "已否定" : status.replaced ? "已被替换" : formation} · {when}
             {inputs > 0 && ` · 依据 ${inputs} 个`}
-            {standing.deniedInput && " · 依据已被否定"}
+            {status.basisDenied && " · 依据已被否定"}
           </span>
         </span>
         <span className="pointer-events-none relative">

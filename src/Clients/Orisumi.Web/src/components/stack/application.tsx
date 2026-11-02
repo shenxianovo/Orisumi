@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSource } from "@/api/source";
-import { isObservation, type ObservationVersion, type Thing } from "@/api/types";
+import type { Observation, Thing } from "@/api/types";
 import { Mono } from "@/components/ui";
+import { useInputSet } from "@/hooks/queries";
 import { useNow } from "@/hooks/useNow";
 import { useCatalog } from "@/hooks/useApplications";
 import { useReview } from "@/hooks/useReview";
@@ -15,7 +16,6 @@ import {
   type MembershipContent,
   type Product,
 } from "@/lib/applications";
-import { REVIEWS, type ReviewContent } from "@/lib/common";
 import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Token } from "../token/Token";
@@ -38,9 +38,9 @@ export function Membership({ install }: { install: Thing }) {
   const catalog = useCatalog();
   if (!catalog.data) return null;
   const product = catalog.data.productOf(install);
-  const hasClues = (catalog.data.installs.find((x) => x.thing.entityId === install.entityId)?.clues.length ?? 0) > 0;
+  const hasClues = (catalog.data.installs.find((x) => x.thing.thingId === install.thingId)?.clues.length ?? 0) > 0;
   const clue = product?.memberships.find((m) =>
-    catalog.data.installsOf(m.clue.entityId).some((x) => x.thing.entityId === install.entityId),
+    catalog.data.installsOf(m.clue.thingId).some((x) => x.thing.thingId === install.thingId),
   )?.clue;
   return (
     <Section title="属于">
@@ -65,7 +65,7 @@ export function Membership({ install }: { install: Thing }) {
 /** 产品面板：各平台的线索和归到它的安装，以及判给它的每一条判断。 */
 export function ProductSections({ product }: { product: Thing }) {
   const catalog = useCatalog();
-  const current = catalog.data?.products.find((p) => p.thing.entityId === product.entityId);
+  const current = catalog.data?.products.find((p) => p.thing.thingId === product.thingId);
   return (
     <>
       {current && catalog.data && <Installs product={current} catalog={catalog.data} />}
@@ -79,10 +79,10 @@ function Installs({ product, catalog }: { product: Product; catalog: Catalog }) 
     <Section title="线索与安装">
       <ul className="grid gap-2">
         {product.memberships.map(({ clue }) => {
-          const list = catalog.installsOf(clue.entityId);
+          const list = catalog.installsOf(clue.thingId);
           const details = installDetails(list);
           return (
-            <li key={clue.entityId}>
+            <li key={clue.thingId}>
               <p className="flex items-baseline gap-2 text-[13px]">
                 <span className="text-fg-2 w-14 shrink-0 text-xs">{platformOf(clue)}</span>
                 <Mono className="min-w-0 truncate">{clue.value}</Mono>
@@ -92,7 +92,7 @@ function Installs({ product, catalog }: { product: Product; catalog: Catalog }) 
                   <span className="text-fg-3 text-xs">还没有出现在任何设备上</span>
                 ) : (
                   list.map((install, i) => (
-                    <Token key={install.thing.entityId} item={install.thing} size="sm" detail={details[i]} />
+                    <Token key={install.thing.thingId} item={install.thing} size="sm" detail={details[i]} />
                   ))
                 )}
               </div>
@@ -105,44 +105,39 @@ function Installs({ product, catalog }: { product: Product; catalog: Catalog }) 
 }
 
 interface Judgement {
-  version: ObservationVersion;
+  observation: Observation;
   clue: Thing | null;
-  /** 被否定或被取代时写在这里。 */
-  verdict: "deny" | "supersede" | null;
+  /** 不在默认视图里时写明原因。 */
+  status: "denied" | "replaced" | null;
 }
 
-/** 判给这个产品的全部线索归属，连同它们的复核。被否定和被取代的也列出。 */
+/** 判给这个产品的全部线索归属。被否定和被替换的也列出，默认视图由后端算出。 */
 function useJudgements(productId: string) {
   const source = useSource();
   return useQuery({
-    queryKey: ["entity", productId, "judgements"],
+    queryKey: ["referrers", productId, "judgements"],
     queryFn: async (): Promise<Judgement[]> => {
-      const page = await source.listReferrers(productId, {
-        resourceName: MEMBERSHIPS,
-        path: "/content/productId",
-        limit: 1000,
-      });
-      const versions = page.referrers.map((r) => r.version).filter(isObservation);
-      const clues = await source.readThings([
-        ...new Set(versions.map((v) => (v.content as unknown as MembershipContent).identifierId)),
+      const query = { resourceName: MEMBERSHIPS, path: "/content/productId", limit: 1000 };
+      const [every, current] = await Promise.all([
+        source.listThingReferrers(productId, { ...query, view: "all" }),
+        source.listThingReferrers(productId, query),
       ]);
-      const byId = new Map(clues.results.map((r) => [r.entityId, r.thing ?? null]));
-      return Promise.all(
-        versions.map(async (version) => {
-          const reviews = await source.listReferrers(version.entityId, { resourceName: REVIEWS, limit: 100 });
-          const verdicts = reviews.referrers.map((r) => (r.version.content as ReviewContent).verdict);
-          const confirmed = verdicts.includes("confirm");
-          return {
-            version,
-            clue: byId.get((version.content as unknown as MembershipContent).identifierId) ?? null,
-            verdict: verdicts.includes("deny")
-              ? "deny"
-              : verdicts.includes("supersede") && !confirmed
-                ? "supersede"
-                : null,
-          };
-        }),
-      );
+      const live = new Set(current.referrers.map((r) => r.observation.observationId));
+      const observations = every.referrers.map((r) => r.observation);
+      const replaced = new Set(observations.flatMap((observation) => observation.replaces));
+      const clues = await source.readThings([
+        ...new Set(observations.map((v) => (v.content as unknown as MembershipContent).identifierId)),
+      ]);
+      const byId = new Map(clues.results.map((r) => [r.thingId, r.thing ?? null]));
+      return observations.map((observation) => ({
+        observation,
+        clue: byId.get((observation.content as unknown as MembershipContent).identifierId) ?? null,
+        status: live.has(observation.observationId)
+          ? null
+          : replaced.has(observation.observationId)
+            ? "replaced"
+            : "denied",
+      }));
     },
     staleTime: 10_000,
   });
@@ -150,45 +145,52 @@ function useJudgements(productId: string) {
 
 /** 判断记录：一条线索归属一行。判错时否定它，线索回到未归属。 */
 function Judgements({ product }: { product: Thing }) {
-  const judgements = useJudgements(product.entityId);
-  const list = [...(judgements.data ?? [])].sort((a, b) => b.version.recordedAt.localeCompare(a.version.recordedAt));
+  const judgements = useJudgements(product.thingId);
+  const list = [...(judgements.data ?? [])].sort((a, b) =>
+    b.observation.recordedAt.localeCompare(a.observation.recordedAt),
+  );
   if (!list.length) return null;
   return (
     <Section title="判断记录" aside={`${list.length} 条`}>
       <ol className="border-line grid gap-3 border-l pl-3">
         {list.map((judgement) => (
-          <JudgementRow key={judgement.version.entityId} judgement={judgement} />
+          <JudgementRow key={judgement.observation.observationId} judgement={judgement} />
         ))}
       </ol>
     </Section>
   );
 }
 
-const VERDICTS = { deny: "已否定", supersede: "已被取代" } as const;
+const STATUS = { denied: "已否定", replaced: "已被替换" } as const;
+
+function InputCount({ inputSetId }: { inputSetId: string }) {
+  const inputs = useInputSet(inputSetId);
+  return <span>{inputs.data ? `${inputs.data.members.length} 个输入` : "…"}</span>;
+}
 
 function JudgementRow({ judgement }: { judgement: Judgement }) {
   const now = useNow(60_000);
   const review = useReview();
-  const { version, clue, verdict } = judgement;
+  const { observation, clue, status } = judgement;
   return (
     <li className="relative">
       <span
         className={cn(
           "absolute top-[7px] -left-[15.5px] size-[6px] rounded-full",
-          verdict ? "border-fg-3 bg-card border" : "bg-fg-3",
+          status ? "border-fg-3 bg-card border" : "bg-fg-3",
         )}
       />
       <p className="flex items-baseline gap-2 text-[13px] leading-snug">
-        <span className={cn("min-w-0 flex-1 break-all", verdict === "deny" && "text-fg-3 line-through")}>
+        <span className={cn("min-w-0 flex-1 break-all", status === "denied" && "text-fg-3 line-through")}>
           {clue ? clueOf(clue).value : "读不到的线索"}
         </span>
-        {verdict ? (
-          <span className="text-fg-3 shrink-0 text-xs">{VERDICTS[verdict]}</span>
+        {status ? (
+          <span className="text-fg-3 shrink-0 text-xs">{STATUS[status]}</span>
         ) : (
           <button
             type="button"
             disabled={review.isPending}
-            onClick={() => review.mutate({ targetVersionId: version.versionId, verdict: "deny" })}
+            onClick={() => review.mutate({ targetId: observation.observationId, verdict: "deny" })}
             className="text-fg-3 hover:text-fg shrink-0 cursor-pointer text-xs disabled:cursor-default"
           >
             {review.isPending ? "正在否定" : "否定"}
@@ -196,12 +198,12 @@ function JudgementRow({ judgement }: { judgement: Judgement }) {
         )}
       </p>
       <p className="text-fg-3 mt-1 flex flex-wrap items-center gap-1 text-xs">
-        <Token thingId={version.observerId} size="sm" />
-        <span>{ago(now - Date.parse(version.recordedAt))}</span>
-        {version.inputSetVersionId && (
+        <Token thingId={observation.observerId} size="sm" />
+        <span>{ago(now - Date.parse(observation.recordedAt))}</span>
+        {observation.inputSetId && (
           <>
             <span>· 依据</span>
-            <Token versionId={version.inputSetVersionId} size="sm" />
+            <InputCount inputSetId={observation.inputSetId} />
           </>
         )}
       </p>

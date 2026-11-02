@@ -1,13 +1,13 @@
 ---
 title: "Writes"
-description: "后端根据完整内容认出对象并形成版本"
+description: "后端根据完整内容认出对象并保存新的说法"
 ---
 
 export const caseId = 'api-writes';
 
 ## 为什么验证 [#why]
 
-后端根据完整内容认出对象并形成版本，每次写入独立保存。契约见 [Writing](../../api/writing.mdx)。
+后端根据完整内容认出对象并保存新的说法，每次写入独立保存。契约见 [Writing](../../api/writing.mdx)。
 
 ## 前置条件 [#setup]
 
@@ -17,17 +17,20 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 
 | 操作 | 预期结果 |
 | --- | --- |
-| 不带 `key`，两次写入相同的温度 | 形成两份 Observation，各有一个实体和一个版本 |
-| 同一 `key` 连续写相同内容、不同内容，再回到首版内容 | 相同内容沿用当前版本；两次变化各形成下一版 |
-| 引用的 Observation 形成新版本，再按实体引用 | 保存的新 VersionId 不同，形成新版本 |
-| 带 `time` 写入；再重复；再改时间 | 重复时沿用当前 Observation 版本；时间变化时形成下一版 |
+| 不带 `key`，两次写入相同的温度 | 形成两份 Observation |
+| 同一 `key` 连续写相同内容、不同内容，再回到最初的内容 | 相同内容什么都不发生；两次变化各保存一份，一共三份 |
+| 带 `time` 写入；再重复；再改时间 | 重复时什么都不发生；时间变化时保存新的一份 |
 | 省略 `time` | Observation 仍保存，事实时间边界未知 |
 | 缺少 formation 或使用未知值 | 缺少时请求返回 400；未知值按 OBSERVATION-11 拒绝这次写入 |
-| 写 description 后写 Observation | 描述是 observerVersionId 为 null 的 Observation，之后的版本引用它 |
-| 另一个作者写同一依据 | 业务字段相同沿用原版本，不受 Schema 版本和时间差异影响；不同按 OBSERVATION-10 拒绝 |
-| immutable 为 true，修改内容或时间，再更新描述后改内容 | 同一描述版本下改内容按 SCHEMA-18 拒绝；改时间允许；描述变化后可形成纠正版本 |
+| 写 description 后写 Observation | 描述是 `observer-descriptions` 类型的 Observation，`observerDescriptionId` 为 `null`，之后的 Observation 引用它 |
+| 描述变化后再写 Observation | 新的描述替换旧的，已有的 Observation 继续引用旧的，新写的引用新的 |
+| 另一个 Observer 写同一依据，内容相同 | 什么都不发生 |
+| 另一个 Observer 写同一依据，内容不同 | 保存新的一份，`replaces` 指向这个依据最新的一条 |
+| 同一依据写入不同内容 | 结果的 `replaced` 列出被替换的 `observationId`；内容相同时为空数组 |
+| 写入带 `speakerId` | 读回是这个事物；用识别依据提到时事物被创建 |
+| 省略 `speakerId` | 读回 `speakerId` 为 `null` |
 | 一次写入违反规则，后面的写入有效 | 只回滚失败的写入，其内容、识别依据和 InputSet 都不留下 |
-| 已有实体，写入字段形状不符合 Schema 的内容 | 这次写入按 SCHEMA-2 被拒绝，同一请求的其他写入保存 |
+| 写入字段形状不符合 Schema 的内容 | 这次写入按 SCHEMA-2 被拒绝，同一请求的其他写入保存 |
 | 识别依据超过 2048 字节 | 这次写入被拒绝，同一请求的其他写入保存 |
 | 使用本 Observer 未声明的类型 | 这次写入被拒绝 |
 | 重发已处理的序号或更小的序号 | 返回 duplicate，不重新保存 |
@@ -37,9 +40,9 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 
 方法位于 `tests/Orisumi.Integration.Tests/`：
 
-- formation、描述、作者和 immutable：`UnderstandingApiTests.FormationDescriptionsAuthorsAndImmutableContentFollowTheContract`。
-- 版本引用变化：`WriteApiTests.ReferencesResolveInOrderAndCompareSavedVersionIds`。
-- 识别、版本、时间和序号：`WriteApiTests.RecognitionVersionsObservationsAndSequenceFollowTheWriteContract`。
+- formation 和描述：`UnderstandingApiTests.FormationDescriptionsAuthorsAndImmutableContentFollowTheContract`。
+- 引用变化：`WriteApiTests.ReferencesResolveInOrderAndCompareSavedIds`。
+- 识别、替换、时间和序号：`WriteApiTests.RecognitionVersionsObservationsAndSequenceFollowTheWriteContract`。
 - 形状错误和过长的识别依据：`WriteApiTests.WrongShapeOnAnExistingEntityAndLongKeysRejectOnlyThatWrite`。
 - 逐次回滚：`WriteApiTests.RejectionRollsBackOnlyItsWriteIncludingKeysInputsAndContent`。
 - 输入集合复用与结构错误边界：`WriteApiTests.InputsShareOneSetAndContentAndSchemaFailuresHaveDifferentBoundaries`。

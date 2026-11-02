@@ -25,7 +25,11 @@ export function Conversation({ items, product }: { items: Item[]; product: strin
     <ol className="flex flex-col">
       {items.map((item) => (
         <li
-          key={item.type === "tool" ? (item.call ?? item.result)!.version.entityId : item.interaction.version.entityId}
+          key={
+            item.type === "tool"
+              ? (item.call ?? item.result)!.observation.observationId
+              : item.interaction.observation.observationId
+          }
           className="group grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-1.5 [contain-intrinsic-size:auto_64px] [content-visibility:auto]"
         >
           <time className="text-fg-3 pt-1 text-right text-[11px] tabular-nums">{clock(itemAt(item))}</time>
@@ -45,7 +49,7 @@ function itemAt(item: Item): number {
 }
 
 function InteractionItem({ interaction, product }: { interaction: Interaction; product: string | null | undefined }) {
-  const content = interaction.version.content;
+  const content = interaction.observation.content;
   if (content.kind === "reasoning") return <ReasoningItem interaction={interaction} />;
   if (content.kind === "context") return <ContextItem interaction={interaction} />;
   return <MessageItem interaction={interaction} product={product} />;
@@ -60,7 +64,7 @@ const ACTORS: Record<Actor, string> = {
 };
 
 function MessageItem({ interaction, product }: { interaction: Interaction; product: string | null | undefined }) {
-  const content = interaction.version.content;
+  const content = interaction.observation.content;
   const user = content.actor === "user";
   const label =
     content.actor === "assistant" ? productName(product) : content.actor ? ACTORS[content.actor] : "发出方未知";
@@ -195,8 +199,8 @@ function Block({ label, children }: { label: string; children: ReactNode }) {
 
 function ToolItem({ call, result }: { call: Interaction | null; result: Interaction | null }) {
   const head = (call ?? result)!;
-  const callContent = call?.version.content;
-  const resultContent = result?.version.content;
+  const callContent = call?.observation.content;
+  const resultContent = result?.observation.content;
   const took = call && result ? (result.end ?? result.at) - call.at : null;
   const status = !result ? (
     <span className="text-fg-3">没有结果</span>
@@ -210,7 +214,7 @@ function ToolItem({ call, result }: { call: Interaction | null; result: Interact
   return (
     <Fold
       icon={<Wrench aria-hidden="true" className="size-3.5 shrink-0" />}
-      title={toolLabel(head.version.content)}
+      title={toolLabel(head.observation.content)}
       summary={argumentSummary(callContent)}
       status={status}
       interaction={head}
@@ -235,7 +239,7 @@ function ToolItem({ call, result }: { call: Interaction | null; result: Interact
 }
 
 function ReasoningItem({ interaction }: { interaction: Interaction }) {
-  const content = interaction.version.content;
+  const content = interaction.observation.content;
   // Claude Code 的推理可以只有签名、文字为空，这时只有不可读的内容。
   const readable = content.parts.filter((part) => part.type !== "opaque" && part.text !== "");
   const first = readable.find((part) => part.text)?.text?.split("\n")[0] ?? null;
@@ -262,7 +266,7 @@ function ReasoningItem({ interaction }: { interaction: Interaction }) {
 }
 
 function ContextItem({ interaction }: { interaction: Interaction }) {
-  const content = interaction.version.content;
+  const content = interaction.observation.content;
   return (
     <Fold
       icon={<FileText aria-hidden="true" className="size-3.5 shrink-0" />}
@@ -289,7 +293,7 @@ function Detail({ interaction }: { interaction: Interaction }) {
       type="button"
       aria-label="详情"
       title="详情"
-      onClick={() => stack.open(interaction.version.entityId, -1)}
+      onClick={() => stack.open(interaction.observation.observationId, -1)}
       className="text-fg-3 hover:text-fg cursor-pointer rounded-md p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
     >
       <PanelRight aria-hidden="true" className="size-3.5" />

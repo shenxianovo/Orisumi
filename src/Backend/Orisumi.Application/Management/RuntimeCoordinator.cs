@@ -92,7 +92,7 @@ public sealed class RuntimeCoordinator(IManagementStore store, TimeProvider cloc
 
     public async Task<RuntimePoll> PollAsync(Guid host, string credentialHash, IReadOnlyList<InstanceRevision> known, CancellationToken token)
     {
-        var revisions = known.ToDictionary(item => item.EntityId, item => item.Revision);
+        var revisions = known.ToDictionary(item => item.ThingId, item => item.Revision);
         var end = clock.GetUtcNow().AddSeconds(25);
         Connection connection;
         lock (_gate)
@@ -108,7 +108,7 @@ public sealed class RuntimeCoordinator(IManagementStore store, TimeProvider cloc
                 lock (_gate) signal = _changed.Task;
                 await store.AuthenticateAsync(credentialHash, token);
                 var all = await store.ConfigurationsAsync(host, token);
-                var instances = all.Where(item => !revisions.TryGetValue(item.EntityId, out var revision) || revision != item.Revision).ToArray();
+                var instances = all.Where(item => !revisions.TryGetValue(item.ThingId, out var revision) || revision != item.Revision).ToArray();
                 List<RuntimeOperation> operations = [];
                 lock (_gate)
                 {
@@ -118,7 +118,7 @@ public sealed class RuntimeCoordinator(IManagementStore store, TimeProvider cloc
                         operation.Delivered = clock.GetUtcNow();
                         operation.Value = operation.Value with { State = "delivered" };
                         var value = operation.Value;
-                        operations.Add(new(value.OperationId, value.Action, value.EntityId, value.PackageId, value.Url));
+                        operations.Add(new(value.OperationId, value.Action, value.ThingId, value.PackageId, value.Url));
                     }
                 }
                 if (instances.Length > 0 || operations.Count > 0 || clock.GetUtcNow() >= end) return new(instances, operations);
@@ -142,7 +142,7 @@ public sealed class RuntimeCoordinator(IManagementStore store, TimeProvider cloc
     {
         var owner = await store.HostAsync(host, token);
         if (owner.Revoked) throw new ManagementException(409, "host_offline", "The host is offline.");
-        if (request.EntityId is { } entity)
+        if (request.ThingId is { } entity)
         {
             var instance = await store.InstanceAsync(entity, token);
             if (instance.HostId != host) throw new ManagementException(403, "host_mismatch", "The instance belongs to another host.");
@@ -153,7 +153,7 @@ public sealed class RuntimeCoordinator(IManagementStore store, TimeProvider cloc
         {
             Prune();
             if (!ConnectedUnderLock(host)) throw new ManagementException(409, "host_offline", "The host is offline.");
-            operation = new(Guid.CreateVersion7(), host, request.Action, request.EntityId, request.PackageId,
+            operation = new(Guid.CreateVersion7(), host, request.Action, request.ThingId, request.PackageId,
                 request.Url, "queued", null, null);
             _operations.Add(operation.OperationId, new(operation, clock.GetUtcNow()));
         }

@@ -5,7 +5,7 @@ description: "在浏览器中读一天的经历、翻事物的档案、否定错
 
 Web 控制台是 Orisumi 的完整读取界面，目前只在本机使用。它按人组织记录，不按来源：首页“今天”先讲这一天做了哪几件事，每件事下面是用到的应用和会话；点任何一个名字，打开这个事物的档案；模型新形成的判断集中在“理解”里，错的就否定。采集和原始记录放在单独的一区，怀疑时才去看。
 
-控制台是读取方：它读取所有 Observer 的数据。用户在这里否定或确认判断，写下一份 [Review](../core/rules/understanding.mdx#review-type)，也可以给事物写名字、删除实体，见 [ADR · 删除](../adr/deletion.mdx)。它还请求叙事 Observer 写一天的几件事，见 [API · Narrative](../api/narrative.mdx)。其余数据由 Observer 写入。设备端客户端只展示最近的数据，更早的日期和追溯都在这里查看。
+控制台是读取方：它读取所有 Observer 的数据。用户在这里否定或确认判断，写下一份 [Review](../core/model/review.mdx)，也可以给事物写名字、删除数据，见 [ADR · 删除](../adr/deletion.mdx)。控制台读后端算好的[默认视图](../api/reading.mdx#view)，自己不实现否定、替换和代的规则。它还请求叙事 Observer 写一天的几件事，见 [API · Narrative](../api/narrative.mdx)。其余数据由 Observer 写入。设备端客户端只展示最近的数据，更早的日期和追溯都在这里查看。
 
 | 页面 | 地址 | 内容 |
 | --- | --- | --- |
@@ -15,14 +15,16 @@ Web 控制台是 Orisumi 的完整读取界面，目前只在本机使用。它�
 | [理解](#understanding) | `/understanding` | 模型形成的判断，逐条确认或否定 |
 | [Observer](#observers) | `/observers` | 每个 Observer 今天什么时候在记录，现在是否在写入 |
 | [托管](#hosts) | `/hosts` | 每台设备和服务器上的程序实例，可以管理 |
-| [原始记录](#entities) | `/entities` | 类型图，以及从任意实体织出和它有关的实体 |
-| [实体页](#entity-page) | `/entities/{id}` | 一个实体的全部内容、引用、版本和删除 |
+| [原始记录](#records) | `/records` | 类型图，以及从任意事物或 Observation 织出和它有关的数据 |
+| [Observation 页](#observation-page) | `/observations/{id}` | 一份 Observation 的全部内容、引用、替换和删除 |
+
+各页面读取的接口见[读取的接口](#reads)。
 
 ## 侧栏 [#sidebar]
 
 页面导航在左边的侧栏，分两组：今天、事物和理解看记录；Observer、托管和原始记录在“采集”下面。理解后面写上次查看之后新形成的判断数。采集出了问题时，“采集”后面有一个红点，判断方法与[今天的页头](#day-header)相同。
 
-“查找”接受 EntityId 和 VersionId。点它或按 ⌘K、`/` 弹出输入框，先按 EntityId 读取，读不到再按 VersionId 读取；读到事物时打开它的档案，读到版本时打开实体页。
+“查找”接受 `thingId` 和 `observationId`。点它或按 ⌘K、`/` 弹出输入框，先按 `thingId` 读取，读不到再按 `observationId` 读取；读到事物时打开它的档案，读到 Observation 时打开 Observation 页。
 
 侧栏最下面的外观按钮选择主题：跟随系统、浅色或深色。
 
@@ -32,13 +34,13 @@ Web 控制台是 Orisumi 的完整读取界面，目前只在本机使用。它�
 
 ## 名字和记号 [#roles]
 
-事物的名字由[读取接口](../api/reading.mdx#things)给出，没有名字时写识别依据的值的第一行，例如本机应用写它的应用包标识。本机应用归到产品后写产品的名字，见[应用的合并](#applications)。来源的名字是它的描述的类型名，例如“前台状态 Observer”；用户本人没有名字时写“用户本人”。事物的颜色按名字稳定地取，所以同名的事物颜色相同。
+事物的名字由[读取接口](../api/reading.mdx#things)给出，没有名字时写识别依据的值的第一行，例如本机应用写它的应用包标识。本机应用归到产品后写产品的名字，见[应用的合并](#applications)。来源的名字取自实例登记的名称，例如“前台状态 Observer”；用户本人没有名字时写“用户本人”。事物的颜色按名字稳定地取，所以同名的事物颜色相同。
 
 一个事物在页面上写成一枚记号：带类型图标的色块和名字。本机应用和应用产品有图标时，用应用自己的图标：本机应用用提到它的最近 20 段前台时段中，最新一段带图标的图标，控制台用 `order=desc` 读取它的引用方找到这一段，见 [API · 引用方](../api/reading.mdx#referrers)；应用产品用属于它的本机应用中图标最新的那个。字节按摘要读取并缓存，见 [API · 内容](../api/reading.mdx#contents)。点事物的记号打开它的[档案](#archive)，点来源的记号推出它的面板。
 
 每一句陈述都写出谁说的和形成方式。直接记下的用实线，[推断](../core/model/observation.mdx#formation)用虚线和暖色，所以事实和理解一眼能分开。陈述后面有“凭什么”，点它从右边推出这份 Observation 的面板。
 
-面板写事实时间、内容和它关于的事物、由哪个 Observer 记下和形成方式、依据和复核。推断的陈述在面板里可以确认和否定，否定时可以写一句说明。面板底部的“ID 和原始数据”默认收起，展开后是 EntityId、VersionId、原始内容和进入实体页的入口。在面板里点另一份陈述，下一层接在后面；超过两层时，前面的收成窄条，点窄条回到那一层。Esc 关掉最后一层。打开的面板写在地址的 `stack` 参数里，刷新页面后它们还在。
+面板写事实时间、内容和它关于的事物、由哪个 Observer 记下和形成方式、依据和复核。推断的陈述在面板里可以确认和否定，否定时可以写一句说明。面板底部的“ID 和原始数据”默认收起，展开后是 `observationId`、原始内容和进入 Observation 页的入口。在面板里点另一份陈述，下一层接在后面；超过两层时，前面的收成窄条，点窄条回到那一层。Esc 关掉最后一层。打开的面板写在地址的 `stack` 参数里，刷新页面后它们还在。
 
 ## 今天 [#day]
 
@@ -66,7 +68,7 @@ Web 控制台是 Orisumi 的完整读取界面，目前只在本机使用。它�
 
 打开一天时，这一天没有写下的几件事、而这一天有助手交互或前台应用时段，控制台请求叙事 Observer 写这一天，范围是本地时区的这一天。每收到一件事就显示一件，写着的那一行显示“正在写”；收到 `saved` 后改为读取保存下来的几件事。收到 `failed` 时，已经显示的几件事撤下，写出原因和“重写”。叙事 Observer 不可用时写“叙事 Observer 没有配置 API Key”，页面其余部分照常。
 
-几件事上方写它们由哪个模型、在什么时候写下。今天的记录在这之后又有新的保存时，写“之后有新的记录”；“重写”请求写一批新的，取代原来的几件事。
+几件事上方写它们由哪个模型、在什么时候写下。今天的记录在这之后又有新的保存时，写“之后有新的记录”；“重写”请求写一批新的，替换原来的几件事。
 
 ### 一天的条 [#day-strip]
 
@@ -88,20 +90,20 @@ Web 控制台是 Orisumi 的完整读取界面，目前只在本机使用。它�
 
 档案是以一个事物为中心的织图。例如 ChatGPT 这个本机应用的档案：中间是它的图标和名字，下面写“本机应用 · 在 J929TVWWK3 上”和“前台状态 Observer 这样称呼它”；左边是它的名字和看到过它的 Observer；右边是它所在的设备、它的线索、它属于的产品，以及今天的 5 段前台时段。
 
-中间是这个事物：记号、名字、类型和所在之处，以及名字由谁写下、怎样形成，取自 `nameVersionId` 指向的 Name。下面是“写一个名字”：用户写下的名字成为一份用户本人的 Name，按 [UNDERSTANDING-9](../core/rules/understanding.mdx#understanding-9) 优先使用。
+中间是这个事物：记号、名字、类型和所在之处，以及名字由谁写下、怎样形成，取自 `nameObservationId` 指向的 Name。下面是“写一个名字”：用户写下的名字成为一份用户本人的 Name，后端按 [SCHEMA-20](../core/model/schema.mdx#schema-20) 优先使用。
 
-两边是和它有关的陈述，按类别分组，每组一个小标题：
+两边是和它有关的陈述，来自[对象视图](../api/reading.mdx#thing-view)，按类别分组，每组一个小标题：
 
 | 边 | 组 | 内容 |
 | --- | --- | --- |
-| 左 | 怎样称呼它 | 引用它的每份 Name，写名字、Observer 和形成方式；没有名字时是一个虚线的“还没有名字” |
+| 左 | 怎样称呼它 | 引用它的每份 Name，用 `view=all` 读取，写名字、Observer 和形成方式；没有名字时是一个虚线的“还没有名字” |
 | 左 | 谁看到过它 | 写下过引用它的陈述的 Observer |
-| 右 | 和它有关的 | 经由陈述连到的其他事物，例如本机应用描述连到设备和线索、线索归属连到产品、Relation 连到另一个会话。线上写字段或 `predicate` |
-| 右 | 经历 | 引用它的、有事实时间的陈述，按类型收成一束，写数量和总时长，点开逐条列出；它所在的一件事单独一行 |
+| 右 | 和它有关的 | 对象视图的 `relations`，以及 `state` 中引用的其他事物，例如本机应用描述连到设备和线索、线索归属连到产品、Relation 连到另一个会话。线上写字段或 `predicate` |
+| 右 | 经历 | 对象视图的 `activity`：按类型收成一束，写数量，点开用它的 `href` 逐条列出；它所在的一件事单独一行 |
 
 每条线从中间连到两边的节点。直接记下的线是实线，推断的是暖色虚线。点事物节点走到那个事物的档案；节点上的“凭什么”和陈述节点推出那份 Observation 的面板。同一组超过 6 个节点时，先列出最近的 3 个，其余收成“还有 N 个”。
 
-陈述来自事物的引用方，每种业务类型怎样分到这几组由 EntitySchema 的字段决定：`thingId` 是名字，有事实时间的是经历，陈述引用的其他事物是关系，一件事引用的除外。所以接入新的 Observer 和类型后，档案照样能用。设备这类被大量引用的事物，经历和关系读最近 1000 份引用方，数量后面写“+”。
+每种业务类型怎样分到这几组由 Schema 声明的 `role` 决定，见 [SCHEMA-19](../core/model/schema.mdx#schema-19)，所以接入新的 Observer 和类型后，档案照样能用。成立的 [Same-As](../core/model/same-as.mdx) 由后端展开，图表跟着变。
 
 窄屏时三栏上下排列，不画连线。
 
@@ -137,9 +139,9 @@ Web 控制台是 Orisumi 的完整读取界面，目前只在本机使用。它�
 
 理解页面列出模型形成的判断，也就是形成方式为推断的 Observation，[几件事](#episodes)除外。例如“ChatGPT 属于应用产品 ChatGPT”“这个 Codex 会话继续了 Claude Code 的‘Observer 与 Runtime 建模’”“00:46 的 Codex 会话叫‘讨论采集建模与实现分工’”。
 
-页头写一句说明：判断直接生效，错的才需要否定，确认过的模型以后不会取代。下面分“待看”和“全部”：待看是上次查看之后形成的判断，全部是当前理解中的全部判断。判断按业务类型分组，组内按保存时间倒序。
+页头写一句说明：判断直接生效，错的才需要否定，确认过的模型以后不会替换。下面分“待看”和“全部”：待看是上次查看之后形成的判断，全部是当前理解中的全部判断。两者都读默认视图，所以被否定和被替换的判断不出现。部分否定的判断按 `deniedRanges` 划去被否定的时段，依据被否定的判断写“依据已被否定”。判断按业务类型分组，组内按保存时间倒序。
 
-每条判断一行：先是一句话，判断中的事物写成记号，例如名字写“这个会话叫‘……’”，Relation 写“主语 `predicate` 宾语”，线索归属写“线索属于产品”；其他类型写类型名和内容的第一个文字字段。下面写 Observer、形成方式、保存时间和依据了几个输入。右边是“确认”和“否定”，否定时可以写一句说明；已复核的写“已确认”或“已否定”，可以撤回，撤回是删除这份 Review。
+每条判断一行：先是一句话，判断中的事物写成记号，例如名字写“这个会话叫‘……’”，Relation 写“主语 `predicate` 宾语”，线索归属写“线索属于产品”；其他类型写类型名和内容的第一个文字字段。下面写 Observer、形成方式、保存时间和依据了几个输入。右边是“确认”和“否定”，否定时可以写一句说明；已复核的写“已确认”或“已否定”，可以撤回，撤回是否定这份 Review，见 [REVIEW-6](../core/model/review.mdx#review-6)。
 
 “上次查看”记在浏览器中，打开理解页面时更新。
 
@@ -149,7 +151,7 @@ Observer 页面每个 Observer 一行，显示它今天什么时候在记录、�
 
 开头是一句话，例如“3 个 Observer，1 个正在写入”，后面是今天的 Observation 数，以及最后一次写入的时刻和 Observer。
 
-Observer 是全部程序实例和用户本人，今天没有写入的也列出。Observation 的 Observer 读不到时，这些 Observation 单独成一行“不可读取”。名称与[来源的名字](#roles)相同，同名的加 EntityId 末 4 位。
+Observer 是全部程序实例和用户本人，今天没有写入的也列出。Observation 的 Observer 读不到时，这些 Observation 单独成一行“不可读取”。名称与[来源的名字](#roles)相同，同名的加 `thingId` 末 4 位。
 
 每一行的时间轴分两段，所有行对齐：
 
@@ -195,11 +197,11 @@ Observer 是全部程序实例和用户本人，今天没有写入的也列出�
 
 托管方和实例每 5 秒刷新一次，进行中的在线操作每秒读取一次状态。
 
-## 原始记录 [#entities]
+## 原始记录 [#records]
 
-原始记录页面从任意实体出发，织出和它有关的实体，事物和陈述都可以作为起点。它和[档案](#archive)用同一套织图，区别是可以一层层展开，也能显示 InputSet 和 EntitySchema。例如从 VS Code 开始：点它，左边长出它的前台应用时段，每段写着“14:00–16:00 · 前台状态 Observer”；点其中一段，左边长出前台状态 Observer。停在 Observer 上，整条路亮起：前台状态 Observer —来源— 14:00–16:00 —`localApplication`— VS Code。
+原始记录页面从任意事物或 Observation 出发，织出和它有关的数据。它和[档案](#archive)用同一套织图，区别是可以一层层展开，读的是 `view=all` 的全部数据，也能显示 InputSet 和 Schema。例如从 VS Code 开始：点它，左边长出它的前台应用时段，每段写着“14:00–16:00 · 前台状态 Observer”；点其中一段，左边长出前台状态 Observer。停在 Observer 上，整条路亮起：前台状态 Observer —来源— 14:00–16:00 —`localApplication`— VS Code。
 
-地址参数 `root` 是起点的 EntityId。没有起点时，页面是[类型图](#type-map)，在那里选起点。
+地址参数 `root` 是起点的 `thingId` 或 `observationId`。没有起点时，页面是[类型图](#type-map)，在那里选起点。
 
 ### 织图 [#weave]
 
@@ -207,11 +209,11 @@ Observer 是全部程序实例和用户本人，今天没有写入的也列出�
 
 - 有事实时间的陈述写它的名字，下面写事实时间和记下它的 Observer。
 - 其余的 Observation 画成结，写着 Observer、形成方式、事实时间和依据了几个输入，它的 InputSet 并进结。例如应用识别 Observer 认定 `com.tencent.qq` 属于 QQ：这条线索归属是一个结，左边连着它读过的输入，右边连着线索和应用产品 QQ。
-  [Relation](../core/rules/understanding.mdx#relation) 是两个事物之间的一条边，线上写 `predicate`，点这条边打开这份 Observation。
-  有上一版时，结上另写一行这次改了什么：数组字段写加入和移出的元素，引用字段写目标的名字，其他字段写新的值，去掉的字段写“去掉”，几处变化用分号隔开。首版写“新建”；内容相同、只有时间变化时写“内容相同”。
-  被否定的结画删除线，被取代的结颜色变浅，[复核](../core/rules/understanding.mdx#understanding-5)连在它旁边。依据已被否定的结写“依据已被否定”，见 [UNDERSTANDING-8](../core/rules/understanding.mdx#understanding-8)。
+  [Relation](../core/model/common-types.mdx#relation) 和 [Same-As](../core/model/same-as.mdx) 是两个事物之间的一条边，线上写 `predicate`，点这条边打开这份 Observation。
+  它替换了别的说法时，结上另写一行这次改了什么：数组字段写加入和移出的元素，引用字段写目标的名字，其他字段写新的值，去掉的字段写“去掉”，几处变化用分号隔开。没有替换时写“新建”；内容相同、只有时间变化时写“内容相同”。
+  被否定的结画删除线，被替换的结颜色变浅，线上写“替换”，[复核](../core/model/review.mdx)连在它旁边。依据已被否定的结写“依据已被否定”，见 [UNDERSTANDING-8](../core/rules/understanding.mdx#understanding-8)。
   结上的 Observer 名字可以单独点：点一次，Observer 长在结的左边，线上写“来源”；再点一次收起。展开结时只长出依据和其他邻居，谁说的已经写在结上。
-- 事物各是一个节点。EntitySchema 只出现在类型图和面板里。
+- 事物各是一个节点。类型只出现在类型图和面板里。
 
 位置按来龙去脉从左往右排。点一个节点，它的邻居长在它左边或右边的一栏，连线上写着关系：
 
@@ -220,11 +222,13 @@ Observer 是全部程序实例和用户本人，今天没有写入的也列出�
 | 记下它的 Observer。结的 Observer 由点结上的名字长出 | 左 | 来源 |
 | 它依据的输入，即 InputSet 的成员 | 左 | 依据 |
 | 引用它的 Observation | 左 | 引用所在的字段，例如 `localApplication` |
-| 它的业务字段引用的实体 | 右 | 字段名 |
+| 它的业务字段引用的事物和 Observation | 右 | 字段名 |
 | 以它为输入的陈述 | 右 | 依据 |
 | 它作为 Observer 写下的 Observation | 右 | 来源 |
+| 被它替换的 Observation | 左 | 替换 |
+| 替换它的 Observation | 右 | 替换 |
 
-邻居来自 Core 的结构：Observation 和 InputSet 的固定字段、EntitySchema 声明为 `reference` 的字段，以及后端给出的引用方。所以接入新的 Observer 和类型后，织图照样能用。
+邻居来自 Core 的结构：Observation 的成员、InputSet 的成员、Schema 声明为 `reference` 的字段，以及后端给出的引用方。所以接入新的 Observer 和类型后，织图照样能用。
 
 已经在图上的邻居只连一条虚线。再点一次节点，收起从它长出来的整枝。
 
@@ -240,26 +244,43 @@ Observer 是全部程序实例和用户本人，今天没有写入的也列出�
 
 ### 类型图 [#type-map]
 
-类型图分四列：来源、陈述（连同 InputSet）、有事实时间的陈述、事物。一条线表示一种类型的实体经由某个字段引用另一种类型，线上写字段名，末尾的 `Id` 或 `VersionId` 省略。例如前台应用时段指向本机应用的线上写着 `localApplication`。
+类型图分四列：来源、陈述（连同 InputSet）、有事实时间的陈述、事物。一条线表示一种类型的数据经由某个字段引用另一种类型，线上写字段名，末尾的 `Id` 省略。例如前台应用时段指向本机应用的线上写着 `localApplication`。
 
 引用关系来自样本：每种 Observation 的类型取最近的一份，读出它引用的类型。事物的类型中，程序实例是来源。
 
-点一个类型，下面列出它的实体：
+点一个类型，下面列出它的数据：
 
 - 事物、来源、陈述和依据按名字排列，同名的写出不同的那一段。
 - 有事实时间的陈述列出最近 24 小时的，按时间倒序。
 
-点一个实体，从它开始织。地址参数 `type` 是业务类型的 `resourceName`，或者 `input_set`。
+点一项，从它开始织。地址参数 `type` 是业务类型的 `resourceName`。
 
-## 实体页 [#entity-page]
+## Observation 页 [#observation-page]
 
-实体页显示一个实体的一个版本，从面板底部的“ID 和原始数据”进入。例如一段前台应用时段的实体页，标题是“VS Code”，上方写“前台应用时段”。标题下面是 EntityId、所选的版本和它的保存时间。事物的实体页在内容的位置写识别依据，没有版本。
+Observation 页显示一份 Observation，从面板底部的“ID 和原始数据”进入。例如一段前台应用时段的页面，标题是“VS Code”，上方写“前台应用时段”。标题下面是 `observationId` 和保存时间。事物没有这一页，打开的是它的[档案](#archive)。
 
-页面从上到下是引用图、内容、版本、复核和删除。Observation 的复核一节列出引用它的 Review，并提供“确认”和“否定”。地址参数 `version` 选择版本，不写时显示当前版本。内容中的 `binary` 字段写出媒体类型和大小，媒体类型是图片时显示图片。
+页面从上到下是引用图、内容、替换、复核和删除。替换一节列出它替换的和替换它的 Observation，复核一节列出引用它的 Review，并提供“确认”和“否定”。内容中的 `binary` 字段写出媒体类型和大小，媒体类型是图片时显示图片。
 
-引用图的中间是这个实体，左边是它引用的事物和版本，右边是引用它的版本。每个节点写名字、类型和引用所在的字段，字段名省略末尾的 `Id` 或 `VersionId`。有事实时间的节点在右侧写出事实时间，例如“14:00–16:00”。点击节点进入它的实体页，引用的是版本时选中那一版。
+引用图的中间是这份 Observation，左边是它引用的事物和 Observation，右边是引用它的 Observation。每个节点写名字、类型和引用所在的字段，字段名省略末尾的 `Id`。有事实时间的节点在右侧写出事实时间，例如“14:00–16:00”。点击节点进入它的页面。
 
-鼠标在节点上停留片刻，或者用键盘聚焦节点，旁边浮出它的预览：名字和类型；事实时间和时长；内容的前几个字段、来源和形成方式；引用所在的字段和保存时间。预览只用来看，点击仍然进入节点所属的实体。
+鼠标在节点上停留片刻，或者用键盘聚焦节点，旁边浮出它的预览：名字和类型；事实时间和时长；内容的前几个字段、来源和形成方式；引用所在的字段和保存时间。预览只用来看，点击仍然进入节点。
+
+删除时，确认框写出会一起移除的说法；删除后列出后端返回的依据被删除内容的陈述，点它们可以打开，见 [API · 删除](../api/writing.mdx#deletion)。
+
+## 读取的接口 [#reads]
+
+| 页面 | 接口 |
+| --- | --- |
+| 今天 | `GET /observations`，默认视图：`resourceName` 为 `episodes`、`foreground-application-periods` 和 `assistant-interactions`；`POST /narratives`；`GET /contents/{digest}` |
+| 事物 | `GET /things`；`GET /observations` 带 `resourceName=assistant-interactions` 和时间范围，取这一天有交互的会话 |
+| 档案 | `GET /things/{thingId}`；经历用 `activity` 的 `href`；怎样称呼它用 `GET /observations` 带 `thingId`、`resourceName=names` 和 `view=all` |
+| 会话的对话 | `GET /observations` 带 `thingId`、`role=part` |
+| 理解 | `GET /observations` 带 `formation=inferred`；复核状态用 `GET /observations/{observationId}/referrers` 带 `resourceName=reviews`；否定和确认用 `POST /writes` |
+| Observer | `GET /observations` 带 `observerId` 和时间范围；`GET /things/{thingId}/referrers` 带 `path=/observerId` |
+| 托管 | [Management](../api/management.mdx) 的接口 |
+| 原始记录 | `GET /schema-revisions`、`GET /thing-types`、`GET /things`、`GET /observations` 带 `view=all`；两个 `referrers` 接口带 `view=all`；`GET /input-sets/{inputSetId}` |
+| Observation 页 | `GET /observations/{observationId}`、`GET /schema-revisions/{schemaRevisionId}`、`GET /observations/{observationId}/referrers`、`DELETE /observations/{observationId}` |
+| 面板 | `GET /observations/{observationId}`、`GET /input-sets/{inputSetId}`、`POST /observations/read`，追溯时读到已删除的目标写“不可读取” |
 
 ## 实现 [#implementation]
 

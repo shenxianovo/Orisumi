@@ -8,7 +8,7 @@ namespace Orisumi.Integration.Tests;
 public sealed class ForegroundSubmissionTests
 {
     [Test, Property("caseId", "foreground-submission")]
-    public async Task ApplicationNamesOnlyVersionWhenTheObservedNameChanges()
+    public async Task ApplicationNamesOnlyChangeWhenTheObservedNameChanges()
     {
         await using var db = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(db.ConnectionString);
@@ -23,14 +23,14 @@ public sealed class ForegroundSubmissionTests
             {
                 var unnamed = (await local.Data.ListAsync("things?resourceName=local-applications")).Single();
                 await Assert.That(unnamed.GetProperty("name").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
-                await Assert.That(unnamed.GetProperty("nameVersionId").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
+                await Assert.That(unnamed.GetProperty("nameObservationId").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
             }
         }
         var app = (await local.Data.ListAsync("things?resourceName=local-applications")).Single();
         await Assert.That(app.GetProperty("name").GetString()).IsEqualTo("Visual Studio Code");
-        var currentName = await local.Data.VersionAsync(app.GetProperty("nameVersionId").GetGuid());
-        var chain = await local.Data.GetAsync($"entities/{currentName.GetProperty("entityId").GetGuid()}/versions");
-        await Assert.That(chain.GetProperty("versions").GetArrayLength()).IsEqualTo(2);
+        var currentName = await local.Data.ObservationAsync(app.GetProperty("nameObservationId").GetGuid());
+        var chain = await local.Data.GetAsync($"observations?resourceName=names&thingId={app.GetProperty("thingId").GetGuid()}&view=all");
+        await Assert.That(chain.GetProperty("observations").GetArrayLength()).IsEqualTo(2);
         await Assert.That(currentName.GetProperty("formation").GetString()).IsEqualTo("direct");
         await Assert.That(currentName.GetProperty("startAt").ValueKind).IsEqualTo(System.Text.Json.JsonValueKind.Null);
         await Assert.That((await local.Observations()).Length).IsEqualTo(5);
@@ -49,8 +49,8 @@ public sealed class ForegroundSubmissionTests
         await Assert.That((await local.Observations()).Length).IsEqualTo(0);
         local.Store.FinishActive(); local.Store.FinishActive();
         var saved = (await local.Observations()).Single();
-        await Assert.That(saved.PreviousVersionId).IsNull();
-        var observation = (Observation)saved.Content;
+        await Assert.That(saved.Replaces.Length).IsEqualTo(0);
+        var observation = saved;
         await Assert.That(observation.StartAt).IsEqualTo(capture.StartAt);
         await Assert.That(observation.EndAt).IsEqualTo(extended.EndAt);
         await Assert.That(local.Diagnostics.Count).IsEqualTo(0);
@@ -102,6 +102,6 @@ public sealed class ForegroundSubmissionTests
         collector.Wake(); collector.Stop();
         var observations = await local.Observations();
         await Assert.That(observations.Length).IsEqualTo(4);
-        await Assert.That(((Observation)observations[2].Content).EndAt).IsEqualTo(ForegroundTimelineTests.Reading(0).ObservedAt.AddMilliseconds(200));
+        await Assert.That(observations[2].EndAt).IsEqualTo(ForegroundTimelineTests.Reading(0).ObservedAt.AddMilliseconds(200));
     }
 }

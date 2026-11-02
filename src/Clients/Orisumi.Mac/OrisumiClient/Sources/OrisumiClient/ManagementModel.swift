@@ -15,7 +15,7 @@ public struct ManagedHost: Decodable, Identifiable, Sendable {
     public var id: UUID { hostId }
 }
 public struct ManagedInstance: Decodable, Identifiable, Sendable {
-    public var entityId: UUID
+    public var thingId: UUID
     public var hostId: UUID
     public var packageId: String
     public var name: String
@@ -25,14 +25,14 @@ public struct ManagedInstance: Decodable, Identifiable, Sendable {
     public var removed: Bool
     public var reportedAt: Date?
     public var status: JSONValue?
-    public var id: UUID { entityId }
+    public var id: UUID { thingId }
     public var synchronized: Bool { status?["appliedRevision"]?.number == Double(revision) && status?["pendingChanges"]?.number == 0 }
 }
 public struct ManagementOperation: Decodable, Sendable {
     public var operationId: UUID
     public var hostId: UUID
     public var action: String
-    public var entityId: UUID?
+    public var thingId: UUID?
     public var state: String
     public var error: String?
     public var result: JSONValue?
@@ -108,9 +108,9 @@ public final class ManagementModel {
     public func remove(_ instance: UUID) async {
         await perform { let _: Empty = try await request("observer-instances/\(instance)", "DELETE") }
     }
-    public func execute(host: UUID, action: String, instance: UUID? = nil, package: String? = nil, newInstance: Bool = false) async {
-        var body: [String: JSONValue] = ["action": .string(action), "newInstance": .bool(newInstance)]
-        if let instance { body["entityId"] = .string(instance.uuidString) }; if let package { body["packageId"] = .string(package) }
+    public func execute(host: UUID, action: String, instance: UUID? = nil, package: String? = nil) async {
+        var body: [String: JSONValue] = ["action": .string(action)]
+        if let instance { body["thingId"] = .string(instance.uuidString) }; if let package { body["packageId"] = .string(package) }
         let payload = JSONValue.object(body)
         if action == "catalog" { catalog = [] }
         await perform {

@@ -1,63 +1,50 @@
 import { useSyncExternalStore } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSource } from "@/api/source";
-import type { EntitySchema, ObservationVersion } from "@/api/types";
-import { PERSON_SCHEMA, REVIEWS, type ReviewContent } from "@/lib/common";
+import type { Schema, Observation } from "@/api/types";
+import { REVIEWS, type ReviewContent, type Verdict } from "@/lib/common";
 import { EPISODES } from "@/lib/episodes";
 import { readSeen, subscribeSeen } from "@/lib/preferences";
 import { MINUTE } from "@/lib/time";
 import { observations } from "./useApplications";
-import { pool, readThings, schemaOf, useTypes } from "./useTypes";
+import { pool, schemaOf } from "./useTypes";
 
-/** 一条模型的判断。review 是用户本人对它的复核，用来写“已确认”“已否定”和撤回。 */
+/** 一条模型的判断。review 是用户本人对它生效的复核，用来写“已确认”“已否定”和撤回。 */
 export interface Judgment {
-  version: ObservationVersion;
-  schema: EntitySchema | null;
-  review: ObservationVersion | null;
-  verdict: "confirm" | "deny" | null;
+  observation: Observation;
+  schema: Schema | null;
+  review: Observation | null;
+  verdict: Verdict | null;
 }
 
 const JUDGMENTS_INTERVAL = MINUTE;
 
-/** 模型形成的判断：推断的 Observation，几件事除外。被取代的不列出；被用户否定的留着，可以撤回。 */
+/** 模型形成的判断：默认视图中推断的 Observation，几件事除外。被否定和被替换的不出现，部分否定的带 deniedRanges。 */
 export function useJudgments() {
   const source = useSource();
   const client = useQueryClient();
-  const types = useTypes();
   return useQuery({
     queryKey: ["judgments"],
     queryFn: async (): Promise<Judgment[]> => {
       const [inferred, reviews] = await Promise.all([
         observations(source, { formation: "inferred" }),
-        observations(source, { resourceName: REVIEWS }),
+        observations(source, { resourceName: REVIEWS, formation: "stated" }),
       ]);
-      const schemas = await pool(inferred, 12, (version) => schemaOf(client, source, types.data!, version));
-      const reviewers = await readThings(
-        client,
-        source,
-        reviews.map((review) => review.observerId),
-      );
-      const byTarget = new Map<string, ObservationVersion[]>();
+      const schemas = await pool(inferred, 12, (observation) => schemaOf(client, source, observation));
+      const byTarget = new Map<string, Observation>();
+      // 默认视图只含生效的复核，后写的留下。
       for (const review of reviews) {
-        const { targetVersionId } = review.content as unknown as ReviewContent;
-        byTarget.set(targetVersionId, [...(byTarget.get(targetVersionId) ?? []), review]);
+        const { targetId } = review.content as unknown as ReviewContent;
+        if (targetId) byTarget.set(targetId, review);
       }
-      return inferred.flatMap((version, i): Judgment[] => {
+      return inferred.flatMap((observation, i): Judgment[] => {
         const schema = schemas[i]?.content ?? null;
         if (schema?.resourceName === EPISODES) return [];
-        const targeting = byTarget.get(version.versionId) ?? [];
-        const verdictOf = (review: ObservationVersion) => (review.content as unknown as ReviewContent).verdict;
-        const review =
-          targeting.find(
-            (candidate) =>
-              reviewers.get(candidate.observerId)?.schemaId === PERSON_SCHEMA && verdictOf(candidate) !== "supersede",
-          ) ?? null;
-        const verdict = review ? (verdictOf(review) as "confirm" | "deny") : null;
-        if (!review && targeting.some((candidate) => verdictOf(candidate) === "supersede")) return [];
-        return [{ version, schema, review, verdict }];
+        const review = byTarget.get(observation.observationId) ?? null;
+        const verdict = review ? (review.content as unknown as ReviewContent).verdict : null;
+        return [{ observation, schema, review, verdict }];
       });
     },
-    enabled: !!types.data,
     refetchInterval: JUDGMENTS_INTERVAL,
   });
 }
@@ -68,7 +55,7 @@ export function useSeen(): number {
 }
 
 export function isNew(judgment: Judgment, seen: number): boolean {
-  return Date.parse(judgment.version.recordedAt) > seen;
+  return Date.parse(judgment.observation.recordedAt) > seen;
 }
 
 /** 上次查看之后形成的判断数。 */
@@ -76,14 +63,4 @@ export function useNewJudgments(): number {
   const judgments = useJudgments();
   const seen = useSeen();
   return (judgments.data ?? []).filter((judgment) => isNew(judgment, seen)).length;
-}
-
-/** 撤回一份复核：删除这份 Review。 */
-export function useWithdrawReview() {
-  const source = useSource();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (review: ObservationVersion) => source.deleteEntity(review.entityId),
-    onSuccess: () => client.invalidateQueries(),
-  });
 }

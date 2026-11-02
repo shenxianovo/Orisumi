@@ -50,7 +50,7 @@ foreground-state-0.1.0-osx-arm64.zip
 
 Runtime 只安装 `format` 和 `protocol` 都是它支持的版本、`target` 是本机平台的包。
 
-清单是安装协议的数据，不作为实体保存。安装包的 `id`、程序实例的 EntityId 和 SchemaId 是三种不同的标识：同一个安装包在两台设备上是两个程序实例；程序实例的程序版本写在它的描述中，例如 [Foreground State Observer](../observers/foreground-state/foreground-state-observer.mdx)。
+清单是安装协议的数据，不写成 Observation。安装包的 `id`、程序实例的 `thingId` 和 SchemaId 是三种不同的标识：同一个安装包在两台设备上是两个程序实例；程序实例的程序版本写在它的 [Observer 描述](../core/model/common-types.mdx#observer-descriptions)中。
 
 ## 官方目录 [#catalog]
 
@@ -87,7 +87,7 @@ Runtime 只安装 `format` 和 `protocol` 都是它支持的版本、`target` �
 1. Runtime 把 ZIP 下载到临时目录，有 SHA-256 时核对它。下载最长 5 分钟。
 2. 读取清单，检查格式、协议和平台。
 3. 解压到 `packages/<id>/<version>/`。ZIP 最大 256 MiB，解压后合计最大 1 GiB；符号链接和路径超出这个目录的条目让安装失败。
-4. 写入安装登记。这个包还没有未删除的实例时，生成新程序实例的 EntityId 和实例目录。
+4. 写入安装登记。这个包还没有未删除的实例时，生成新程序实例的 `thingId` 和实例目录。
 5. 启用并启动这个程序实例。
 
 任何一步失败，安装登记不变，这个版本不会运行。
@@ -114,7 +114,7 @@ Runtime 在切换登记之前退出时，下次启动读到的仍是旧版本的
 
 ## 删除实例 [#removal]
 
-删除实例永久结束一个程序实例的身份，与卸载不同，见 [Management · 删除实例](./management.mdx#removal)。Runtime 停止它的进程，在登记中标记实例已删除，删除程序文件。之后再安装同一个 `id` 的包时，Runtime 生成新的 EntityId 和实例目录，旧实例目录保留。
+删除实例永久结束一个程序实例的身份，与卸载不同，见 [Management · 删除实例](./management.mdx#removal)。Runtime 停止它的进程，在登记中标记实例已删除，删除程序文件。之后再安装同一个 `id` 的包时，Runtime 生成新的 `thingId` 和实例目录，旧实例目录保留。
 
 ## 附带的 Observer [#bundled]
 

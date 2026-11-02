@@ -46,45 +46,43 @@ export function ObserverRows({
 function Row({ row, day, now }: { row: ObserverRow; day: { start: number; end: number }; now: number }) {
   const { ids, open } = useStack();
   const highlight = useHighlight();
-  const category = categoryInfo(row.identity.category);
+  const group = categoryInfo(row.identity.group);
   const active = isActive(row, now);
-  const entityId = row.identity.entityId;
-  const opened = !!entityId && ids.at(-1) === entityId;
-  const lit = !!entityId && highlight.active === entityId;
+  const thingId = row.identity.thingId;
+  const opened = !!thingId && ids.at(-1) === thingId;
+  const lit = !!thingId && highlight.active === thingId;
 
   return (
     <div role="listitem">
       <button
         type="button"
-        disabled={!entityId}
-        aria-pressed={entityId ? opened : undefined}
-        onClick={() => entityId && open(entityId, -1)}
-        onPointerEnter={() => entityId && highlight.set(entityId)}
-        onPointerLeave={() => entityId && highlight.set(null)}
+        disabled={!thingId}
+        aria-pressed={thingId ? opened : undefined}
+        onClick={() => thingId && open(thingId, -1)}
+        onPointerEnter={() => thingId && highlight.set(thingId)}
+        onPointerLeave={() => thingId && highlight.set(null)}
         className={cn(
           GRID,
           "border-line -mx-2 w-[calc(100%+16px)] items-center rounded-lg border-t px-2 py-3 text-left transition-colors",
-          entityId ? "hover:bg-panel cursor-pointer" : "cursor-default",
+          thingId ? "hover:bg-panel cursor-pointer" : "cursor-default",
           (opened || lit) && "bg-panel",
         )}
         style={
-          active && !opened && !lit
-            ? { background: `color-mix(in srgb, ${category.color} 9%, transparent)` }
-            : undefined
+          active && !opened && !lit ? { background: `color-mix(in srgb, ${group.color} 9%, transparent)` } : undefined
         }
       >
         <span className="flex min-w-0 items-center gap-2.5">
-          <Mark role={entityId ? "source" : null} color={null} size="sm" />
+          <Mark role={thingId ? "source" : null} color={null} size="sm" />
           <span className="min-w-0">
             <span className="block truncate text-[13px]">{row.name}</span>
             <span className="text-fg-3 block truncate text-xs">
-              {category.label} · {row.basis === "fact" ? "按事实时间" : "按保存时间"}
+              {group.label} · {row.basis === "fact" ? "按事实时间" : "按保存时间"}
             </span>
           </span>
         </span>
         <span className={cn(LANE, "col-span-2 h-7 max-md:order-last md:order-none md:col-span-1")}>
-          <Lane row={row} from={day.start} to={day.end} now={now} color={category.color} />
-          <Lane row={row} from={now - LENS} to={now} now={now} color={category.color} lens active={active} />
+          <Lane row={row} from={day.start} to={day.end} now={now} color={group.color} />
+          <Lane row={row} from={now - LENS} to={now} now={now} color={group.color} lens active={active} />
         </span>
         <Status row={row} now={now} />
       </button>

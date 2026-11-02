@@ -4,7 +4,6 @@
   "collapsible": true,
   "pagesIndex": "index",
   "pages": [
-    "assistant-sessions-observer",
     "assistant-session",
     "assistant-subagent",
     "assistant-interaction"

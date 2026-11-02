@@ -19,7 +19,7 @@ public sealed class SchemaBoundaryTests
     public async Task IntegersFollowMathematicalValueWithoutStorageLimits(string json, bool valid)
     {
         using var document = JsonDocument.Parse(json);
-        await Assert.That(EntitySchemaRules.IsInteger(document.RootElement)).IsEqualTo(valid);
+        await Assert.That(SchemaRules.IsInteger(document.RootElement)).IsEqualTo(valid);
     }
 
     // SCHEMA-2
@@ -37,7 +37,7 @@ public sealed class SchemaBoundaryTests
     {
         var fields = JsonSerializer.SerializeToElement(new { value = new { type, description = "Test field value.", required = true, nullable = false } });
         var content = ModelFixture.Json($$"""{"value":{{value}}}""");
-        await Assert.That(EntitySchemaRules.ValidEntity(fields, content)).IsEqualTo(valid);
+        await Assert.That(SchemaRules.ValidContent(fields, content)).IsEqualTo(valid);
     }
 
     // SCHEMA-11: all combinations of required/nullable, including valid non-null values.
@@ -49,8 +49,8 @@ public sealed class SchemaBoundaryTests
     public async Task RequiredAndNullableHaveIndependentTruthTables(bool required, bool nullable)
     {
         var fields = JsonSerializer.SerializeToElement(new { value = new { type = "string", description = "Test field value.", required, nullable } });
-        await Assert.That(EntitySchemaRules.ValidEntity(fields, ModelFixture.Json("{}"))).IsEqualTo(!required);
-        await Assert.That(EntitySchemaRules.ValidEntity(fields, ModelFixture.Json("{\"value\":null}"))).IsEqualTo(nullable);
-        await Assert.That(EntitySchemaRules.ValidEntity(fields, ModelFixture.Json("{\"value\":\"text\"}"))).IsTrue();
+        await Assert.That(SchemaRules.ValidContent(fields, ModelFixture.Json("{}"))).IsEqualTo(!required);
+        await Assert.That(SchemaRules.ValidContent(fields, ModelFixture.Json("{\"value\":null}"))).IsEqualTo(nullable);
+        await Assert.That(SchemaRules.ValidContent(fields, ModelFixture.Json("{\"value\":\"text\"}"))).IsTrue();
     }
 }

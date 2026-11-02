@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { OrisumiSource } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isObservation, type ObservationVersion } from "@/api/types";
+import type { Observation } from "@/api/types";
 import { UNREADABLE_IDENTITY, type ObserverIdentity } from "@/lib/observers";
 import { dayRange, parseTime } from "@/lib/time";
 import { useDayObservations } from "./useDay";
@@ -9,24 +9,24 @@ import { OBSERVERS_INTERVAL, useObservers } from "./useObservers";
 import { pool } from "./useTypes";
 
 /**
- * 一个 Observer 保存时间在 [from, to) 内的 Observation。引用方按 VersionId 降序排列，也就是保存的先后，
+ * 一个 Observer 保存时间在 [from, to) 内的 Observation。引用方按 observationId 降序排列，也就是保存的先后，
  * 读到更早的就停下。
  */
 async function savedBetween(source: OrisumiSource, observerId: string, from: number, to: number) {
-  const found: ObservationVersion[] = [];
+  const found: Observation[] = [];
   let after: string | undefined;
   do {
-    const page = await source.listReferrers(observerId, {
+    const page = await source.listThingReferrers(observerId, {
       path: "/observerId",
       order: "desc",
       limit: 200,
       ...(after ? { after } : {}),
     });
-    for (const { version } of page.referrers) {
-      const at = parseTime(version.recordedAt);
-      if (at === null || !isObservation(version)) continue;
+    for (const { observation } of page.referrers) {
+      const at = parseTime(observation.recordedAt);
+      if (at === null) continue;
       if (at < from) return found;
-      if (at < to) found.push(version);
+      if (at < to) found.push(observation);
     }
     after = page.next ?? undefined;
   } while (after);

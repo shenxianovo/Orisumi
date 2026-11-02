@@ -1,62 +1,84 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isObservation, type ObservationVersion } from "@/api/types";
+import type { Observation, ThingActivity } from "@/api/types";
 import { buildArchive, type Archive } from "@/lib/archive";
-import { NAME_SCHEMA, NAMES, PERSON_SCHEMA, RELATIONS, USER_KEY } from "@/lib/common";
+import { NAME_SCHEMA, NAMES, PERSON_SCHEMA, USER_KEY } from "@/lib/common";
 import { EPISODES } from "@/lib/episodes";
+import { refreshView } from "./queries";
 import { observations } from "./useApplications";
-import { pool, schemaOf, useTypes } from "./useTypes";
+import { pool, schemaOf } from "./useTypes";
 
-/** 一次读取的引用方数。设备和 Observer 的引用方可以有几万份，只读最近的这些。 */
-const RECENT = 1000;
+/** 看到过它的 Observer 从每种经历最近的这么多份里取。 */
+const RECENT = 50;
 
 export interface ArchiveData extends Archive {
-  /** 更早的引用方没有读取。 */
-  truncated: boolean;
+  sameAsThingIds: string[];
+  activity: ThingActivity[];
+  /** 每种经历最新的一份，键是 resourceName。 */
+  latest: ReadonlyMap<string, Observation>;
 }
 
-/** 一个事物的档案：名字和关系总是读全，其余读最近的引用方，再按 EntitySchema 分组。 */
+/** 一个事物的档案：对象视图是现在的样子和发生过的事，再读出怎样称呼它和它所在的几件事。 */
 export function useArchive(thingId: string) {
   const source = useSource();
   const client = useQueryClient();
-  const types = useTypes();
   return useQuery({
     queryKey: ["archive", thingId],
     queryFn: async (): Promise<ArchiveData> => {
-      const pick = (resourceName: string) => source.listReferrers(thingId, { resourceName, limit: 1000 });
-      const [names, relations, recent, current] = await Promise.all([
-        pick(NAMES),
-        pick(RELATIONS),
-        source.listReferrers(thingId, { order: "desc", limit: RECENT }),
-        observations(source, { resourceName: EPISODES, standing: "current" }),
+      const [view, names] = await Promise.all([
+        source.getThing(thingId),
+        observations(source, { thingId, resourceName: NAMES, view: "all" }),
       ]);
-      const seen = new Set<string>();
-      const versions: ObservationVersion[] = [];
-      for (const { version } of [...names.referrers, ...relations.referrers, ...recent.referrers]) {
-        if (!isObservation(version) || seen.has(version.versionId)) continue;
-        seen.add(version.versionId);
-        versions.push(version);
-      }
-      versions.sort((a, b) => b.versionId.localeCompare(a.versionId));
-      const schemas = await pool(versions, 12, (version) => schemaOf(client, source, types.data!, version));
+      const recent = await pool(view.activity, 4, async (item) => ({
+        item,
+        observations: (await source.readActivity(item.href, { limit: RECENT, order: "desc" })).observations,
+      }));
+      const statements = [...view.state, ...view.relations];
+      const schemas = await pool(statements, 12, (statement) => schemaOf(client, source, statement));
       const archive = buildArchive(
-        thingId,
-        versions.map((version, i) => ({ version, schema: schemas[i]?.content ?? null })),
+        new Set([thingId, ...view.sameAsThingIds]),
+        statements.map((statement, i) => ({ observation: statement, schema: schemas[i]?.content ?? null })),
       );
-      const standing = new Set(current.map((version) => version.versionId));
+      const episodes = recent
+        .filter(({ item }) => item.resourceName === EPISODES)
+        .flatMap((entry) => entry.observations);
+      const observers = new Set([
+        ...statements.map((statement) => statement.observerId),
+        ...names.map((name) => name.observerId),
+        ...recent.flatMap((entry) => entry.observations.map((observation) => observation.observerId)),
+      ]);
+      observers.delete(thingId);
       return {
         ...archive,
-        episodes: archive.episodes.filter((version) => standing.has(version.versionId)),
-        truncated: recent.next !== null,
+        names,
+        episodes,
+        observers: [...observers],
+        sameAsThingIds: view.sameAsThingIds,
+        latest: new Map(
+          recent.flatMap(({ item, observations: list }) => (list[0] ? [[item.resourceName, list[0]]] : [])),
+        ),
+        activity: view.activity.filter((item) => item.resourceName !== EPISODES),
       };
     },
-    enabled: !!types.data,
-    staleTime: 30_000,
+    staleTime: 10_000,
+    retry: false,
   });
 }
 
-/** 用户本人给事物写一个名字：一份亲口陈述的 Name，按 UNDERSTANDING-9 优先使用。 */
+/** 对象视图 activity 的一项逐页列出，新的在前。 */
+export function useActivity(href: string, limit: number) {
+  const source = useSource();
+  return useInfiniteQuery({
+    queryKey: ["activity", href],
+    queryFn: ({ pageParam }) =>
+      source.readActivity(href, { limit, order: "desc", ...(pageParam ? { after: pageParam } : {}) }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.next ?? undefined,
+  });
+}
+
+/** 用户本人给事物写一个名字：一份 stated 的 Name，按 SCHEMA-20 优先使用。 */
 export function useWriteName() {
   const source = useSource();
   const client = useQueryClient();
@@ -66,10 +88,10 @@ export function useWriteName() {
         observer: { schemaId: PERSON_SCHEMA, key: USER_KEY },
         writes: [{ schemaId: NAME_SCHEMA, formation: "stated", content: { thingId, name } }],
       });
-      const result = response.results[0];
-      if (result && "error" in result)
+      const result = response.results[0]!;
+      if ("error" in result)
         throw new ApiError(result.error.status ?? 400, result.error.detail ?? "名字没有保存", result.error);
     },
-    onSuccess: () => client.invalidateQueries(),
+    onSuccess: () => refreshView(client),
   });
 }

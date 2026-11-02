@@ -65,6 +65,7 @@
 - 文档站、`README.md`、`AGENTS.md` 或 skill：在 `src/Docs/Orisumi.Docs` 运行 `pnpm docs:check`，修复全部报错。
 - 文档站：另外运行 `pnpm test`、`pnpm types:check` 和 `pnpm build`。
 - 页面或交互：在本地环境中打开实际页面检查。
+- `tools/Orisumi.Dev`：在主检出目录运行 `orisumi tool install`，让全局命令和代码一致。工作树和分支上的改动用 `dotnet run --project tools/Orisumi.Dev --` 运行，合入后再更新。
 
 验证的力度看出错的后果、影响范围、能否撤回，以及错误是否容易发现。所有改动都要检查改动范围内的代码、文档和链接是否一致。
 

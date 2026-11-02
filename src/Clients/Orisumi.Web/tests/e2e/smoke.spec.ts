@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// 默认的 e2e 不连后端：用路由拦截给出空的列表和 404，检查外壳和空状态。真实数据下的视图和实体页由 tests/aspire/edge.spec.ts 检查。
+// 默认的 e2e 不连后端：用路由拦截给出空的列表和 404，检查外壳和空状态。真实数据下的视图和记录页由 tests/aspire/edge.spec.ts 检查。
 
-const EMPTY_PAGE = { versions: [], next: null };
+const EMPTY_PAGE = { observations: [], next: null };
 
 /** 列表接口返回空页，批量读取事物都读不到，其余读取返回 404。 */
 async function emptyApi(page: Page) {
@@ -11,13 +11,16 @@ async function emptyApi(page: Page) {
     (url) => url.pathname.startsWith("/api/"),
     (route) => {
       const { pathname } = new URL(route.request().url());
-      if (pathname === "/api/observations" || pathname === "/api/entities") {
-        return route.fulfill({ json: EMPTY_PAGE });
-      }
+      if (pathname === "/api/observations") return route.fulfill({ json: EMPTY_PAGE });
+      if (pathname === "/api/search") return route.fulfill({ json: EMPTY_PAGE });
+      if (pathname === "/api/schema-revisions") return route.fulfill({ json: { schemaRevisions: [], next: null } });
+      if (pathname === "/api/thing-types") return route.fulfill({ json: { thingTypes: [] } });
+      if (pathname === "/api/observer-instances") return route.fulfill({ json: { instances: [] } });
+      if (pathname === "/api/hosts") return route.fulfill({ json: { hosts: [] } });
       if (pathname === "/api/things") return route.fulfill({ json: { things: [], next: null } });
       if (pathname === "/api/things/read") {
-        const { entityIds } = route.request().postDataJSON() as { entityIds: string[] };
-        return route.fulfill({ json: { results: entityIds.map((entityId) => ({ entityId, status: "not_found" })) } });
+        const { thingIds } = route.request().postDataJSON() as { thingIds: string[] };
+        return route.fulfill({ json: { results: thingIds.map((thingId) => ({ thingId, status: "not_found" })) } });
       }
       return route.fulfill({ status: 404, json: { title: "Not Found", status: 404 } });
     },
@@ -41,16 +44,16 @@ test.describe("外壳", () => {
     await expect(page.locator("html")).not.toHaveAttribute("data-theme");
   });
 
-  test("⌘K 打开查找，检查格式，找不到时提示", async ({ page }) => {
+  test("⌘K 打开查找：搜索文字，ID 找不到时提示", async ({ page }) => {
     await page.goto("/");
     // 快捷键在页面渲染后才开始监听。
     await expect(page.getByText("今天还没有记录")).toBeVisible();
     await page.keyboard.press("ControlOrMeta+k");
-    const input = page.getByLabel("EntityId 或 VersionId");
+    const input = page.getByLabel("查找文字或 ID");
     await expect(input).toBeFocused();
     await input.fill("hello");
     await input.press("Enter");
-    await expect(page.getByRole("alert")).toHaveText("不是 UUIDv7");
+    await expect(page.getByText("没有找到“hello”")).toBeVisible();
     await input.fill("0192b056-7300-7000-8000-000000000001");
     await input.press("Enter");
     await expect(page.getByRole("alert")).toHaveText("找不到这个 ID");

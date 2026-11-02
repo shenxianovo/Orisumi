@@ -1,52 +1,55 @@
 ---
 title: "Observation"
-description: "一份陈述：谁负责、说了什么、怎么来的、依据什么、事实何时成立"
+description: "一份不可变的陈述：谁负责、说了什么、怎么来的、依据什么、事实何时成立"
 ---
 
 Observation 是一份陈述，中文叫观测。它说明五件事：哪个 [Observer](./observer.mdx) 负责、说了什么、怎么来的、依据了哪些已保存的数据、事实在什么时间成立。前台状态 Observer 采集到的前台时段、模型的推断、用户的确认和否定，都是 Observation。
 
-这五件事都在同一个版本中，所以读一份 Observation 就读到了全部。它提到的对象是[事物](./thing.mdx)，实体之间的关系也都写在 Observation 中，见 [ENTITY-9](./entity.mdx#entity-9)。
+Observation 保存后不可变。说法有变化时再写一份，用 `replaces` 指向被替换的那一份，旧的一份原样保留。它提到的对象是[事物](./thing.mdx)，事物之间的关系也都写在 Observation 中，见 [REFERENCE-5](../rules/references.mdx#reference-5)。
 
 <ModelRelations node="Observation" />
 
-- **类别**：`category` 为 `observation`，类型由 EntitySchema 定义
-- **引用**：`schemaVersionId`、`observerId`、`observerVersionId`、`inputSetVersionId`，以及业务字段中的引用
-- **决策**：[ADR · 实体模型](../../adr/entity-model.mdx)、[ADR · Observer 与输入集](../../adr/observers-and-evidence.mdx)、[ADR · 身份、时间与更新](../../adr/identity-and-updates.mdx)、[ADR · 模型形成的理解](../../adr/understanding.mdx)
+- **身份**：`observationId`
+- **类型**：由 [Schema](./schema.mdx) 定义
+- **引用**：`schemaRevisionId`、`observerId`、`speakerId`、`observerDescriptionId`、`inputSetId`、`replaces`，以及业务字段中的引用
+- **决策**：[ADR · 事物与观测](../../adr/things-and-observations.mdx)、[ADR · 不可变的 Observation](../../adr/immutable-observations.mdx)、[ADR · Observer 与输入集](../../adr/observers-and-evidence.mdx)、[ADR · 身份、时间与替换](../../adr/identity-and-updates.mdx)、[ADR · 模型形成的理解](../../adr/understanding.mdx)
 
 ## 成员 [#members]
 
-以下成员在版本共有的[成员](./version.mdx#members)之外：
-
 | 成员 | 类型 | 含义 |
 | --- | --- | --- |
-| `schemaVersionId` | 引用 | 这份陈述所用的 Schema 版本，决定它的类型和 `content` 的结构 |
-| `observerId` | 引用 | 负责的 Observer，是一个事物 |
-| `observerVersionId` | 引用或 `null`，必须出现 | 形成这一版时 Observer 的描述，见 [OBSERVER-9](./observer.mdx#observer-9)。没有描述时为 `null` |
+| `observationId` | UUIDv7 | 这份 Observation 的身份，见 [OBSERVATION-12](#observation-12) |
+| `schemaRevisionId` | 引用 | 这份陈述所用的 SchemaRevision，决定它的类型和 `content` 的结构 |
+| `observerId` | 引用 | 负责的 Observer，是一个事物：记录这句话、对这份记录负责的一方 |
+| `speakerId` | 引用或 `null`，必须出现 | 说这句话的事物，`null` 表示和 Observer 相同，见 [OBSERVATION-20](#observation-20) |
+| `observerDescriptionId` | 引用或 `null`，必须出现 | 形成这份陈述时 Observer 的描述，见 [OBSERVER-9](./observer.mdx#observer-9)。没有描述时为 `null` |
 | `formation` | 枚举 | [形成方式](#formation) |
-| `inputSetVersionId` | 引用或 `null`，必须出现 | 这次处理实际用到的 [InputSet](./input-set.mdx)。没有用到已保存的数据时为 `null`，见 [EVIDENCE-1](../rules/evidence.mdx#evidence-1) |
+| `inputSetId` | 引用或 `null`，必须出现 | 这次处理实际用到的 [InputSet](./input-set.mdx)。没有用到已保存的数据时为 `null`，见 [EVIDENCE-1](../rules/evidence.mdx#evidence-1) |
+| `replaces` | 引用的数组，必须出现 | 被这份 Observation 替换的 Observation，可以为空，见 [OBSERVATION-18](#observation-18) |
 | `timeZone` | 字符串或 `null`，必须出现 | 事实所属的 IANA 时区，未知时为 `null` |
 | `startAt` | 时间或 `null`，必须出现 | 事实的已知开始边界，未知时为 `null` |
 | `endAt` | 时间或 `null`，必须出现 | 事实的已知结束边界，未知时为 `null` |
+| `recordedAt` | 时间，由后端赋值 | 保存时间，见 [OBSERVATION-16](#observation-16) |
+| `content` | 由 SchemaRevision 规定 | 业务字段 |
 
 ## 示例 [#example]
 
-VS Code 从 14:00 起在前台，前台状态 Observer 在 14:05 最后一次确认。
+VS Code 从 14:00 到 16:00 在前台，这一段结束时，前台状态 Observer 写入它。
 
 ```json
 {
-	"entityId": "019e1bbb-ec00-7000-8000-0000000000e1",
-	"versionId": "019e1bbb-ec00-7000-8000-000000000101",
-	"previousVersionId": null,
-	"category": "observation",
-	"schemaVersionId": "019e1bbb-ec00-7000-8000-000000000201",
+	"observationId": "019e1bbb-ec00-7000-8000-000000000101",
+	"schemaRevisionId": "019e1bbb-ec00-7000-8000-000000000201",
 	"observerId": "019e1bbb-ec00-7000-8000-0000000000a0",
-	"observerVersionId": "019e1bbb-ec00-7000-8000-0000000000a1",
+	"speakerId": null,
+	"observerDescriptionId": "019e1bbb-ec00-7000-8000-0000000000a1",
 	"formation": "direct",
-	"inputSetVersionId": null,
+	"inputSetId": null,
+	"replaces": [],
 	"startAt": "2026-10-06T06:00:00Z",
-	"endAt": "2026-10-06T06:05:00Z",
+	"endAt": "2026-10-06T08:00:00Z",
 	"timeZone": "Asia/Shanghai",
-	"recordedAt": "2026-10-06T06:05:01Z",
+	"recordedAt": "2026-10-06T08:00:01Z",
 	"content": {
 		"localApplicationId": "019e1bbb-ec00-7000-8000-0000000000c1",
 		"name": "Visual Studio Code"
@@ -54,7 +57,7 @@ VS Code 从 14:00 起在前台，前台状态 Observer 在 14:05 最后一次确
 }
 ```
 
-`endAt` 是最近一次确认的时刻，VS Code 此后可能仍在前台。采集直接读取系统状态，没有用到已保存的数据，所以 `inputSetVersionId` 为 `null`。
+采集直接读取系统状态，没有用到已保存的数据，所以 `inputSetId` 为 `null`。
 
 ## 引用 [#references]
 
@@ -62,19 +65,19 @@ VS Code 从 14:00 起在前台，前台状态 Observer 在 14:05 最后一次确
 
 执行方：后端
 
-每份 Observation 必须引用一个 `kind` 为 `observation` 的 Schema 版本和一个作为 Observer 的事物。`observerVersionId` 不为 `null` 时，必须是这个 Observer 的描述的版本。`inputSetVersionId` 不为 `null` 时，必须指向一个 InputSet 的版本。这些目标都要存在且未被删除，见 [ENTITY-6](./entity.mdx#entity-6)。
+每份 Observation 必须引用一个 SchemaRevision 和一个作为 Observer 的事物，内容按这条 SchemaRevision 校验和解释。`speakerId` 不为 `null` 时，必须是一个事物。`observerDescriptionId` 不为 `null` 时，必须是这个 Observer 的一份[描述](./common-types.mdx#observer-descriptions)。`inputSetId` 不为 `null` 时，必须指向一个 InputSet。这些目标都要存在且未被删除，见 [REFERENCE-3](../rules/references.mdx#reference-3)。
 
 ### OBSERVATION-2 陈述的类型 [#observation-2]
 
 定义
 
-Observation 的类型由它所用的 Schema 版本决定。
+Observation 的类型由它所用的 SchemaRevision 决定。
 
 ### OBSERVATION-3 同一件事的多份观测 [#observation-3]
 
 定义
 
-不同的 Observer 对同一件事可以各有一份 Observation。一个 Observer 的陈述更新时形成它那一份的新版本，其他 Observer 的不受影响。每次读取都要单独成一份观测时，每次读取是一个新的 Observation，例如一次温度读数。
+不同的 Observer 对同一件事可以各有一份 Observation，同一时刻可以并存多种说法。每次读取都要单独成一份观测时，每次读取是一个新的 Observation，例如一次温度读数。
 
 ## 事实时间 [#fact-time]
 
@@ -127,14 +130,6 @@ Observation 的类型由它所用的 Schema 版本决定。
 
 `timeZone` 必须出现，值是事实所属的 IANA 时区，未知时为 `null`。读取方用它把 `startAt` 和 `endAt` 换算为当地时间。
 
-## 版本 [#versions]
-
-### OBSERVATION-10 一个作者 [#observation-10]
-
-执行方：后端
-
-一份 Observation 只有一个作者：所有版本的 `observerId` 相同。其他 Observer 写入同一份识别依据时，内容相同什么都不做，内容不同就拒绝这次写入。后续版本可以补全或纠正事实时间、时区、内容和输入集。其他 Observer 的确认或否定形成新的 Observation，见 [IDENTITY-3](../rules/identity.mdx#identity-3)。
-
 ## 形成方式 [#formation]
 
 形成方式说明这份陈述怎么来的，它说明来由，不说明真假。前台时段是程序直接读到的，VS Code 留在前台时用户可能在开会。
@@ -151,4 +146,77 @@ Observation 的类型由它所用的 Schema 版本决定。
 
 执行方：写入方、后端
 
-写入方如实声明每个版本的形成方式，后端只检查取值。一个 Observer 可以形成不同形成方式的陈述。读取方要知道结论的依据里有没有推断时，沿 InputSet 查，见 [EVIDENCE-7](../rules/evidence.mdx#evidence-7)。
+写入方如实声明每份 Observation 的形成方式，后端只检查取值。一个 Observer 可以形成不同形成方式的陈述。读取方要知道结论的依据里有没有推断时，沿 InputSet 查，见 [EVIDENCE-7](../rules/evidence.mdx#evidence-7)。
+
+## 保存 [#saving]
+
+写入方把一份 Observation 的完整内容、事实时间和形成方式交给后端，这是一次写入。
+
+### OBSERVATION-12 observationId [#observation-12]
+
+执行方：后端
+
+`observationId` 是后端在保存时生成的 UUIDv7，生成后不再改变，Observation 删除后仍然占用，不得重新分配。写入方用识别依据或 id 指出引用的目标，后端解析成确定的 id，见 [API · Writing](../../api/writing.mdx#references)。
+
+### OBSERVATION-13 类型不变 [#observation-13]
+
+执行方：后端
+
+一份 Observation 和它 `replaces` 中的每个目标必须是同一种业务类型，也就是同一个 SchemaId，SchemaRevision 可以不同，比目标更旧的也可以。每份 Observation 都按自己引用的 SchemaRevision 解释，见 [SCHEMA-2](./schema.mdx#schema-2)。
+
+### OBSERVATION-14 完整内容 [#observation-14]
+
+执行方：写入方
+
+一份 Observation 保存这句话的完整内容，读取它只需要这一份。`binary` 字段保存文件的描述，字节按摘要单独读取，见 [Binary](./binary.mdx)。
+
+### OBSERVATION-15 不可改写 [#observation-15]
+
+执行方：后端
+
+已保存的 Observation 不得改写，保存时间也包括在内。
+
+### OBSERVATION-16 recordedAt [#observation-16]
+
+执行方：后端
+
+后端在保存一份 Observation 时赋值 `recordedAt`。它只表示后端保存这份 Observation 的时刻，不同 Observation 的 `recordedAt` 可以相同。
+
+### OBSERVATION-17 一次写入整体保存 [#observation-17]
+
+执行方：后端
+
+一次写入形成的 Observation 和 InputSet，连同它提到的新事物，全部通过才一起保存。其中一项被拒绝时，这次写入都不保存，其他写入不受影响。
+
+## 替换 [#replacement]
+
+修解析器、来源对象变化、模型重判都走同一条路：再说一句，新的一份替换旧的。例如采集器把一条工具结果误记成用户发言，修复解析器后重读日志，新的交互替换旧的交互，旧的一份仍可追溯。
+
+### OBSERVATION-18 替换 [#observation-18]
+
+执行方：写入方、后端
+
+`replaces` 列出被这份 Observation 替换的 Observation，可以为空。写入方可以显式声明，例如模型重判时替换上一轮的判断，后端按 [OBSERVATION-19](#observation-19) 自动填写同一识别依据的那一条。替换和被替换的两份都保留，被替换的在默认视图中隐藏，见 [UNDERSTANDING-4](../rules/understanding.mdx#understanding-4)。
+
+### OBSERVATION-19 同一依据再说一句 [#observation-19]
+
+执行方：后端
+
+带识别依据写入时，后端和这个依据最新的一条比较，见 [API · 内容相同](../../api/writing.mdx#sameness)：
+
+| 情况 | 结果 |
+| --- | --- |
+| 内容、事实时间和输入都相同 | 什么都不发生 |
+| 有不同 | 保存新的 Observation，`replaces` 自动指向这个依据最新的一条 |
+
+内容回到旧值是一次变化：内容从 A 改成 B 再改回 A，一共有三份 Observation。这个比较与写入的 Observer 无关，所以一份全局的依据只有一条当前的说法；要各说各的，见 [IDENTITY-8](../rules/identity.mdx#identity-8)。
+
+## 说话人 [#speaker]
+
+### OBSERVATION-20 负责方和说话人 [#observation-20]
+
+执行方：写入方
+
+`observerId` 是记录这句话、对这份记录负责的一方，`speakerId` 是说这句话的事物，`null` 表示和 Observer 相同。例如助手会话 Observer 记下一条聊天：用户的话 `speakerId` 是用户本人，助手的话 `speakerId` 是这个模型，负责的 Observer 都是助手会话 Observer。
+
+助手的回答被采回时，它是模型说的话，所以读取方能按说话人筛选，排除模型自己的话，见 [API · 查询观测](../../api/reading.mdx#observations)。

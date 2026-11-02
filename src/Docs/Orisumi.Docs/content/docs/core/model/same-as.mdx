@@ -1,0 +1,59 @@
+---
+title: "Same-As"
+description: "两个事物在一段时间内是同一个"
+---
+
+Same-As 是一份 Observation，说明两个事物是同一个，例如重装系统前后的两个设备事物是同一台机器，或者两个 QQ 号是同一个人。两个事物保持各自的 `thingId`，已有的引用都不变，后端在读取时把它们展开，所以图表和对象视图跟着变。
+
+事实时间是成立的时段：账号回收后，它和原来的主人不再是同一个人。
+
+<ModelRelations node="SameAs" />
+
+- **类型**：内建类型，后端理解它的语义，见 [Overview · 内建语义](../index.mdx#semantics)
+- **决策**：[ADR · 不可变的 Observation](../../adr/immutable-observations.mdx)
+
+## 类型 [#type]
+
+| 项目 | 值 |
+| --- | --- |
+| SchemaId | `019e1bbb-ec00-7000-8000-00000000001a` |
+| 显示名称 | 同一 |
+| 说明 | 表示两个事物是同一个。事实时间是成立的时段，未知时为 null。 |
+| 资源名 | `same-as` |
+| `claimFields` | `leftId`、`rightId` |
+
+| 字段 | 类型 | 必填 | 可空 | description |
+| --- | --- | --- | --- | --- |
+| `leftId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 其中一个事物 |
+| `rightId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 另一个事物 |
+
+## 示例 [#example]
+
+```json
+{
+  "leftId": "0196f3a1-5d0c-7a11-8e2f-1b2c3d4e5f61",
+  "rightId": "0196f3a1-5d0c-7a11-8e2f-1b2c3d4e5f62"
+}
+```
+
+## 规则 [#rules]
+
+### SAMEAS-1 两个事物 [#sameas-1]
+
+定义
+
+`leftId` 和 `rightId` 不分先后，命题键按无序的一对比较。
+
+### SAMEAS-2 否定就是拆开 [#sameas-2]
+
+执行方：后端
+
+否定一条 Same-As 就是拆开这两个事物。只否定一段时间时，其余时间仍然成立，见 [REVIEW-3](./review.mdx#review-3)。
+
+### SAMEAS-3 读取时展开 [#sameas-3]
+
+执行方：后端
+
+读取对象和按对象筛选时，后端把成立的 Same-As 展开：默认视图中的 Same-As 把事物连成一组，查询其中一个就得到整组的数据，同一的关系可以传递。展开只作用于事实时间和 Same-As 的时段相交的 Observation，时段未知的 Same-As 对全部时间成立。
+
+读取引用方时不展开，见 [API · 引用方](../../api/reading.mdx#referrers)。

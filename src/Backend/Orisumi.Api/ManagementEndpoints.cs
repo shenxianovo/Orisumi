@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Orisumi.Application.Management;
 using Orisumi.Core;
 
@@ -25,7 +25,7 @@ internal static class ManagementEndpoints
             context.Items[HostItem] = host.HostId;
             context.Items[HashItem] = hash;
             if (path.StartsWithSegments("/hosts") || path.StartsWithSegments("/pairings") || path.StartsWithSegments("/observer-instances")
-                || HttpMethods.IsDelete(context.Request.Method) && path.StartsWithSegments("/entities"))
+                || HttpMethods.IsDelete(context.Request.Method) && (path.StartsWithSegments("/things") || path.StartsWithSegments("/observations") || path.StartsWithSegments("/schemas")))
                 throw new ManagementException(403, "management_only", "This operation requires the management entry point.");
         }
         else if (path.StartsWithSegments("/runtime") && path != "/runtime/pair")
@@ -51,60 +51,60 @@ internal static class ManagementEndpoints
         app.MapPatch("/hosts/{hostId}", async (string hostId, JsonElement body, IManagementStore store, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
             Fields(body, ["name"]);
-            return Present(await store.RenameAsync(EntityEndpoints.Id(hostId), Text(body, "name"), token), coordinator);
+            return Present(await store.RenameAsync(DataEndpoints.Id(hostId), Text(body, "name"), token), coordinator);
         });
         app.MapPost("/hosts/{hostId}/revoke", async (string hostId, IManagementStore store, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
-            var id = EntityEndpoints.Id(hostId);
+            var id = DataEndpoints.Id(hostId);
             await store.RevokeAsync(id, token);
             coordinator.ResetConnection(id);
             return Results.NoContent();
         });
         app.MapGet("/observer-instances", async (HttpRequest request, IManagementStore store, CancellationToken token) =>
         {
-            var host = EntityEndpoints.Parameter(request, "hostId");
-            return new { instances = await store.InstancesAsync(host is null ? null : EntityEndpoints.Id(host), token) };
+            var host = DataEndpoints.Parameter(request, "hostId");
+            return new { instances = await store.InstancesAsync(host is null ? null : DataEndpoints.Id(host), token) };
         });
-        app.MapGet("/observer-instances/{entityId}", async (string entityId, IManagementStore store, CancellationToken token) =>
-            await store.InstanceAsync(EntityEndpoints.Id(entityId), token));
-        app.MapPatch("/observer-instances/{entityId}", async (string entityId, JsonElement body, IManagementStore store, RuntimeCoordinator coordinator, CancellationToken token) =>
+        app.MapGet("/observer-instances/{thingId}", async (string thingId, IManagementStore store, CancellationToken token) =>
+            await store.InstanceAsync(DataEndpoints.Id(thingId), token));
+        app.MapPatch("/observer-instances/{thingId}", async (string thingId, JsonElement body, IManagementStore store, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
             Fields(body, [], ["enabled", "settings"]);
-            var id = EntityEndpoints.Id(entityId);
+            var id = DataEndpoints.Id(thingId);
             await store.ChangeAsync(null, id, Change(body), null, token);
             coordinator.Notify();
             return await store.InstanceAsync(id, token);
         });
-        app.MapDelete("/observer-instances/{entityId}", async (string entityId, IManagementStore store, EntityService entities, RuntimeCoordinator coordinator, CancellationToken token) =>
+        app.MapDelete("/observer-instances/{thingId}", async (string thingId, IManagementStore store, DataService entities, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
-            var id = EntityEndpoints.Id(entityId);
+            var id = DataEndpoints.Id(thingId);
             await store.InstanceAsync(id, token);
-            await entities.DeleteAsync(new(id), token);
+            await entities.DeleteThingAsync(id, token);
             coordinator.Notify();
             return Results.NoContent();
         });
-        app.MapPut("/runtime/instances/{entityId}", async (string entityId, JsonElement body, HttpContext context,
+        app.MapPut("/runtime/instances/{thingId}", async (string thingId, JsonElement body, HttpContext context,
             IManagementStore store, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
             Fields(body, ["packageId", "name", "scope", "enabled", "settings", "localSequence"]);
             var registration = new InstanceRegistration(Text(body, "packageId"), Text(body, "name"), Choice(body, "scope", "any", "deployment"),
                 Boolean(body, "enabled"), Object(body, "settings"), Number(body, "localSequence", 0));
-            var result = await store.RegisterAsync(Host(context), EntityEndpoints.Id(entityId), registration, token);
+            var result = await store.RegisterAsync(Host(context), DataEndpoints.Id(thingId), registration, token);
             coordinator.Notify();
             return result;
         });
-        app.MapPost("/runtime/instances/{entityId}/changes", async (string entityId, JsonElement body, HttpContext context,
+        app.MapPost("/runtime/instances/{thingId}/changes", async (string thingId, JsonElement body, HttpContext context,
             IManagementStore store, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
             Fields(body, ["sequence"], ["enabled", "settings"]);
-            var result = await store.ChangeAsync(Host(context), EntityEndpoints.Id(entityId), Change(body), Number(body, "sequence", 1), token);
+            var result = await store.ChangeAsync(Host(context), DataEndpoints.Id(thingId), Change(body), Number(body, "sequence", 1), token);
             coordinator.Notify();
             return result;
         });
-        app.MapPut("/runtime/instances/{entityId}/status", async (string entityId, JsonElement body, HttpContext context, IManagementStore store, CancellationToken token) =>
+        app.MapPut("/runtime/instances/{thingId}/status", async (string thingId, JsonElement body, HttpContext context, IManagementStore store, CancellationToken token) =>
         {
             if (body.ValueKind != JsonValueKind.Object) throw new JsonException("Status must be an object.");
-            await store.ReportAsync(Host(context), EntityEndpoints.Id(entityId), body, token);
+            await store.ReportAsync(Host(context), DataEndpoints.Id(thingId), body, token);
             return Results.NoContent();
         });
         app.MapPost("/runtime/poll", async (JsonElement body, HttpContext context, RuntimeCoordinator coordinator, CancellationToken token) =>
@@ -113,31 +113,31 @@ internal static class ManagementEndpoints
             if (body.GetProperty("instances").ValueKind != JsonValueKind.Array) throw new JsonException("instances must be an array.");
             var known = body.GetProperty("instances").EnumerateArray().Select(item =>
             {
-                Fields(item, ["entityId", "revision"]);
-                return new InstanceRevision(EntityEndpoints.Id(Text(item, "entityId")), Number(item, "revision", 0));
+                Fields(item, ["thingId", "revision"]);
+                return new InstanceRevision(DataEndpoints.Id(Text(item, "thingId")), Number(item, "revision", 0));
             }).ToArray();
-            if (known.Select(item => item.EntityId).Distinct().Count() != known.Length) throw new JsonException("Duplicate instance.");
+            if (known.Select(item => item.ThingId).Distinct().Count() != known.Length) throw new JsonException("Duplicate instance.");
             return await coordinator.PollAsync(Host(context), (string)context.Items[HashItem]!, known, token);
         });
         app.MapPost("/hosts/{hostId}/operations", async (string hostId, JsonElement body, RuntimeCoordinator coordinator, CancellationToken token) =>
         {
-            Fields(body, ["action"], ["entityId", "packageId", "url"]);
+            Fields(body, ["action"], ["thingId", "packageId", "url"]);
             var action = Choice(body, "action", "catalog", "install", "update", "uninstall", "retry", "resendRejected");
-            var id = OptionalId(body, "entityId");
+            var id = OptionalId(body, "thingId");
             var package = body.TryGetProperty("packageId", out _) ? Text(body, "packageId") : null;
             var url = body.TryGetProperty("url", out _) ? Text(body, "url") : null;
             if (action == "install" && package is null && url is null || action is "update" or "uninstall" && package is null || action is "retry" or "resendRejected" && id is null)
                 throw new JsonException("This action is missing its target.");
-            return Results.Json(await coordinator.CreateOperationAsync(EntityEndpoints.Id(hostId), new(action, id, package, url), token), statusCode: 202);
+            return Results.Json(await coordinator.CreateOperationAsync(DataEndpoints.Id(hostId), new(action, id, package, url), token), statusCode: 202);
         });
         app.MapGet("/hosts/{hostId}/operations/{operationId}", (string hostId, string operationId, RuntimeCoordinator coordinator) =>
-            coordinator.Operation(EntityEndpoints.Id(hostId), EntityEndpoints.Id(operationId)));
+            coordinator.Operation(DataEndpoints.Id(hostId), DataEndpoints.Id(operationId)));
         app.MapPost("/runtime/operations/{operationId}/result", (string operationId, JsonElement body, HttpContext context, RuntimeCoordinator coordinator) =>
         {
             Fields(body, ["outcome"], ["error", "result"]);
             var error = body.TryGetProperty("error", out var e) && e.ValueKind != JsonValueKind.Null ? Text(body, "error") : null;
             JsonElement? result = body.TryGetProperty("result", out var r) && r.ValueKind != JsonValueKind.Null ? Object(body, "result") : null;
-            coordinator.Report(Host(context), EntityEndpoints.Id(operationId), new(Choice(body, "outcome", "succeeded", "failed"), error, result));
+            coordinator.Report(Host(context), DataEndpoints.Id(operationId), new(Choice(body, "outcome", "succeeded", "failed"), error, result));
             return Results.NoContent();
         });
     }
@@ -162,7 +162,7 @@ internal static class ManagementEndpoints
         && value.TryGetInt64(out var number) && number >= minimum ? number : throw new JsonException(name + " is outside its integer range.");
     private static JsonElement Object(JsonElement body, string name) => body.GetProperty(name).ValueKind == JsonValueKind.Object
         ? body.GetProperty(name).Clone() : throw new JsonException(name + " must be an object.");
-    private static Guid? OptionalId(JsonElement body, string name) => body.TryGetProperty(name, out _) ? EntityEndpoints.Id(Text(body, name)) : null;
+    private static Guid? OptionalId(JsonElement body, string name) => body.TryGetProperty(name, out _) ? DataEndpoints.Id(Text(body, name)) : null;
     private static string Choice(JsonElement body, string name, params string[] values)
     {
         var value = Text(body, name);

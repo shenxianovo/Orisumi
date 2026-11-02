@@ -7,7 +7,7 @@ namespace Orisumi.Integration.Tests;
 public sealed class LocalApplicationIdentityTests
 {
     [Test, Property("caseId", "foreground-local-application-identity")]
-    public async Task TwoObserversShareInstallationButAnotherDeviceAndDeletionCreateNewEntities()
+    public async Task TwoObserversShareInstallationAndDeletedInstallationsStayDeleted()
     {
         await using var db = await DatabaseFixture.CreateAsync();
         await using var factory = new OrisumiApiFactory(db.ConnectionString);
@@ -19,19 +19,19 @@ public sealed class LocalApplicationIdentityTests
         await Assert.That(apps.Count).IsEqualTo(1);
         await Assert.That((await first.Observations()).Length).IsEqualTo(2);
         await Assert.That((await first.Data.ListAsync("things?resourceName=devices")).Count).IsEqualTo(1);
-        await first.Data.WriteAllAsync((first.Device with { Name = "renamed device" }).Writes(first.Data.Observer.EntityId!.Value));
+        await first.Data.WriteAllAsync((first.Device with { Name = "renamed device" }).Writes());
         first.Store.Checkpoint(first.Capture(1), null); first.Store.FinishActive();
         var afterRename = await first.Data.ListAsync("things?resourceName=local-applications");
-        await Assert.That(afterRename[0].GetProperty("entityId").GetGuid()).IsEqualTo(apps[0].GetProperty("entityId").GetGuid());
+        await Assert.That(afterRename[0].GetProperty("thingId").GetGuid()).IsEqualTo(apps[0].GetProperty("thingId").GetGuid());
         var otherDevice = await ForegroundTestStore.CreateAsync(http);
         otherDevice.Store.Checkpoint(otherDevice.Capture(), null); otherDevice.Store.FinishActive();
         await Assert.That((await first.Data.ListAsync("things?resourceName=local-applications")).Count).IsEqualTo(2);
         await Assert.That((await first.Data.ListAsync("things?resourceName=devices")).Count).IsEqualTo(2);
-        using var removed = await http.DeleteAsync("entities/" + apps[0].GetProperty("entityId").GetGuid()); removed.EnsureSuccessStatusCode();
+        using var removed = await http.DeleteAsync("things/" + apps[0].GetProperty("thingId").GetGuid()); removed.EnsureSuccessStatusCode();
         first.Store.Checkpoint(first.Capture(2), null); first.Store.FinishActive();
         var afterDeletion = await first.Data.ListAsync("things?resourceName=local-applications");
-        await Assert.That(afterDeletion.Any(v => v.GetProperty("entityId").GetGuid() == apps[0].GetProperty("entityId").GetGuid())).IsFalse();
-        await Assert.That(afterDeletion.Count).IsEqualTo(2);
+        await Assert.That(afterDeletion.Any(v => v.GetProperty("thingId").GetGuid() == apps[0].GetProperty("thingId").GetGuid())).IsFalse();
+        await Assert.That(afterDeletion.Count).IsEqualTo(1);
     }
 
     [Test, Property("caseId", "foreground-local-application-identity")]

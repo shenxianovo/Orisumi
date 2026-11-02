@@ -28,11 +28,10 @@ export default defineConfig({
     strictPort: true,
     // 经 nginx 同源反代时，HMR 沿用浏览器访问的主机与端口，无需额外 clientPort。
     proxy: {
-      // Aspire/nginx 对外把 API 挂在 /api；直连后端时指向 8080。
+      // 独立运行时转给本地环境的 API 入口，入口自己去掉 /api 前缀。
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api/, ""),
       },
     },
   },

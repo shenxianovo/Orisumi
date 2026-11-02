@@ -45,7 +45,7 @@ internal sealed partial class RuntimeHost
         await _gate.WaitAsync(token);
         try
         {
-            if (!_observers.TryGetValue(config.EntityId, out var observer)) return;
+            if (!_observers.TryGetValue(config.ThingId, out var observer)) return;
             var before = observer.Registration;
             var after = before.Merge(config);
             if (ReferenceEquals(before, after)) return;
@@ -148,7 +148,7 @@ internal sealed partial class RuntimeHost
                 if (!_connection.CanConnect) { await Task.Delay(TimeSpan.FromSeconds(1), token); continue; }
                 try
                 {
-                    var instances = (await SnapshotAsync(token)).Where(item => !firstPoll && item.Revision > 0).Select(item => new { entityId = item.InstanceId, item.Revision }).ToArray();
+                    var instances = (await SnapshotAsync(token)).Where(item => !firstPoll && item.Revision > 0).Select(item => new { thingId = item.InstanceId, item.Revision }).ToArray();
                     var response = await _connection.SendAsync(HttpMethod.Post, "runtime/poll", new { instances }, token);
                     _connection.Connected(); failures = 0;
                     if (firstPoll) { _reports.Clear(); firstPoll = false; }
@@ -176,7 +176,7 @@ internal sealed partial class RuntimeHost
         {
             var action = operation.GetProperty("action").GetString()!;
             var result = await RequestAsync(action, ClientProtocol.Json(new {
-                packageId = operation.GetProperty("packageId"), instanceId = operation.GetProperty("entityId"), url = operation.GetProperty("url") }), token);
+                packageId = operation.GetProperty("packageId"), instanceId = operation.GetProperty("thingId"), url = operation.GetProperty("url") }), token);
             outcome = new { outcome = "succeeded", result };
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !token.IsCancellationRequested)

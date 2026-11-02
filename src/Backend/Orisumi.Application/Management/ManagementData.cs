@@ -3,17 +3,17 @@ using System.Text.Json;
 namespace Orisumi.Application.Management;
 
 public sealed record ObserverHost(Guid HostId, string Name, string Kind, bool Revoked, DateTimeOffset? LastSeenAt);
-public sealed record InstanceConfig(Guid EntityId, string PackageId, bool Enabled, JsonElement Settings,
+public sealed record InstanceConfig(Guid ThingId, string PackageId, bool Enabled, JsonElement Settings,
     long Revision, long LastLocalSequence, bool Removed);
-public sealed record ObserverInstance(Guid EntityId, Guid HostId, string PackageId, string Name,
+public sealed record ObserverInstance(Guid ThingId, Guid HostId, string PackageId, string Name,
     bool Enabled, JsonElement Settings, long Revision, bool Removed, JsonElement? Status, DateTimeOffset? ReportedAt);
 public sealed record InstanceRegistration(string PackageId, string Name, string Scope, bool Enabled,
     JsonElement Settings, long LocalSequence);
 public sealed record ConfigurationChange(bool? Enabled, JsonElement? Settings);
-public sealed record InstanceRevision(Guid EntityId, long Revision);
-public sealed record RuntimeOperation(Guid OperationId, string Action, Guid? EntityId, string? PackageId, string? Url);
-public sealed record OperationRequest(string Action, Guid? EntityId, string? PackageId, string? Url);
-public sealed record ObserverOperation(Guid OperationId, Guid HostId, string Action, Guid? EntityId,
+public sealed record InstanceRevision(Guid ThingId, long Revision);
+public sealed record RuntimeOperation(Guid OperationId, string Action, Guid? ThingId, string? PackageId, string? Url);
+public sealed record OperationRequest(string Action, Guid? ThingId, string? PackageId, string? Url);
+public sealed record ObserverOperation(Guid OperationId, Guid HostId, string Action, Guid? ThingId,
     string? PackageId, string? Url, string State, string? Error, JsonElement? Result);
 public sealed record OperationResult(string Outcome, string? Error, JsonElement? Result);
 public sealed record RuntimePoll(IReadOnlyList<InstanceConfig> Instances, IReadOnlyList<RuntimeOperation> Operations);

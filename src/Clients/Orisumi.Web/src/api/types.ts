@@ -1,20 +1,25 @@
 // HTTP 契约的类型，按 src/Docs/Orisumi.Docs/content/docs/api/openapi.json 手写。
 
-export type Category = "observation" | "entity_schema" | "input_set";
-
 export type Formation = "direct" | "stated" | "computed" | "extracted" | "inferred";
 
+/** InputSet 是一个值：成员是 Observation 的 id。 */
 export interface InputSet {
+  inputSetId: string;
   members: string[];
 }
+
+export type ReferenceRole = "about" | "part" | "mention";
 
 export interface FieldDefinition {
   description: string;
   type: "string" | "boolean" | "integer" | "number" | "reference" | "binary" | "object" | "array";
   required?: boolean;
   nullable?: boolean;
-  /** `reference` 字段指向事物还是版本。 */
-  target?: "thing" | "version";
+  /** `reference` 字段指向事物还是 Observation。 */
+  target?: "thing" | "observation";
+  /** 引用事物的字段声明角色。 */
+  role?: ReferenceRole;
+  searchable?: boolean;
   fields?: Record<string, FieldDefinition>;
   items?: FieldDefinition;
 }
@@ -32,38 +37,56 @@ export function isBinaryValue(value: unknown): value is BinaryValue {
   return typeof digest === "string" && typeof mediaType === "string" && typeof size === "number";
 }
 
-export interface EntitySchema {
+/** 一种 Observation 类型的声明。 */
+export interface Schema {
   displayName: string;
   description: string;
   resourceName: string;
-  kind: "thing" | "observation";
-  immutable: boolean;
   fields: Record<string, FieldDefinition>;
+  stateFields?: string[];
+  claimFields?: string[];
+}
+
+export interface SchemaRevision {
+  schemaRevisionId: string;
+  schemaId: string;
+  recordedAt: string;
+  content: Schema;
+}
+
+/** 一种事物类型的声明：只有名称和说明，没有字段。 */
+export interface ThingType {
+  schemaId: string;
+  displayName: string;
+  description: string;
+  resourceName: string;
 }
 
 /** Observation 的业务字段。 */
 export type Fields = Record<string, unknown>;
 
-export interface Version<C = unknown> {
-  entityId: string;
-  versionId: string;
-  previousVersionId: string | null;
-  category: Category;
-  recordedAt: string;
-  content: C;
+export interface DeniedRange {
+  startAt: string;
+  endAt: string;
 }
 
-/** Observation 的版本：负责的 Observer、形成方式、依据和事实时间都在版本上，content 是业务字段。 */
-export interface ObservationVersion<C = Fields> extends Version<C> {
-  category: "observation";
-  schemaVersionId: string;
+/** 一份不可变的陈述。deniedRanges 和 basisDenied 只在默认视图的结果中出现。 */
+export interface Observation<C = Fields> {
+  observationId: string;
+  schemaRevisionId: string;
   observerId: string;
-  observerVersionId: string | null;
+  speakerId: string | null;
+  observerDescriptionId: string | null;
   formation: Formation;
-  inputSetVersionId: string | null;
+  inputSetId: string | null;
+  replaces: string[];
   startAt: string | null;
   endAt: string | null;
   timeZone: string | null;
+  recordedAt: string;
+  content: C;
+  deniedRanges?: DeniedRange[];
+  basisDenied?: boolean;
 }
 
 export interface RecognitionKey {
@@ -74,37 +97,66 @@ export interface RecognitionKey {
 
 /** 事物只有身份：类型、识别依据，以及后端按当前理解取得的名字。 */
 export interface Thing {
-  entityId: string;
-  category: "thing";
+  thingId: string;
   schemaId: string;
   keys: RecognitionKey[];
   name: string | null;
-  /** name 所在的 Name 的版本，用它查到谁这样称呼这个事物。 */
-  nameVersionId: string | null;
+  /** name 所在的 Name，用它查到谁这样称呼这个事物。 */
+  nameObservationId: string | null;
 }
 
-/** 界面上的一个实体：事物，或者一个版本。 */
-export type Item = Thing | Version;
+/** 界面上的一项记录：事物、Observation、InputSet 或一条 SchemaRevision。 */
+export type Item = Thing | Observation | InputSet | SchemaRevision;
 
 export function isThing(item: Item): item is Thing {
-  return item.category === "thing";
+  return "thingId" in item;
 }
 
-/** 实体在界面上的把手：事物用 EntityId，其余用 VersionId。 */
+export function isObservation(item: Item): item is Observation {
+  return "observationId" in item;
+}
+
+export function isInputSet(item: Item): item is InputSet {
+  return "members" in item;
+}
+
+export function isSchemaRevision(item: Item): item is SchemaRevision {
+  return "schemaRevisionId" in item && !("observationId" in item);
+}
+
+/** 一项记录在界面上的把手。 */
 export function handleOf(item: Item): string {
-  return isThing(item) ? item.entityId : item.versionId;
+  if (isThing(item)) return item.thingId;
+  if (isObservation(item)) return item.observationId;
+  return isInputSet(item) ? item.inputSetId : item.schemaRevisionId;
 }
 
-export interface VersionReadResults {
-  results: { versionId: string; status: "found" | "deleted" | "not_found"; version?: Version }[];
+/** 对象视图的一项：发生过的事的计数和分页入口。 */
+export interface ThingActivity {
+  resourceName: string;
+  role: ReferenceRole;
+  count: number;
+  href: string;
+}
+
+export interface ThingView {
+  thing: Thing;
+  sameAsThingIds: string[];
+  state: Observation[];
+  relations: Observation[];
+  activity: ThingActivity[];
+}
+
+export interface ObservationReadResults {
+  results: { observationId: string; status: "found" | "deleted" | "not_found"; observation?: Observation }[];
 }
 
 export interface ThingReadResults {
-  results: { entityId: string; status: "found" | "deleted" | "not_found"; thing?: Thing }[];
+  results: { thingId: string; status: "found" | "deleted" | "not_found"; thing?: Thing }[];
 }
 
-export interface VersionPage {
-  versions: Version[];
+export interface ObservationPage {
+  observations: Observation[];
   next: string | null;
 }
 
@@ -113,25 +165,29 @@ export interface ThingPage {
   next: string | null;
 }
 
-export interface VersionList {
-  versions: Version[];
+export interface SchemaRevisionPage {
+  schemaRevisions: SchemaRevision[];
+  next: string | null;
 }
 
 export interface ReferenceLocation {
   path: string;
-  targetEntityId: string;
-  /** 引用事物时为 null。 */
-  targetVersionId: string | null;
+  targetId: string;
 }
 
 export interface Referrer {
-  version: Version;
+  observation: Observation;
   references: ReferenceLocation[];
 }
 
 export interface ReferrerPage {
   referrers: Referrer[];
   next: string | null;
+}
+
+export interface DeleteResult {
+  deleted: string[];
+  dependents: string[];
 }
 
 export interface ProblemDetails {
@@ -143,12 +199,7 @@ export interface ProblemDetails {
   code?: string;
 }
 
-export interface ListEntitiesQuery {
-  category?: Category;
-  resourceName?: string;
-  limit?: number;
-  after?: string;
-}
+export type View = "current" | "all";
 
 export interface ListThingsQuery {
   resourceName?: string;
@@ -159,17 +210,29 @@ export interface ListThingsQuery {
 export interface ListObservationsQuery {
   from?: string;
   to?: string;
+  thingId?: string;
+  role?: ReferenceRole;
   observerId?: string;
   resourceName?: string;
   formation?: Formation;
-  standing?: "all" | "current";
+  view?: View;
+  order?: "asc" | "desc";
+  limit?: number;
+  after?: string;
+}
+
+export interface SearchQuery {
+  q: string;
+  resourceName?: string;
+  thingId?: string;
+  view?: View;
   order?: "asc" | "desc";
   limit?: number;
   after?: string;
 }
 
 export interface ListReferrersQuery {
-  versions?: "current" | "all";
+  view?: View;
   resourceName?: string;
   path?: string;
   order?: "asc" | "desc";
@@ -191,8 +254,13 @@ export interface WriteRequest {
   writes: Write[];
 }
 
+export type WriteResult =
+  | { observation: Observation; changed: boolean; replaced: string[] }
+  | { skipped: true; changed: false; replaced: string[] }
+  | { error: ProblemDetails };
+
 export interface WriteResponse {
-  results: ({ version: Version; changed: boolean } | { error: ProblemDetails })[];
+  results: WriteResult[];
 }
 
 /** 请求叙事 Observer 写一段时间，通常是用户所在时区的一天。 */
@@ -214,17 +282,5 @@ export interface NarrativeEpisode {
 
 export type NarrativeEvent =
   | { type: "episode"; episode: NarrativeEpisode }
-  | { type: "saved"; versionIds: string[] }
+  | { type: "saved"; observationIds: string[] }
   | { type: "failed"; detail: string };
-
-export function isObservation(version: Item): version is ObservationVersion {
-  return version.category === "observation";
-}
-
-export function isInputSet(version: Item): version is Version<InputSet> {
-  return version.category === "input_set";
-}
-
-export function isEntitySchema(version: Item): version is Version<EntitySchema> {
-  return version.category === "entity_schema";
-}

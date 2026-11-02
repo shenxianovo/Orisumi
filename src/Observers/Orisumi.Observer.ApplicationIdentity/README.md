@@ -18,7 +18,7 @@ Orisumi.Observer.ApplicationIdentity 是应用识别 Observer：它读取后端�
 
 ## 状态
 
-程序实例的 EntityId 由 Runtime 保存。模型回答未知的线索只记在内存中，进程重启后重新交给模型，见 [Application Identity · 模型](../../Docs/Orisumi.Docs/content/docs/observers/application-identity/index.mdx#model)。
+程序实例的 `thingId` 由 Runtime 保存。模型回答未知的线索只记在内存中，进程重启后重新交给模型，见 [Application Identity · 模型](../../Docs/Orisumi.Docs/content/docs/observers/application-identity/index.mdx#model)。
 
 ## 验证
 

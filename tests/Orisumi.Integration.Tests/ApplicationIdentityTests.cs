@@ -23,17 +23,17 @@ public sealed class ApplicationIdentityTests
         await Assert.That(products.Count).IsEqualTo(1);
         await Assert.That(products[0].GetProperty("name").GetString()).IsEqualTo("QQ");
         await Assert.That(f.Model.Inputs.Single().Applications.Length).IsEqualTo(2);
-        var membership = (await f.Repository.CatalogAsync(default)).Memberships.Single().Version;
-        var observation = (Observation)membership.Content;
+        var membership = (await f.Repository.CatalogAsync(default)).Memberships.Single().Observation;
+        var observation = membership;
         await Assert.That(observation.Formation).IsEqualTo("inferred");
-        var inputs = VersionJson.ReadSaved(await f.Data.VersionAsync(observation.InputSetVersionId!.Value.Value));
-        await Assert.That(((InputSet)inputs.Content).Members.Contains(first.VersionId)).IsTrue();
-        await Assert.That(((InputSet)inputs.Content).Members.Contains(second.VersionId)).IsTrue();
+        var inputs = (await f.Data.GetAsync($"input-sets/{observation.InputSetId}")).Deserialize<InputSet>(DataClient.Json)!;
+        await Assert.That(inputs.Members.Contains(first.ObservationId)).IsTrue();
+        await Assert.That(inputs.Members.Contains(second.ObservationId)).IsTrue();
         await Assert.That(f.Network.Judgments.Single().GetProperty("writes").GetArrayLength()).IsEqualTo(2);
         await f.Run();
         await Assert.That(f.Model.Inputs.Count).IsEqualTo(1);
         await f.Application("android.qq", "/android", "QQ", "android.package-name");
-        f.Model.Decide = _ => new("existing", products[0].GetProperty("entityId").GetGuid());
+        f.Model.Decide = _ => new("existing", products[0].GetProperty("thingId").GetGuid());
         await f.Run();
         await Assert.That((await f.Repository.CatalogAsync(default)).Memberships.Length).IsEqualTo(2);
         await Assert.That((await f.Data.ListAsync("things?resourceName=application-products")).Count).IsEqualTo(1);
@@ -48,19 +48,19 @@ public sealed class ApplicationIdentityTests
         await f.Run();
         var judgment = (await f.Repository.CatalogAsync(default)).Memberships.Single();
         await using var person = new DataClient(f.Http, f.Http, Ref.Recognize(Guid.Parse("019e1bbb-ec00-7000-8000-000000000006"), new(null, "orisumi.user", "owner")));
-        await person.WriteAsync(new(CommonSchemas.Review, new { targetVersionId = judgment.Version.VersionId.Value, verdict = "deny", text = "不是 QQ" }, "stated"));
+        await person.WriteAsync(new(CommonSchemas.Review, new { targetId = judgment.Observation.ObservationId, scope = (object?)null, verdict = "deny", text = "不是 QQ" }, "stated"));
         f.Model.Decide = _ => new("existing", judgment.ProductId);
         await f.Run();
         await Assert.That(f.Model.Inputs[^1].Denied.Single().ProductId).IsEqualTo(judgment.ProductId);
         await Assert.That((await f.Repository.CatalogAsync(default)).Memberships.Length).IsEqualTo(0);
         f.Model.Decide = _ => new("new", Name: "QQ");
         await f.Run();
-        await Assert.That((await f.Data.ListAsync("observations?resourceName=application-memberships")).Count).IsEqualTo(1);
+        await Assert.That((await f.Data.ListAsync("observations?resourceName=application-memberships&view=all")).Count).IsEqualTo(1);
         f.Model.Decide = _ => new("new", Name: "QQ Music");
         await f.Run();
-        var next = (await f.Repository.CatalogAsync(default)).Memberships.Single().Version;
-        await Assert.That(next.EntityId == judgment.Version.EntityId).IsFalse();
-        await Assert.That(next.PreviousVersionId).IsNull();
+        var next = (await f.Repository.CatalogAsync(default)).Memberships.Single().Observation;
+        await Assert.That(next.ObservationId == judgment.Observation.ObservationId).IsFalse();
+        await Assert.That(next.Replaces.Length).IsEqualTo(0);
     }
 
     [Test, Property("caseId", "application-identity")]
@@ -86,10 +86,10 @@ public sealed class ApplicationIdentityTests
         f.Model.IsConfigured = false; await f.Run();
         await Assert.That(f.Diagnostics.Count).IsEqualTo(1);
         await Assert.That(f.Model.Inputs.Count).IsEqualTo(0);
-        var before = VersionJson.ReadSaved((await f.Data.ListAsync("observations?resourceName=application-identity-observers")).Single());
+        var before = ObservationJson.ReadSaved((await f.Data.ListAsync("observations?resourceName=observer-descriptions")).Single(item => item.GetProperty("observerId").GetGuid() == f.Data.Observer.Id));
         f.Restart("other-model"); await f.Run();
-        var after = VersionJson.ReadSaved((await f.Data.ListAsync("observations?resourceName=application-identity-observers")).Single());
-        await Assert.That(after.PreviousVersionId).IsEqualTo(before.VersionId);
+        var after = ObservationJson.ReadSaved((await f.Data.ListAsync("observations?resourceName=observer-descriptions")).Single(item => item.GetProperty("observerId").GetGuid() == f.Data.Observer.Id));
+        await Assert.That(after.Replaces.SingleOrDefault()).IsEqualTo(before.ObservationId);
         f.Model.IsConfigured = true;
         f.Model.Decide = _ => throw new TaskCanceledException("timeout"); await f.Run();
         f.Model.Decide = _ => new("existing", Guid.CreateVersion7()); await f.Run();
@@ -101,7 +101,7 @@ public sealed class ApplicationIdentityTests
     }
 
     [Test, Property("caseId", "application-identity")]
-    public async Task RejudgmentSavesANewObservationAndSupersedesThePreviousJudgment()
+    public async Task RejudgmentReplacesThePreviousJudgment()
     {
         await using var f = await Fixture.CreateAsync();
         await f.Application("com.qq", "/qq", "QQ");
@@ -113,14 +113,12 @@ public sealed class ApplicationIdentityTests
         await Assert.That(f.Model.Inputs.Count).IsEqualTo(1);
         await f.Rejudge(old);
         var current = (await f.Repository.CatalogAsync(default)).Memberships.Single();
-        await Assert.That(current.Version.EntityId == old.Version.EntityId).IsFalse();
-        await Assert.That(current.Version.PreviousVersionId).IsNull();
-        await Assert.That(((Observation)current.Version.Content).ObserverVersionId == ((Observation)old.Version.Content).ObserverVersionId).IsFalse();
-        var all = await f.Data.ListAsync("observations?resourceName=application-memberships");
+        await Assert.That(current.Observation.ObservationId == old.Observation.ObservationId).IsFalse();
+        await Assert.That(current.Observation.Replaces.Single()).IsEqualTo(old.Observation.ObservationId);
+        await Assert.That(current.Observation.ObserverDescriptionId == old.Observation.ObserverDescriptionId).IsFalse();
+        var all = await f.Data.ListAsync("observations?resourceName=application-memberships&view=all");
         await Assert.That(all.Count).IsEqualTo(2);
-        var review = (await f.Data.ListAsync("observations?resourceName=reviews")).Single();
-        await Assert.That(review.GetProperty("content").GetProperty("targetVersionId").GetGuid()).IsEqualTo(old.Version.VersionId.Value);
-        await Assert.That(review.GetProperty("content").GetProperty("verdict").GetString()).IsEqualTo("supersede");
+
     }
 
     private sealed class FakeModel : IApplicationModel
@@ -161,31 +159,31 @@ public sealed class ApplicationIdentityTests
         internal List<string> Diagnostics { get; } = [];
         private WriteClient writer = null!;
         private IdentityRecognizer recognizer = null!;
-        private readonly EntityId description = new(Guid.Parse("019e1bbb-ec00-7000-8000-000000000014"));
+        private readonly Guid description = Guid.Parse("019e1bbb-ec00-7000-8000-000000000014");
         private Fixture(TestDatabase database)
         { db = database; factory = new(db.ConnectionString); Network = new(factory.Server.CreateHandler()); Http = new(Network) { BaseAddress = new("http://localhost/") }; }
         internal static async Task<Fixture> CreateAsync()
         {
             var f = new Fixture(await DatabaseFixture.CreateAsync());
             f.writer = new(f.Http); await f.writer.InitializeAsync();
-            f.Data = new(f.Http, f.Http, Ref.Entity(f.writer.ObserverId.Value));
-            await f.writer.SendAsync([], ForegroundRegistration.Definitions.Select(d => (object)new { schemaId = d.SchemaId, content = d.Content }).ToArray());
+            f.Data = new(f.Http, f.Http, Ref.Saved(f.writer.ObserverId));
+            await f.writer.SendAsync([], ForegroundRegistration.Definitions.Select(d => (object)new { schemaId = d.SchemaId, content = d.Content }).ToArray(), thingTypes: ForegroundRegistration.ThingTypes.Cast<object>().ToArray());
             f.Restart(); return f;
         }
-        internal async Task<EntityVersion> Application(string value, string path, string name, string scheme = "macos.bundle-id")
+        internal async Task<Observation> Application(string value, string path, string name, string scheme = "macos.bundle-id")
         {
             var result = await writer.WriteAsync(description, new {
                 localApplicationId = Ref.Recognize(ForegroundRegistration.ApplicationSchemaId, new(null, "test.installation", path)),
-                deviceId = writer.ObserverId.Value,
+                deviceId = writer.ObserverId,
                 identifierIds = new[] { Ref.Recognize(Guid.Parse("019e1bbb-ec00-7000-8000-000000000015"), new(null, scheme, value)) }, executablePath = path });
             // Existing thing references are strings, including a program instance used as a test device.
             await Period(result, name); return result;
         }
-        internal Task<EntityVersion> Period(EntityVersion app, string name) => writer.WriteAsync(IdentityData.PeriodSchemaId,
+        internal Task<Observation> Period(Observation app, string name) => writer.WriteAsync(IdentityData.PeriodSchemaId,
             new { localApplicationId = IdentityData.Fields(app).GetProperty("localApplicationId").GetGuid(), name, icon = (object?)null });
         internal void Restart(string model = "test") => recognizer = new(Data, Repository, Model, model, "test", Diagnostics.Add);
         internal Task Rejudge(Membership previous) => recognizer.SaveJudgmentAsync(previous.IdentifierId,
-            new("existing", previous.ProductId), [previous.Version.VersionId.Value], [previous.Version], default);
+            new("existing", previous.ProductId), [previous.Observation.ObservationId], [previous.Observation], default);
         internal Task Run() => recognizer.RunOnceAsync(default);
         public async ValueTask DisposeAsync() { Http.Dispose(); await factory.DisposeAsync(); await db.DisposeAsync(); }
     }

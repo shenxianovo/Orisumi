@@ -102,19 +102,30 @@ public struct PackageVersion: Comparable, Sendable {
     }
 }
 
-/// An Observation version as the API returns it: its fact time and its business fields. Only the fields the client
-/// reads are decoded.
+/// A time the backend says is denied within an Observation.
+public struct DeniedRange: Decodable, Equatable, Sendable {
+    public var startAt: Date
+    public var endAt: Date
+
+    public init(startAt: Date, endAt: Date) {
+        self.startAt = startAt
+        self.endAt = endAt
+    }
+}
+
+/// An Observation as the API returns it: its fact time and its business fields. Only the fields the client reads are
+/// decoded. The default view includes `deniedRanges` when part of it is denied.
 public struct RuntimeObservation<Content: Decodable & Sendable>: Decodable, Sendable {
-    public var versionId: UUID
-    public var entityId: UUID
+    public var observationId: UUID
     public var startAt: Date?
     public var endAt: Date?
     public var content: Content
+    public var deniedRanges: [DeniedRange]?
 }
 
 /// One page of `GET /observations`.
 public struct ReadResult<Content: Decodable & Sendable>: Decodable, Sendable {
-    public var versions: [RuntimeObservation<Content>]
+    public var observations: [RuntimeObservation<Content>]
     public var next: String?
 }
 

@@ -1,0 +1,60 @@
+---
+title: "Adoption"
+description: "一种类型的模型判断采用哪一代"
+---
+
+模型变强后可以重读过去的数据，再形成一批判断。Adoption 是一份 Observation，说明一种类型的判断采用哪一代：一代是一份 [Observer 描述](./common-types.mdx#observer-descriptions)。重做完成后写一条 Adoption 就切换，旧判断保留，再写一条就能切回去。
+
+事实时间是适用的时段，所以可以只重做 10 月。
+
+<ModelRelations node="Adoption" />
+
+- **类型**：内建类型，后端理解它的语义，见 [Overview · 内建语义](../index.mdx#semantics)
+- **决策**：[ADR · 不可变的 Observation](../../adr/immutable-observations.mdx)
+
+## 类型 [#type]
+
+| 项目 | 值 |
+| --- | --- |
+| SchemaId | `019e1bbb-ec00-7000-8000-00000000001b` |
+| 显示名称 | 采用 |
+| 说明 | 表示一种业务类型的模型判断采用哪一份 Observer 描述。事实时间是适用的时段，未知时为全部时间。 |
+| 资源名 | `adoptions` |
+
+| 字段 | 类型 | 必填 | 可空 | description |
+| --- | --- | --- | --- | --- |
+| `schemaId` | `string`，值是 SchemaId | 是 | 否 | 这条 Adoption 适用的业务类型 |
+| `observerDescriptionId` | `reference`，目标为 Observation | 是 | 否 | 采用的那一代 |
+
+## 示例 [#example]
+
+10 月的线索归属改用新一代的判断，事实时间是 10 月：
+
+```json
+{
+  "schemaId": "019e1bbb-ec00-7000-8000-00000000000c",
+  "observerDescriptionId": "019e1bbb-ec00-7000-8000-0000000000a1"
+}
+```
+
+## 规则 [#rules]
+
+### ADOPTION-1 按采用的一代过滤 [#adoption-1]
+
+执行方：后端
+
+一份模型判断落在一条 Adoption 的时段内时，只有 `observerDescriptionId` 和它相同才可见。模型判断是形成方式为 `inferred` 或 `extracted` 的 Observation。`stated` 的 Observation 和[用户确认过的判断](./review.mdx#review-7)不受影响。
+
+判断的位置取它已知的开始边界，开始边界未知时取结束边界。两个边界都未知的判断只受时段未知的 Adoption 影响。
+
+### ADOPTION-2 时段重叠 [#adoption-2]
+
+执行方：后端
+
+同一类型的 Adoption 时段重叠时，取保存时间最晚的。
+
+### ADOPTION-3 没有 Adoption [#adoption-3]
+
+定义
+
+没有 Adoption 的类型，全部判断都可见。

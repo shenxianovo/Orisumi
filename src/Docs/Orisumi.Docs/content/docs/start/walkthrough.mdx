@@ -7,9 +7,9 @@ description: "用一天的数据串起 Core 的概念"
 
 ## 1. 准备 [#setup]
 
-前台状态 Observer 第一次启动时，托管方为它生成 EntityId，之后每次启动都沿用。前台状态 Observer 是一个事物，用户本人、这台 Mac 和 VS Code 这个本机应用也都是。
+前台状态 Observer 第一次启动时，托管方为它生成 `thingId`，之后每次启动都沿用。前台状态 Observer 是一个事物，用户本人、这台 Mac 和 VS Code 这个本机应用也都是。
 
-程序启动时写入一份描述：它是哪个版本、运行在什么平台上。之后的观测都引用这一版描述，所以能查到每份陈述出自哪个程序版本。
+程序启动时写入一份描述：它是哪个版本、运行在什么平台上。之后的观测都引用这份描述，所以能查到每份陈述出自哪个程序版本。
 
 ## 2. 采集 [#collect]
 
@@ -21,23 +21,23 @@ VS Code 这个事物第一次被提到时由后端创建，程序不用先写入
 
 ## 3. 推断 [#infer]
 
-晚上，推断 Observer 把当天的前台时段和键鼠事件交给模型，得到十份推断，其中一份是“14:00 到 16:00 在写代码”，形成方式是推断。它一次保存这十份推断，并列出这次实际读到的版本；后端用这些版本形成一个 InputSet，十份推断都引用它。
+晚上，推断 Observer 把当天的前台时段和键鼠事件交给模型，得到十份推断，其中一份是“14:00 到 16:00 在写代码”，形成方式是推断。它一次保存这十份推断，并列出这次实际读到的 Observation；后端用它们形成一个 InputSet，十份推断都引用它。
 
-InputSet 列的是读取时的那一版。之后前台时段再改，这些推断的依据仍是当时那一版。
+Observation 保存后不可变，所以这些推断的依据一直是当晚读到的内容。之后前台时段有了新的说法，新的一份替换旧的，旧的一份仍然保留。
 
 ## 4. 否定 [#deny]
 
 第二天，用户发现 15:00 到 16:00 其实在开视频会议，VS Code 只是留在了前台。用户保存一份 Review，引用那份推断，写明“在开会”，事实时间是 15:00 到 16:00，形成方式是亲口陈述。这份 Observation 的 Observer 是用户本人。
 
-模型的推断保持原样。读取方看到这份 Review，就知道这条推断的后半段被否定了；下一轮模型读到它，以后不再犯同样的错。
+模型的推断保持原样。Web 控制台、Mac 客户端和下一轮的模型读到的都是后端算好的默认视图：这条推断保留，结果带着被否定的时段 15:00 到 16:00，读取方把后半段裁掉。下一轮模型读到这份 Review，以后不再犯同样的错。
 
 ## 5. 追溯 [#trace]
 
-从“在写代码”出发，沿 InputSet 能读到模型当晚用过的前台时段和键鼠事件，读到的正是当晚那一版。要找和 VS Code 有关的全部数据，就列出引用 VS Code 这个事物的 Observation。
+从“在写代码”出发，沿 InputSet 能读到模型当晚用过的前台时段和键鼠事件。要看 VS Code 的全貌，就打开这个事物：读到它现在的样子、它的关系，以及发生过的事的计数。
 
 ## 6. 删除 [#delete]
 
-用户删掉 16:00 之后的浏览器时段。这份 Observation 连同全部版本一起移除。当晚读过这一段的推断仍然保留，追溯到这里时显示目标不可读取。之后如果还有程序向这份 Observation 写入，后端会拒绝，删除依然有效。
+用户删掉 16:00 之后的浏览器时段。这份 Observation 连同被它替换的说法一起移除，它的识别依据留下一个不含内容的墓碑。当晚读过这一段的推断仍然保留，后端在删除时列出它们，追溯到这里时显示目标不可读取。之后程序重读来源，读到同一段时，写入命中墓碑被跳过，删除依然有效。
 
 ## 涉及的规则 [#rules]
 
@@ -45,7 +45,7 @@ InputSet 列的是读取时的那一版。之后前台时段再改，这些推�
 | --- | --- |
 | 准备 | [OBSERVER-4](../core/model/observer.mdx#observer-4)、[OBSERVER-9](../core/model/observer.mdx#observer-9) |
 | 采集 | [EVIDENCE-1](../core/rules/evidence.mdx#evidence-1)、[TIME-3](../core/rules/time.mdx#time-3)、[THING-2](../core/model/thing.mdx#thing-2) |
-| 推断 | [INPUTSET-5](../core/model/input-set.mdx#inputset-5)、[EVIDENCE-3](../core/rules/evidence.mdx#evidence-3)、[ENTITY-4](../core/model/entity.mdx#entity-4) |
-| 否定 | [OBSERVER-7](../core/model/observer.mdx#observer-7)、[UNDERSTANDING-5](../core/rules/understanding.mdx#understanding-5)、[UNDERSTANDING-7](../core/rules/understanding.mdx#understanding-7) |
-| 追溯 | [EVIDENCE-7](../core/rules/evidence.mdx#evidence-7)、[ENTITY-7](../core/model/entity.mdx#entity-7) |
-| 删除 | [HISTORY-6](../core/rules/history.mdx#history-6)、[HISTORY-8](../core/rules/history.mdx#history-8)、[HISTORY-7](../core/rules/history.mdx#history-7) |
+| 推断 | [INPUTSET-5](../core/model/input-set.mdx#inputset-5)、[EVIDENCE-3](../core/rules/evidence.mdx#evidence-3)、[OBSERVATION-15](../core/model/observation.mdx#observation-15) |
+| 否定 | [OBSERVER-7](../core/model/observer.mdx#observer-7)、[REVIEW-3](../core/model/review.mdx#review-3)、[UNDERSTANDING-4](../core/rules/understanding.mdx#understanding-4)、[UNDERSTANDING-7](../core/rules/understanding.mdx#understanding-7) |
+| 追溯 | [EVIDENCE-7](../core/rules/evidence.mdx#evidence-7)、[SCHEMA-19](../core/model/schema.mdx#schema-19) |
+| 删除 | [HISTORY-6](../core/rules/history.mdx#history-6)、[HISTORY-8](../core/rules/history.mdx#history-8)、[HISTORY-11](../core/rules/history.mdx#history-11) |

@@ -1,50 +1,9 @@
 [
   {
-    "schemaId": "019e1bbb-ec00-7000-8000-000000000007",
-    "content": {
-      "displayName": "助手会话 Observer",
-      "description": "表示一个助手会话 Observer 程序实例，保存它运行的平台、主机名和程序版本；它读取所在设备上 Claude Code 和 Codex 的会话日志，作为 Observer 对其中每次交互的观测负责。",
-      "resourceName": "assistant-sessions-observers",
-      "fields": {
-        "platform": {
-          "type": "string",
-          "description": "运行的平台：macos、windows 或 linux",
-          "nullable": false,
-          "required": true
-        },
-        "hostName": {
-          "type": "string",
-          "description": "本机的名称，读不到时为 null",
-          "nullable": true,
-          "required": true
-        },
-        "programVersion": {
-          "type": "string",
-          "description": "程序的版本，即安装包的版本",
-          "nullable": false,
-          "required": true
-        }
-      },
-      "kind": "observation",
-      "immutable": false
-    }
-  },
-  {
-    "schemaId": "019e1bbb-ec00-7000-8000-000000000008",
-    "content": {
-      "displayName": "助手会话",
-      "description": "表示 Claude Code 或 Codex 中的一个会话，包括子 Agent 的会话。产品和来源标识在识别依据中。",
-      "resourceName": "assistant-sessions",
-      "fields": {},
-      "kind": "thing",
-      "immutable": false
-    }
-  },
-  {
     "schemaId": "019e1bbb-ec00-7000-8000-000000000009",
     "content": {
       "displayName": "助手交互",
-      "description": "表示 Claude Code 或 Codex 会话中的一次交互：一条消息、一次工具调用、一次工具结果、一段推理或一份交给模型的上下文。来源中的每次交互对应一个实体。内容按来源顺序列为片段，原始记录以二进制内容保存。事实时间取自来源记下的时刻：输入、调用、结果和上下文是时间点，助手的回复和推理在来源给出开始时间时是时段，否则只有结束边界。",
+      "description": "表示 Claude Code 或 Codex 会话中的一次交互：一条消息、一次工具调用、一次工具结果、一段推理或一份交给模型的上下文。来源中的每次交互对应一份 Observation。内容按来源顺序列为片段，原始记录以二进制内容保存。事实时间取自来源记下的时刻：输入、调用、结果和上下文是时间点，助手的回复和推理在来源给出开始时间时是时段，否则只有结束边界。",
       "resourceName": "assistant-interactions",
       "fields": {
         "kind": {
@@ -113,13 +72,6 @@
           "nullable": true,
           "required": true
         },
-        "toolCallVersionId": {
-          "type": "reference",
-          "description": "工具结果对应的调用交互；其他交互，或调用不在已读到的记录中时为 null",
-          "nullable": true,
-          "required": true,
-          "target": "version"
-        },
         "toolName": {
           "type": "string",
           "description": "工具名称：Claude Code 的 name，Codex McpToolCall 的 tool；来源只用记录种类表示工具时为 null，种类见 sourceKind",
@@ -182,7 +134,8 @@
                 "type": "string",
                 "description": "片段的文字。对话文字、推理文字、推理摘要写原文，工具调用的参数写 JSON 文本；工具输出、上下文、图片和不可读的内容只在原始记录中，为 null",
                 "nullable": true,
-                "required": true
+                "required": true,
+                "searchable": true
               },
               "entryIndex": {
                 "type": "integer",
@@ -227,25 +180,32 @@
           "description": "交互所在的助手会话",
           "nullable": false,
           "required": true,
-          "target": "thing"
+          "target": "thing",
+          "role": "part"
         },
         "deviceId": {
           "type": "reference",
           "description": "交互发生的设备；不知道时为 null",
           "nullable": true,
           "required": true,
-          "target": "thing"
+          "target": "thing",
+          "role": "mention"
+        },
+        "toolCallId": {
+          "type": "reference",
+          "description": "工具结果对应的调用交互；其他交互，或调用不在已读到的记录中时为 null",
+          "nullable": true,
+          "required": true,
+          "target": "observation"
         }
-      },
-      "kind": "observation",
-      "immutable": true
+      }
     }
   },
   {
     "schemaId": "019e1bbb-ec00-7000-8000-00000000000b",
     "content": {
       "displayName": "子 Agent 关系",
-      "description": "表示一个子 Agent 的会话和发起它的会话之间的关系。一个子 Agent 的会话一个实体。",
+      "description": "表示一个子 Agent 的会话和发起它的会话之间的关系。一个子 Agent 的会话一份 Observation。",
       "resourceName": "assistant-subagents",
       "fields": {
         "agentName": {
@@ -265,18 +225,18 @@
           "description": "子 Agent 的会话",
           "nullable": false,
           "required": true,
-          "target": "thing"
+          "target": "thing",
+          "role": "about"
         },
         "parentSessionId": {
           "type": "reference",
           "description": "发起这个子 Agent 的会话",
           "nullable": false,
           "required": true,
-          "target": "thing"
+          "target": "thing",
+          "role": "about"
         }
-      },
-      "kind": "observation",
-      "immutable": true
+      }
     }
   }
 ]

@@ -1,6 +1,6 @@
 # Orisumi.Integration.Tests
 
-Orisumi.Integration.Tests 用 TUnit 运行集成测试，覆盖实体 API 与 PostgreSQL 存储、API 遥测、.NET SDK、Runtime，以及前台状态 Observer 的本地行为。测试分工见 [Testing](../../src/Docs/Orisumi.Docs/content/docs/testing/index.mdx)。
+Orisumi.Integration.Tests 用 TUnit 运行集成测试，覆盖数据 API 与 PostgreSQL 存储、API 遥测、.NET SDK、Runtime，以及前台状态 Observer 的本地行为。测试分工见 [Testing](../../src/Docs/Orisumi.Docs/content/docs/testing/index.mdx)。
 
 ## 运行
 

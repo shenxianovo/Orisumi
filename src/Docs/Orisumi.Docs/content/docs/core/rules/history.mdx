@@ -1,36 +1,23 @@
 ---
 title: "History"
-description: "更新形成新版本，版本全部保留，删除以实体为单位"
+description: "变化都是再说一句，只有删除会移除内容"
 ---
 
-数据只有两种变化方式：更新和删除。更新形成新版本，旧版本保留；只有删除会移除内容。别人的判断错了时用否定，见 [UNDERSTANDING-5](./understanding.mdx#understanding-5)。
+数据只有两种变化方式：再说一句和删除。再说一句是写入一份新的 Observation，旧的保留，见 [OBSERVATION-18](../model/observation.mdx#observation-18)；只有删除会移除内容。别人的判断错了时用否定，见 [Review](../model/review.mdx)。
 
-| 操作 | 用途 | 已有的版本 |
+| 操作 | 用途 | 已有的 Observation |
 | --- | --- | --- |
-| 更新 | 补全或纠正同一份 Observation | 全部保留 |
-| 删除 | 移除用户选中的实体 | 全部移除，不可恢复 |
-
-## 更新 [#updates]
-
-### HISTORY-1 更新即新版本 [#history-1]
-
-执行方：后端
-
-更新一个实体，就是形成它的新版本。新版本可以补全，也可以纠正，例如延长 `endAt`、填写未知的值、修正错误的边界或时区；也可以记下来源对象的变化，这时新版本有自己的事实时间。后端只检查每个版本自身是否合法。
+| 再说一句 | 补全、纠正或记下来源的变化 | 全部保留 |
+| 否定 | 说明一条陈述错了 | 全部保留 |
+| 删除 | 移除用户选中的数据 | 移除选中的和它替换的，不可恢复 |
 
 ## 保留 [#retention]
-
-### HISTORY-3 保留全部版本 [#history-3]
-
-执行方：后端
-
-未删除的实体保留全部版本。读取方可以读任何一个版本，也可以沿 `previousVersionId` 看到实体的全部变化。
 
 ### HISTORY-4 原始材料 [#history-4]
 
 执行方：写入方
 
-保存哪些原始材料由业务规则决定。原始材料是来源提供、尚未按业务规则解释的数据。它所需的字段在 EntitySchema 中声明，可以放在 Observation 的业务字段里，也可以保存为另一份 Observation，由这份 Observation 引用。模型以后还要重读证据，所以写入方尽量保留原始材料。
+保存哪些原始材料由业务规则决定。原始材料是来源提供、尚未按业务规则解释的数据。它所需的字段在 Schema 中声明，可以放在 Observation 的业务字段里，也可以保存为另一份 Observation，由这份 Observation 引用。模型以后还要重读证据，所以写入方尽量保留原始材料。
 
 ## 删除 [#deletion]
 
@@ -38,32 +25,54 @@ description: "更新形成新版本，版本全部保留，删除以实体为单
 
 执行方：后端
 
-用户可以删除任何实体。
+用户可以删除任何事物和 Observation。
 
-### HISTORY-6 按实体删除 [#history-6]
+### HISTORY-6 删除 Observation [#history-6]
 
 执行方：后端
 
-删除以实体为单位，移除选中实体的全部版本和识别依据，以及只有这些版本使用的二进制内容，见 [BINARY-4](../model/binary.mdx#binary-4)。引用了它的其他实体保持原样。需要成组删除时，逐个列出要删的实体。
+删除一份 Observation 时，后端沿 `replaces` 把被它替换的说法一起删除，所以旧说法不会复活。删除移除这些 Observation、它们的识别依据，以及只有它们使用的二进制内容，见 [BINARY-4](../model/binary.mdx#binary-4)。替换它的 Observation 和引用了它的其他 Observation 保持原样。
 
-删除受管理的程序实例时，后端同时结束它的管理登记，见 [Hosting · 删除实例](../../hosting/management.mdx#removal)。
+删除后，后端返回依据被删除内容的 Observation 列表，也就是 InputSet 中有被删除成员的 Observation。
 
 ### HISTORY-7 不可复活 [#history-7]
 
 执行方：后端
 
-被删除的实体不能复活：Observation 不再接受新版本，事物不能再被引用。
+被删除的 Observation 和事物不能复活：事物不再被创建，Observation 的 id 不再读到内容。
 
-受托管的程序实例的 EntityId 由托管方在它第一次写入之前分配，见 [OBSERVER-4](../model/observer.mdx#observer-4)。用户删除这样的实例时，它可能还没有写入过；这个 EntityId 同样不能再使用。
+受托管的程序实例的 `thingId` 由托管方在它第一次写入之前分配，见 [OBSERVER-4](../model/observer.mdx#observer-4)。用户删除这样的实例时，它可能还没有写入过；这个 `thingId` 同样不能再使用。
 
 ### HISTORY-8 引用保留，内容不可读 [#history-8]
 
 执行方：后端、读取方
 
-引用了被删除实体的版本保留这些引用。被删除的内容不留副本，所以读取或追溯到这里时，读取方把目标列为不可读取，并说明结果不完整。
+引用了被删除的事物或 Observation 的 Observation 保留这些引用。被删除的内容不留副本，所以读取或追溯到这里时，读取方把目标列为不可读取，并说明结果不完整。
 
-### HISTORY-9 有数据的 EntitySchema 不能删 [#history-9]
+### HISTORY-9 有数据的 Schema 不能删 [#history-9]
 
 执行方：后端
 
-还有事物或 Observation 使用某个 EntitySchema 时，不得删除这个 EntitySchema。要删除一种类型的全部数据，先删除数据，再删除 EntitySchema。
+还有事物或 Observation 使用某个 Schema 或事物类型时，不得删除它。要删除一种类型的全部数据，先删除数据，再删除类型。
+
+### HISTORY-10 删除事物 [#history-10]
+
+执行方：后端
+
+删除一个事物时，后端移除业务字段以 `about` 或 `part` 引用它的 Observation，连同它们的替换链，见 [HISTORY-6](#history-6)。`mention` 的引用保留，读到时目标不可读取，见 [HISTORY-8](#history-8)。例如删除一个会话，它的名字和全部交互一起移除；提到这个会话的一件事保留。
+
+删除受管理的程序实例时，后端同时结束它的管理登记，见 [Hosting · 删除实例](../../hosting/management.mdx#removal)。
+
+### HISTORY-11 已删除的内容不回来 [#history-11]
+
+执行方：后端
+
+重读来源时，已删除的内容不能回来：被删除的事物和 Observation 的识别依据保留墓碑，墓碑不含内容。一次写入的 `key` 命中墓碑，或者它以 `about`、`part` 提到的事物命中墓碑时，后端跳过这次写入。例如删除一个会话后，重读日志不会让它的交互回来。
+
+以 `mention` 提到的事物命中墓碑时，这次写入照常保存，引用指向被删除的事物，读到时目标不可读取，见 [HISTORY-8](#history-8)。例如删除一台设备后，这台设备上之后的数据继续保存。
+
+### HISTORY-12 派生文字的残留 [#history-12]
+
+定义
+
+删除只移除选中的数据和上面规则列出的部分。模型读过这些内容后写下的文字可能带着它，这是已知局限：删除后用[搜索](../../api/reading.mdx#search)找出可能残留的位置，再删除或重做这些陈述。

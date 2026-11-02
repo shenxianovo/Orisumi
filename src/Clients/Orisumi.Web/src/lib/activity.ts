@@ -1,4 +1,4 @@
-import type { ObservationVersion } from "@/api/types";
+import type { Observation } from "@/api/types";
 import { nameObservers, type ObserverIdentity } from "./observers";
 import { MINUTE, parseTime } from "./time";
 
@@ -36,9 +36,9 @@ export interface ActivityInput {
   /** Observation 的 observerId 对应的 Observer；读不到的 Observer 返回不可读取。 */
   identityOf: (observerId: string) => ObserverIdentity;
   /** 事实时间在今天的 Observation。 */
-  timed: ObservationVersion[];
+  timed: Observation[];
   /** 今天没有写有事实时间的 Observation 的 Observer，今天保存的 Observation。 */
-  recorded: ObservationVersion[];
+  recorded: Observation[];
   now: number;
 }
 
@@ -80,7 +80,7 @@ export function observerRows(input: ActivityInput): ObserverRow[] {
     }
     return entry;
   };
-  const saved = (entry: Omit<ObserverRow, "name">, observation: ObservationVersion) => {
+  const saved = (entry: Omit<ObserverRow, "name">, observation: Observation) => {
     entry.count += 1;
     entry.lastAt = Math.max(entry.lastAt, Math.min(parseTime(observation.recordedAt) ?? now, now));
   };

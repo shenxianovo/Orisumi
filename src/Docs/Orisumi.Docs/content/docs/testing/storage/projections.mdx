@@ -17,10 +17,10 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 
 | 操作 | 预期结果 |
 | --- | --- |
-| 删除 Observation | 它的版本标为已删除，指向它的 Review 和引用仍能追溯 |
-| 删除引用目标 | 引用方保留原 path 和目标版本 |
-| 清空投影后重建 | 事物、Review、历史、当前版本、引用和 Observation 的 current/all 查询与之前相同 |
-| 重建投影 | 删除后的依据不恢复，写入流中的描述版本不丢失 |
+| 删除 Observation | 它的身份标为已删除，指向它的 Review 和引用仍能追溯 |
+| 删除引用目标 | 引用方保留原 path 和目标 id |
+| 清空投影后重建 | 事物、Review、Same-As、Adoption、替换、引用和 Observation 的 view=current 和 view=all 查询与之前相同 |
+| 重建投影 | 墓碑不恢复内容，写入流中的描述不丢失 |
 
 ## 测试实现 [#implementation]
 

@@ -40,11 +40,11 @@ public sealed class ApplicationModelTests
         var exact = new ProductCandidate(Guid.CreateVersion7(), "QQ", []);
         using var handler = new ResponseHandler(Choice("unknown"));
         using var http = new HttpClient(handler);
-        await new OpenAiApplicationModel(http, "key", "model").IdentifyAsync(Input([.. products, exact]) with { Denied = [new(products[0].EntityId, products[0].Name, "wrong")] }, TestContext.Current!.Execution.CancellationToken);
+        await new OpenAiApplicationModel(http, "key", "model").IdentifyAsync(Input([.. products, exact]) with { Denied = [new(products[0].ThingId, products[0].Name, "wrong")] }, TestContext.Current!.Execution.CancellationToken);
         var choices = handler.Requests[0].Body.GetProperty("questions")[0].GetProperty("choices").EnumerateArray().Select(v => v.GetProperty("value").GetString()).ToArray();
         await Assert.That(choices.Length).IsEqualTo(255);
-        await Assert.That(choices.Contains(exact.EntityId.ToString())).IsTrue();
-        await Assert.That(choices.Contains(products[0].EntityId.ToString())).IsFalse();
+        await Assert.That(choices.Contains(exact.ThingId.ToString())).IsTrue();
+        await Assert.That(choices.Contains(products[0].ThingId.ToString())).IsFalse();
     }
 
     [Test, Property("caseId", "application-identity")]

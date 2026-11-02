@@ -2,7 +2,7 @@ using Orisumi.Api.Narrative;
 using Orisumi.Application.Management;
 using System.Text.Json;
 using Orisumi.Api;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Orisumi.Core;
 using Orisumi.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics;
@@ -29,6 +29,7 @@ builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadReq
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.RespectNullableAnnotations = true;
+    options.SerializerOptions.Converters.Add(new ObservationTimestampConverter());
     options.SerializerOptions.PropertyNameCaseInsensitive = false;
 });
 
@@ -42,12 +43,12 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
         BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge } =>
             ApiProblem.Create(413, "The request body must not exceed 10 MiB."),
         ManagementException management => ApiProblem.Management(management),
-        EntityDeletedException => ApiProblem.Create(410, exception.Message),
+        DataDeletedException => ApiProblem.Create(410, exception.Message),
         ResourceNotFoundException => ApiProblem.Create(404, exception.Message),
         ModelViolationException violation => ApiProblem.Create(ApiProblem.RuleStatus(violation.Rule, violation.Conflict), violation.Message, violation.Rule),
         BadHttpRequestException or JsonException =>
             ApiProblem.Create(400, "The request body is missing, malformed or does not match the contract."),
-        _ => ApiProblem.Create(500, "The server could not complete the entity operation."),
+        _ => ApiProblem.Create(500, "The server could not complete the data operation."),
     };
     await problem.ExecuteAsync(context);
 }));
@@ -62,7 +63,7 @@ app.UseStatusCodePages(async context =>
 
 app.UseHostCredentials();
 app.MapManagement();
-app.MapEntities();
+app.MapData();
 app.MapContents();
 app.MapNarratives();
 app.Run();

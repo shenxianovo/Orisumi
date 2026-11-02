@@ -1,26 +1,25 @@
 ---
 title: "InputSet"
-description: "一次处理实际用到的版本集合，可以被多份观测共用"
+description: "一次处理实际用到的 Observation，是一个可以共用的值"
 ---
 
-InputSet 列出一次处理实际用到的已保存版本，中文叫输入集。例如推断 Observer 把一天的前台时段和键鼠事件放进一次模型调用，得到十份推断；这十份推断引用同一个 InputSet，从它能查到模型当时读到了哪些版本。
+InputSet 列出一次处理实际用到的已保存的 Observation，中文叫输入集。例如推断 Observer 把一天的前台时段和键鼠事件放进一次模型调用，得到十份推断；这十份推断引用同一个 InputSet，从它能查到模型当时读到了哪些 Observation。
 
-列在 InputSet 里的版本是这次处理的输入，Observation 和 Schema 版本都可以是输入。事物没有内容，不是输入。哪些版本应当列入，见 [Evidence](../rules/evidence.mdx)。
+InputSet 是一个值：保存后不变，由引用它的 Observation 使用。事物没有内容，不是输入。哪些 Observation 应当列入，见 [Evidence](../rules/evidence.mdx)。
 
 <ModelRelations node="InputSet" />
 
-- **类别**：`category` 为 `input_set`，结构由 Core 定义
+- **身份**：`inputSetId`，后端生成的 UUIDv7
 - **引用**：`members` 中的每个元素
-- **被引用**：Observation 的 `inputSetVersionId`
+- **被引用**：Observation 的 `inputSetId`
 - **决策**：[ADR · Observer 与输入集](../../adr/observers-and-evidence.mdx)
 
 ## 成员 [#members]
 
-以下成员位于版本的 `content` 中，版本共有的成员见 [Version](./version.mdx#members)。
-
 | 成员 | 类型 | 含义 |
 | --- | --- | --- |
-| `members` | 非空、不重复的引用数组 | 实际提供给这次处理的版本，无序 |
+| `inputSetId` | UUIDv7 | InputSet 的身份 |
+| `members` | 非空、不重复的引用数组 | 实际提供给这次处理的 Observation，无序 |
 
 ## 示例 [#example]
 
@@ -28,6 +27,7 @@ InputSet 列出一次处理实际用到的已保存版本，中文叫输入集�
 
 ```json
 {
+	"inputSetId": "019e1bbb-ec00-7000-8000-000000000401",
 	"members": [
 		"019e1bbb-ec00-7000-8000-000000000101",
 		"019e1bbb-ec00-7000-8000-000000000201",
@@ -38,23 +38,23 @@ InputSet 列出一次处理实际用到的已保存版本，中文叫输入集�
 
 ## 规则 [#rules]
 
-### INPUTSET-1 成员是版本 [#inputset-1]
+### INPUTSET-1 成员是 Observation [#inputset-1]
 
 执行方：后端
 
-每个成员是一个确定的版本，通常是 Observation。
+每个成员是一个 `observationId`。
 
 ### INPUTSET-2 非空 [#inputset-2]
 
 执行方：后端
 
-`members` 必须非空。处理没有用到已保存的数据时，不需要 InputSet，Observation 的 `inputSetVersionId` 为 `null`。
+`members` 必须非空。处理没有用到已保存的数据时，不需要 InputSet，Observation 的 `inputSetId` 为 `null`。
 
 ### INPUTSET-3 不重复 [#inputset-3]
 
 执行方：后端
 
-`members` 不得重复列出同一个版本。
+`members` 不得重复列出同一份 Observation。
 
 ### INPUTSET-4 无序 [#inputset-4]
 
@@ -66,4 +66,4 @@ InputSet 列出一次处理实际用到的已保存版本，中文叫输入集�
 
 执行方：写入方
 
-实际输入相同的多份观测，可以共用同一个 InputSet 版本。
+实际输入相同的多份观测，可以共用同一个 InputSet。一次写入请求中成员相同的输入共用一个，见 [API · 输入](../../api/writing.mdx#inputs)。

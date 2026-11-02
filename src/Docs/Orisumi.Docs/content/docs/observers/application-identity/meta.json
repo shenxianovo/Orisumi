@@ -4,7 +4,6 @@
   "collapsible": true,
   "pagesIndex": "index",
   "pages": [
-    "application-identity-observer",
     "application-product",
     "application-membership"
   ]

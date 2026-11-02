@@ -4,7 +4,7 @@ import { differences, distinctSegment, roleOf } from "./roles";
 import { inputSet, observation, schema, thing } from "@/test/fixtures";
 
 describe("roleOf", () => {
-  it("按类别和事实时间", () => {
+  it("按种类和事实时间", () => {
     expect(roleOf(observation())).toBe("experience");
     expect(roleOf(observation({ startAt: null, endAt: null }))).toBe("statement");
     expect(roleOf(inputSet([]))).toBe("evidence");

@@ -1,4 +1,4 @@
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Orisumi.Core;
 
 namespace Orisumi.Api;
@@ -14,7 +14,7 @@ internal static class ContentEndpoints
         {
             if (!BinaryValue.ValidDigest(digest)) return ApiProblem.Create(400, "Invalid content digest.");
             var data = await service.ReadAsync(digest, token);
-            if (data is null) return ApiProblem.Create(404, "No saved version uses this content.");
+            if (data is null) return ApiProblem.Create(404, "No saved Observation uses this content.");
             response.Headers.CacheControl = "private, max-age=31536000, immutable";
             return Results.Bytes(data, "application/octet-stream");
         }).WithName("getContent");

@@ -39,8 +39,8 @@ public sealed class RuntimeForwardingTests
         await Assert.That(restored.Pending).IsEqualTo(2);
         registered = true; network.Offline = false; network.DropNextResponse = true;
         await Until(() => restored.Pending == 0);
-        using var read = await backend.GetAsync("/entities?resourceName=items");
-        var versions = (await WriteClient.JsonAsync(read)).GetProperty("versions");
+        using var read = await backend.GetAsync("/observations?resourceName=items");
+        var versions = (await WriteClient.JsonAsync(read)).GetProperty("observations");
         await Assert.That(versions.GetArrayLength()).IsEqualTo(2);
         await Assert.That(versions.EnumerateArray().Select(v => v.GetProperty("content").GetProperty("name").GetString()).SequenceEqual(["0", "1"])).IsTrue();
         await Assert.That(restored.Rejected).IsEqualTo(0);
@@ -66,8 +66,8 @@ public sealed class RuntimeForwardingTests
         await Assert.That(await queue.ResendRejectedAsync(CancellationToken.None)).IsEqualTo(1);
         await Until(() => queue.Pending == 0);
         await Assert.That(queue.Rejected).IsEqualTo(0);
-        using var read = await backend.GetAsync("/entities?resourceName=items");
-        await Assert.That((await WriteClient.JsonAsync(read)).GetProperty("versions").GetArrayLength()).IsEqualTo(2);
+        using var read = await backend.GetAsync("/observations?resourceName=items");
+        await Assert.That((await WriteClient.JsonAsync(read)).GetProperty("observations").GetArrayLength()).IsEqualTo(2);
     }
 
     [Test, Property("caseId", "local-forwarding")]

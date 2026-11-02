@@ -80,11 +80,11 @@ Observer 停用或出了问题时，侧栏中它的视图旁有标记；其他�
 
 ## 最近的数据 [#recent]
 
-没有专用视图的 Observer，视图中列出最近 7 天的 Observation，最多 50 份：事实时间和 `content` 的 JSON。客户端用 [`GET /observations`](/api/listObservations) 按这个实例、这个时间范围倒序读取，见 [Reading · 查询观测](../api/reading.mdx#observations)。
+没有专用视图的 Observer，视图中列出最近 7 天的 Observation，最多 50 份：事实时间和 `content` 的 JSON。客户端用 [`GET /observations`](/api/listObservations) 带 `observerId` 和这个时间范围倒序读取默认视图，见 [Reading · 查询观测](../api/reading.mdx#observations)。
 
 ## 今天的前台应用 [#today]
 
-前台状态 Observer 的专用视图。客户端用 [`GET /observations`](/api/listObservations) 按这个实例、今天和前台应用时段的类型读完全部分页。每段时段带着读到的名字、图标和它提到的本机应用，同一个本机应用的时段合并为一个应用。应用的图标是时段中的 `icon`，用 [`GET /contents/{digest}`](/api/getContent) 读取；应用列表用这个应用今天最晚一段带图标的时段。时段没有图标时用通用的应用图标。
+前台状态 Observer 的专用视图。客户端用 [`GET /observations`](/api/listObservations) 带 `observerId`、今天的范围和 `resourceName=foreground-application-periods` 读完默认视图的全部分页，部分否定的时段按 `deniedRanges` 裁剪。每段时段带着读到的名字、图标和它提到的本机应用，同一个本机应用的时段合并为一个应用。应用的图标是时段中的 `icon`，用 [`GET /contents/{digest}`](/api/getContent) 读取；应用列表用这个应用今天最晚一段带图标的时段。时段没有图标时用通用的应用图标。
 
 视图顶部是今天的前台总时长。下面左边是 24 个小时的柱状图，每小时的前台时长按应用堆叠；右边是应用列表，列出每个应用的时长和占今天总时长的比例。选中一个应用后，图表突出它，下方只列出它的时段；不选时列出全部时段，按时间倒序。
 

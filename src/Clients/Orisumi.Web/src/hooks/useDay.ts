@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { readAllPages } from "@/api/client";
 import { useSource } from "@/api/source";
-import type { ObservationVersion } from "@/api/types";
+import type { Observation } from "@/api/types";
 import { type DayThing, type Experience, type PointGroup } from "@/lib/day";
 import { EPISODES } from "@/lib/episodes";
 import { outgoingReferences } from "@/lib/references";
@@ -27,7 +27,7 @@ export function useDayObservations(range: ReturnType<typeof dayRange>, today: bo
     queryFn: () =>
       readAllPages((after) =>
         source.listObservations({ from: range.from, to: range.to, limit: 1000, ...(after ? { after } : {}) }),
-      ) as Promise<ObservationVersion[]>,
+      ) as Promise<Observation[]>,
     refetchInterval: today ? DAY_INTERVAL : false,
   });
 }
@@ -55,10 +55,10 @@ export function useDay(key: string) {
     staleTime: Infinity,
   });
 
-  async function resolve(list: ObservationVersion[], index: TypeIndex): Promise<DayData> {
+  async function resolve(list: Observation[], index: TypeIndex): Promise<DayData> {
     const now = Date.now();
     const timed = list.filter(isPeriod);
-    const typed = await pool(timed, 12, (observation) => schemaOf(client, source, index, observation));
+    const typed = await pool(timed, 12, (observation) => schemaOf(client, source, observation));
     // 几件事是对这一天的理解，不是一段经历。
     const kept = timed.flatMap((observation, i) =>
       typed[i]?.content.resourceName === EPISODES ? [] : [{ observation, schema: typed[i] }],
@@ -81,12 +81,12 @@ export function useDay(key: string) {
       const targets = new Map<string, DayThing>();
       for (const reference of references[i]!) {
         const thing = things.get(reference.id);
-        if (!thing || roleOf(thing) !== "thing" || targets.has(thing.entityId)) continue;
+        if (!thing || roleOf(thing) !== "thing" || targets.has(thing.thingId)) continue;
         const typeName = index.bySchemaId.get(thing.schemaId)?.content.displayName ?? "事物";
-        targets.set(thing.entityId, { thing, title: thingTitle(thing, typeName), typeName });
+        targets.set(thing.thingId, { thing, title: thingTitle(thing, typeName), typeName });
       }
       return {
-        observationId: observation.entityId,
+        observationId: observation.observationId,
         observation,
         observerId: observation.observerId,
         writtenAt: Math.min(parseTime(observation.recordedAt) ?? now, now),
@@ -96,6 +96,10 @@ export function useDay(key: string) {
         things: [...targets.values()],
         start: parseTime(observation.startAt)!,
         end: parseTime(observation.endAt) ?? now,
+        denied: (observation.deniedRanges ?? []).map((range) => ({
+          start: parseTime(range.startAt)!,
+          end: parseTime(range.endAt)!,
+        })),
       };
     });
 
@@ -124,7 +128,7 @@ export function useDay(key: string) {
 }
 
 /** 有时段：开始已知，结束未知或晚于开始。 */
-function isPeriod(statement: ObservationVersion): boolean {
+function isPeriod(statement: Observation): boolean {
   const start = parseTime(statement.startAt);
   const end = parseTime(statement.endAt);
   return start !== null && (end === null || end > start);

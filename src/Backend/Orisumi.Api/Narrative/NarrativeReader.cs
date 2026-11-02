@@ -1,87 +1,51 @@
 using System.Text.Json;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Orisumi.Core;
 
 namespace Orisumi.Api.Narrative;
 
-internal sealed class NarrativeReader(IEntityStore store)
+internal sealed class NarrativeReader(DataService data)
 {
-    internal Task<NarrativeEvidence> ReadAsync(NarrativeRequest request, CancellationToken token) => store.ExecuteAsync(async (tx, ct) =>
+    internal async Task<NarrativeEvidence> ReadAsync(NarrativeRequest request, CancellationToken token)
     {
-        var interactions = await ReadAll(tx, "assistant-interactions", request, false, ct);
-        var periods = await ReadAll(tx, "foreground-application-periods", request, false, ct);
-        var previous = await ReadAll(tx, "episodes", request, true, ct);
-        var history = await ReadAll(tx, "episodes", request, false, ct);
-        var reviews = await ReadAll(tx, "reviews", null, false, ct);
-        var inputs = new HashSet<VersionId>();
-        var confirmed = new HashSet<Guid>();
-        var denials = new List<object>();
-        var episodeEntities = history.Select(v => v.EntityId).ToHashSet();
-        foreach (var review in reviews)
-        {
-            var observation = (Observation)review.Content;
-            if ((await tx.ReadThingAsync(observation.ObserverId, ct))?.SchemaId != BuiltInSchemas.Person) continue;
-            var fields = observation.Fields;
-            var target = await tx.ReadVersionAsync(new(fields.GetProperty("targetVersionId").GetGuid()), ct);
-            if (target is null || !episodeEntities.Contains(target.EntityId)) continue;
-            if (fields.GetProperty("verdict").GetString() == "confirm") confirmed.Add(target.EntityId.Value);
-            if (fields.GetProperty("verdict").GetString() != "deny") continue;
-            denials.Add(new { episode = NarrativeData.Fields(target), review = fields });
-            inputs.Add(review.VersionId); inputs.Add(target.VersionId);
-        }
-        var sessionIds = interactions.Select(v => NarrativeData.Fields(v).GetProperty("sessionId").GetGuid()).ToHashSet();
-        var applicationIds = periods.Select(v => NarrativeData.Fields(v).GetProperty("localApplicationId").GetGuid()).ToHashSet();
-        var things = (await tx.ReadThingsAsync(sessionIds.Concat(applicationIds).Select(id => new EntityId(id)).ToArray(), ct)).ToDictionary(t => t.EntityId.Value);
-        var sessions = interactions.GroupBy(v => NarrativeData.Fields(v).GetProperty("sessionId").GetGuid()).Select(group =>
+        var interactions = await ReadAll("assistant-interactions", request, true, token);
+        var periods = await ReadAll("foreground-application-periods", request, true, token);
+        var previous = await ReadAll("episodes", request, true, token);
+        var reviews = await ReadAll("reviews", null, true, token);
+        var inputs = new HashSet<Guid>();
+        var denials = reviews.Where(review => review.Formation == "stated" && review.Content.GetProperty("verdict").GetString() == "deny").ToArray();
+        foreach (var review in denials) inputs.Add(review.ObservationId);
+        var sessionIds = interactions.Select(item => item.Content.GetProperty("sessionId").GetGuid()).ToHashSet();
+        var applicationIds = periods.Select(item => item.Content.GetProperty("localApplicationId").GetGuid()).ToHashSet();
+        var things = (await data.ListThingsAsync(cancellationToken: token)).ToDictionary(thing => thing.ThingId);
+        var sessions = interactions.GroupBy(item => item.Content.GetProperty("sessionId").GetGuid()).Select(group =>
         {
             var thing = things.GetValueOrDefault(group.Key);
-            if (thing?.NameVersionId is { } name) inputs.Add(name);
-            var messages = group.Where(v => NarrativeData.Fields(v).GetProperty("actor").GetString() == "user"
-                && NarrativeData.Fields(v).GetProperty("kind").GetString() == "message").Select(v =>
+            if (thing?.NameObservationId is { } name) inputs.Add(name);
+            var messages = group.Where(item => item.Content.GetProperty("actor").GetString() == "user" && item.Content.GetProperty("kind").GetString() == "message").Select(item =>
             {
-                inputs.Add(v.VersionId);
-                var text = MessageText(NarrativeData.Fields(v));
-                return new { at = TimeZoneInfo.ConvertTime(((Observation)v.Content).StartAt ?? ((Observation)v.Content).EndAt!.Value, request.Zone()), text };
+                inputs.Add(item.ObservationId);
+                return new { at = TimeZoneInfo.ConvertTime((item.StartAt ?? item.EndAt)!.Value, request.Zone()), text = MessageText(item.Content) };
             }).ToArray();
-            var first = NarrativeData.Fields(group.First());
-            // The metadata is evidence too, even for sessions with no user message that day.
-            inputs.Add(group.First().VersionId);
-            return new { entityId = group.Key, name = thing?.Name, product = thing is { Keys.Count: > 0 } ? thing.Keys[0].Scheme : null,
-                workingDirectory = first.TryGetProperty("workingDirectory", out var cwd) ? cwd.GetString() : null, messages };
+            var first = group.First(); inputs.Add(first.ObservationId);
+            return new { thingId = group.Key, name = thing?.Name, product = thing is { Keys.Count: > 0 } ? thing.Keys[0].Scheme : null,
+                workingDirectory = first.Content.TryGetProperty("workingDirectory", out var cwd) ? cwd.GetString() : null, messages };
         }).ToArray();
-        var applications = periods.Select(v =>
+        var applications = periods.Select(item =>
         {
-            inputs.Add(v.VersionId);
-            var observation = (Observation)v.Content;
-            return new { localApplicationId = observation.Fields.GetProperty("localApplicationId").GetGuid(),
-                name = observation.Fields.GetProperty("name").GetString(), startAt = observation.StartAt, endAt = observation.EndAt };
+            inputs.Add(item.ObservationId);
+            return new { localApplicationId = item.Content.GetProperty("localApplicationId").GetGuid(), name = item.Content.GetProperty("name").GetString(), startAt = item.StartAt, endAt = item.EndAt };
         }).ToArray();
-        foreach (var item in previous) inputs.Add(item.VersionId);
-        return new NarrativeEvidence(new { from = request.From, to = request.To, timeZone = request.TimeZone,
-            sessions, applications, previous = previous.Select(v => new { content = NarrativeData.Fields(v), startAt = ((Observation)v.Content).StartAt, endAt = ((Observation)v.Content).EndAt }), denials },
-            inputs.ToArray(), previous.ToArray(), confirmed, sessionIds, applicationIds, interactions.Count == 0 && periods.Count == 0);
-    }, token);
-
-    internal static string MessageText(JsonElement fields)
-    {
-        var text = string.Concat(fields.GetProperty("parts").EnumerateArray()
-            .Where(p => p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String).Select(p => p.GetProperty("text").GetString()));
-        return string.Concat(text.EnumerateRunes().Take(240));
+        foreach (var item in previous) inputs.Add(item.ObservationId);
+        return new(new { from = request.From, to = request.To, timeZone = request.TimeZone, sessions, applications,
+            previous = previous.Select(item => new { content = item.Content, startAt = item.StartAt, endAt = item.EndAt }), denials = denials.Select(item => item.Content) },
+            inputs.ToArray(), previous.ToArray(), sessionIds, applicationIds, interactions.Count == 0 && periods.Count == 0);
     }
-
-    private static async Task<List<EntityVersion>> ReadAll(IEntityTransaction tx, string resource, NarrativeRequest? range, bool current, CancellationToken token)
+    internal static string MessageText(JsonElement fields) => string.Concat(string.Concat(fields.GetProperty("parts").EnumerateArray()
+        .Where(part => part.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String).Select(part => part.GetProperty("text").GetString())).EnumerateRunes().Take(240));
+    private async Task<IReadOnlyList<Observation>> ReadAll(string resource, NarrativeRequest? range, bool current, CancellationToken token)
     {
-        var schema = await tx.FindSchemaAsync(resource, token);
-        if (schema is null) return [];
-        var result = new List<EntityVersion>();
-        var query = new ObservationQuery(range?.From, range?.To, schema, Limit: 1000, Current: current);
-        while (true)
-        {
-            var page = await tx.ListObservationsAsync(query, token);
-            result.AddRange(page.Take(1000));
-            if (page.Count <= 1000) return result;
-            var last = page[999]; var observation = (Observation)last.Content;
-            query = query with { After = new(observation.StartAt ?? observation.EndAt, last.EntityId) };
-        }
+        try { return await data.ListObservationsAsync(new(range?.From, range?.To, Current: current), resource, cancellationToken: token); }
+        catch (ResourceNotFoundException) { return []; }
     }
 }

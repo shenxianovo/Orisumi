@@ -9,7 +9,7 @@ struct ActivityTests {
 
     static func period(_ id: Int, _ name: String, from start: TimeInterval, to end: TimeInterval,
                        application: UUID? = nil, icon: String? = nil) -> Period {
-        Period(id: UUID(uuidString: String(format: "019e1bbb-ec00-7000-8000-%012d", id))!, name: name, applicationId: application,
+        Period(observationId: UUID(uuidString: String(format: "019e1bbb-ec00-7000-8000-%012d", id))!, name: name, applicationId: application,
                icon: icon, startAt: day.start + start, endAt: day.start + end)
     }
 

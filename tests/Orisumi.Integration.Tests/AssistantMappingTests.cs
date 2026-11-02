@@ -8,6 +8,16 @@ namespace Orisumi.Integration.Tests;
 
 public sealed class AssistantMappingTests
 {
+    [Test, Property("caseId", "assistant-interaction-mapping")]
+    public async Task CodexAgentMessageTextBlocksPreserveSearchableText()
+    {
+        var context = new SourceContext();
+        CodexSource.Read(Meta(), context, null);
+        var interaction = CodexSource.Read(Item("AgentMessage", "reply", Fields("""{"content":[{"type":"Text","text":"actual assistant words"}]}""")), context, null).Single();
+        await Assert.That(interaction.Parts.Single().Type).IsEqualTo("text");
+        await Assert.That(interaction.Parts.Single().Text).IsEqualTo("actual assistant words");
+        await Assert.That(interaction.Parts.Single().Pointer).IsEqualTo("/payload/item/content/0/text");
+    }
     private static readonly string[] UserKinds = ["user.text"];
     private static readonly string[] InstructionKinds = ["agents_md.instructions"];
     private static readonly string[] TwoSessions = ["codex-one", "codex-two"];
@@ -59,7 +69,7 @@ public sealed class AssistantMappingTests
         var result = interactions.Single(value => value.Text("sourceId") == "r1#0");
         await Assert.That(result.Text("actor")).IsEqualTo("tool");
         await Assert.That(result.Text("sourceRole")).IsEqualTo("user");
-        await Assert.That(result.GetProperty("toolCallVersionId").ValueKind).IsEqualTo(JsonValueKind.Null);
+        await Assert.That(result.GetProperty("toolCallId").ValueKind).IsEqualTo(JsonValueKind.Null);
         await Assert.That(result.GetProperty("isError").GetBoolean()).IsTrue();
         await Assert.That(interactions.Where(value => value.Text("sourceId")!.StartsWith('a')).All(value => value.Text("sourceMessageId") == "response-one")).IsTrue();
         await Assert.That(fixture.Diagnostics.Count).IsEqualTo(0);
@@ -108,7 +118,7 @@ public sealed class AssistantMappingTests
     }
 
     [Test, Property("caseId", "assistant-session-reading")]
-    public async Task TitlesAreSeparateAndRepeatedClaudeTitlesDoNotCreateVersions()
+    public async Task TitlesAreSeparateAndRepeatedClaudeTitlesDoNotCreateObservations()
     {
         using var fixture = new AssistantTestFixture();
         fixture.Write("codex/session_index.jsonl",
@@ -121,10 +131,10 @@ public sealed class AssistantMappingTests
         await Assert.That(fixture.Diagnostics.Count).IsEqualTo(0);
         var titles = fixture.Titles();
         await Assert.That(titles.Count).IsEqualTo(3);
-        await Assert.That(fixture.Sessions().All(v => v.GetProperty("category").GetString() == "thing")).IsTrue();
+        await Assert.That(fixture.Sessions().All(v => v.GetProperty("thingId").GetGuid() != Guid.Empty)).IsTrue();
         await fixture.Collector.PollAsync();
-        await Assert.That(fixture.Titles().Select(v => v.VersionId).SequenceEqual(titles.Select(v => v.VersionId))).IsTrue();
-        var times = fixture.Titles().Select(v => (Observation)v.Content).ToArray();
+        await Assert.That(fixture.Titles().Select(v => v.ObservationId).SequenceEqual(titles.Select(v => v.ObservationId))).IsTrue();
+        var times = fixture.Titles().Select(v => v).ToArray();
         await Assert.That(times.Count(t => t.StartAt == t.EndAt && t.StartAt is not null)).IsEqualTo(2);
         await Assert.That(times.Count(t => t.StartAt is null && t.EndAt is null)).IsEqualTo(1);
     }
@@ -173,7 +183,7 @@ public sealed class AssistantMappingTests
         await fixture.Collector.PollAsync();
         var call = fixture.Interactions().Single(value => Content(value).Text("kind") == "tool-call");
         var result = fixture.Interactions().Single(value => Content(value).Text("kind") == "tool-result");
-        await Assert.That(Content(result).GetProperty("toolCallVersionId").GetGuid()).IsEqualTo(call.VersionId.Value);
+        await Assert.That(Content(result).GetProperty("toolCallId").GetGuid()).IsEqualTo(call.ObservationId);
         await Assert.That(Content(call).GetProperty("sourceEntries")[0].Text("digest")).IsEqualTo(Content(result).GetProperty("sourceEntries")[0].Text("digest"));
         await Assert.That(Content(result).GetProperty("parts")[0].GetProperty("text").ValueKind).IsEqualTo(JsonValueKind.Null);
         if (fields.Contains("\"failed\"", StringComparison.Ordinal))
@@ -191,8 +201,8 @@ public sealed class AssistantMappingTests
         var items = fixture.Interactions().Where(value => Content(value).Text("sourceId") == "item-1").ToArray();
         await Assert.That(items.Length).IsEqualTo(2);
         await Assert.That(SessionsOf(fixture, items)).IsEquivalentTo(TwoSessions);
-        var observed = fixture.Observations().Select(value => value.VersionId.Value).ToArray();
-        await Assert.That(items.All(value => observed.Count(id => id == value.VersionId.Value) == 1)).IsTrue();
+        var observed = fixture.Observations().Select(value => value.ObservationId).ToArray();
+        await Assert.That(items.All(value => observed.Count(id => id == value.ObservationId) == 1)).IsTrue();
     }
 
     [Test, Property("caseId", "assistant-interaction-relations")]
@@ -206,7 +216,7 @@ public sealed class AssistantMappingTests
         await fixture.Collector.PollAsync();
         var reasoning = fixture.Interactions().Single(value => Content(value).Text("sourceId") == "item-3");
         await Assert.That(Content(reasoning).GetProperty("parts").GetArrayLength()).IsEqualTo(2);
-        await Assert.That(reasoning.PreviousVersionId).IsNull();
+        await Assert.That(reasoning.Replaces.Length).IsEqualTo(0);
     }
 
     [Test, Property("caseId", "assistant-interaction-relations")]
@@ -224,7 +234,7 @@ public sealed class AssistantMappingTests
         await f.Collector.PollAsync();
         var reasoning = f.Interactions().Single(v => Content(v).Text("sourceId") == "item-1");
         await Assert.That(Content(reasoning).GetProperty("parts")[0].GetProperty("text").GetString()).IsEqualTo("last");
-        await Assert.That(reasoning.PreviousVersionId).IsNull();
+        await Assert.That(reasoning.Replaces.Length).IsEqualTo(0);
         var forked = f.Interactions().Where(v => Content(v).Text("sourceId") == "shared").ToArray();
         await Assert.That(forked.Length).IsEqualTo(2);
         await Assert.That(forked.Select(v => Content(v).GetProperty("sessionId").GetGuid()).Distinct().Count()).IsEqualTo(2);
@@ -249,7 +259,7 @@ public sealed class AssistantMappingTests
         await Assert.That(f.Diagnostics.Count).IsEqualTo(0);
         var reasoning = f.Interactions().Single(v => Content(v).Text("kind") == "reasoning");
         await Assert.That(Content(reasoning).GetProperty("parts")[1].Text("text")).IsEqualTo("last");
-        await Assert.That(reasoning.PreviousVersionId).IsNull();
+        await Assert.That(reasoning.Replaces.Length).IsEqualTo(0);
         await Assert.That(await f.Bytes(Content(reasoning).GetProperty("sourceEntries")[0].Text("digest")!)).IsEquivalentTo(last);
         await Assert.That(f.Interactions().Count(v => Content(v).Text("sourceId") == "exec-change")).IsEqualTo(2);
     }
@@ -318,7 +328,7 @@ public sealed class AssistantMappingTests
         await Assert.That(results.Length).IsEqualTo(2);
         foreach (var result in results)
         {
-            var call = calls.Single(value => value.VersionId.Value == Content(result).GetProperty("toolCallVersionId").GetGuid());
+            var call = calls.Single(value => value.ObservationId == Content(result).GetProperty("toolCallId").GetGuid());
             await Assert.That(Content(call).GetProperty("sessionId").GetGuid()).IsEqualTo(Content(result).GetProperty("sessionId").GetGuid());
         }
     }
@@ -336,9 +346,9 @@ public sealed class AssistantMappingTests
         await Assert.That(values.Count(value => value.Text("kind") == "tool-result")).IsEqualTo(2);
     }
 
-    private static string[] SessionsOf(AssistantTestFixture fixture, IEnumerable<EntityVersion> interactions)
+    private static string[] SessionsOf(AssistantTestFixture fixture, IEnumerable<Observation> interactions)
     {
-        var sessions = fixture.Sessions().ToDictionary(value => value.GetProperty("entityId").GetGuid(), value => value.GetProperty("keys")[0].GetProperty("value").GetString()!);
+        var sessions = fixture.Sessions().ToDictionary(value => value.GetProperty("thingId").GetGuid(), value => value.GetProperty("keys")[0].GetProperty("value").GetString()!);
         return interactions.Select(value => sessions[Content(value).GetProperty("sessionId").GetGuid()]).ToArray();
     }
 
@@ -355,7 +365,7 @@ public sealed class AssistantMappingTests
         await fixture.Collector.PollAsync();
         var calls = fixture.Interactions().Where(value => Content(value).Text("kind") == "tool-call").ToDictionary(value => Content(value).Text("callId")!);
         foreach (var result in fixture.Interactions().Where(value => Content(value).Text("kind") == "tool-result"))
-            await Assert.That(Content(result).GetProperty("toolCallVersionId").GetGuid()).IsEqualTo(calls[Content(result).Text("callId")!].VersionId.Value);
+            await Assert.That(Content(result).GetProperty("toolCallId").GetGuid()).IsEqualTo(calls[Content(result).Text("callId")!].ObservationId);
         await Assert.That(Content(calls["a"]).Text("sourceParentId")).IsEqualTo("branch-a");
         await Assert.That(calls.Count).IsEqualTo(2);
     }
@@ -371,7 +381,7 @@ public sealed class AssistantMappingTests
         foreach (var child in fixture.Subagents())
         {
             var parentId = Content(child).GetProperty("parentSessionId").GetGuid();
-            await Assert.That(fixture.Sessions().Any(value => value.GetProperty("entityId").GetGuid() == parentId)).IsTrue();
+            await Assert.That(fixture.Sessions().Any(value => value.GetProperty("thingId").GetGuid() == parentId)).IsTrue();
         }
         await Assert.That(fixture.Interactions().Where(value => Content(value).Text("kind") == "message").All(value => Content(value).Text("actor") == "agent")).IsTrue();
         await Assert.That(fixture.Subagents().Select(Content).Single(value => value.Text("agentName") == "reader").Text("spawnCallId")).IsEqualTo("spawn");

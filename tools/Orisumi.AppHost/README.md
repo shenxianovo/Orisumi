@@ -36,7 +36,7 @@ NGINX 的转发规则：
 | 入口 | 转发 |
 | --- | --- |
 | 8080 | `/api/…` 去掉前缀后转给 API，其他路径返回 `404` |
-| 3000 | `/api/versions`、`/api/entities`、`/api/observations` 及其子路径转给 API，其他路径转给文档站 |
+| 3000 | `/api/observations`、`/api/things`、`/api/search` 及其子路径转给 API，其他路径转给文档站 |
 | 8081 | `/api/…` 去掉前缀后转给 API，其他路径转给 Vite，支持 HMR WebSocket |
 
 三个入口总是监听。API 没有启动时，转给 API 的路径返回 `503` 和 `application/problem+json`；文档站或 Web 控制台没有启动时，它的入口对其余路径返回 `503`。请求体上限 10 MiB，超过时返回 `413`。NGINX 配置在 [docker/nginx/](../../docker/nginx/)。
@@ -79,7 +79,7 @@ orisumi verify scenarios environment
 
 ```sh
 orisumi env up api --temp
-curl -i http://localhost:8080/api/entities/019a0d3b-1d20-7000-8000-000000000001
+curl -i http://localhost:8080/api/things/019a0d3b-1d20-7000-8000-000000000001
 orisumi env telemetry logs api
 orisumi env telemetry traces api
 ```

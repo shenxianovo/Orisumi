@@ -53,14 +53,14 @@ function DayPage() {
 
   const groups = conversations.groups;
   const sessions = useMemo(
-    () => new Map<string, SessionGroup>((groups ?? []).map((session) => [session.entityId, session])),
+    () => new Map<string, SessionGroup>((groups ?? []).map((session) => [session.thingId, session])),
     [groups],
   );
   const said = useMemo(
     () =>
       (groups ?? []).flatMap((session) =>
         session.interactions
-          .filter(({ version: { content } }) => content.kind === "message" && content.actor === "user")
+          .filter(({ observation: { content } }) => content.kind === "message" && content.actor === "user")
           .map((interaction) => interaction.at),
       ),
     [groups],
@@ -72,7 +72,7 @@ function DayPage() {
   const saved = useMemo(() => (episodes.data ?? []).map(episodeOf), [episodes.data]);
   const lanes = narrative.state.kind === "writing" ? narrative.state.episodes.map(streamedEpisode) : saved;
 
-  const written = Math.max(0, ...saved.map((episode) => Date.parse(episode.version!.recordedAt)));
+  const written = Math.max(0, ...saved.map((episode) => Date.parse(episode.observation!.recordedAt)));
   const stale = today && saved.length > 0 && (experiences ?? []).some((e) => e.writtenAt > written);
   const error = day.error ?? conversations.error ?? episodes.error;
 

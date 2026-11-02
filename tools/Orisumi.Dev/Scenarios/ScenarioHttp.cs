@@ -29,29 +29,26 @@ internal sealed class ScenarioHttp(TextWriter log) : IDisposable
     public void Dispose() => client.Dispose();
 }
 
-internal sealed class ScenarioEntity
+internal sealed class ScenarioObservation
 {
-    public Guid EntityId { get; private set; }
-    public Guid VersionId { get; private set; }
+    public Guid ObservationId { get; private set; }
     public object Observer { get; } = new { schemaId = Guid.Parse("019e1bbb-ec00-7000-8000-000000000012"), key = new { scope = (string?)null, scheme = "smoke", value = Guid.NewGuid().ToString() } };
-    public static ScenarioEntity Create() => new();
+    public static ScenarioObservation Create() => new();
     public async Task SubmitAsync(ScenarioHttp http, string api, CancellationToken token)
     {
         var reference = JsonSerializer.SerializeToElement(Observer);
         var schemaId = Guid.CreateVersion7();
         var body = JsonSerializer.Serialize(new { observer = Observer,
-            schemas = new[] { new { schemaId, content = new { displayName = "Smoke", description = "Smoke scenario", resourceName = "smoke-" + Guid.NewGuid().ToString("N"), kind = "observation", immutable = false, fields = new { } } } },
+            schemas = new[] { new { schemaId, content = new { displayName = "Smoke", description = "Smoke scenario", resourceName = "smoke-" + Guid.NewGuid().ToString("N"), fields = new { } } } },
             writes = new[] { new { schemaId, key = reference.GetProperty("key"), content = new { }, formation = "direct" } } });
         var saved = await http.RequestAsync("POST", api + "/writes", 200, token, body);
-        var version = saved!.Value.GetProperty("results")[0].GetProperty("version");
-        EntityId = version.GetProperty("entityId").GetGuid();
-        VersionId = version.GetProperty("versionId").GetGuid();
+        var observation = saved!.Value.GetProperty("results")[0].GetProperty("observation");
+        ObservationId = observation.GetProperty("observationId").GetGuid();
     }
     public async Task ReadAsync(ScenarioHttp http, string api, CancellationToken token)
     {
-        var read = await http.RequestAsync("GET", api + $"/versions/{VersionId}", 200, token);
-        ScenarioHttp.Require(read!.Value.GetProperty("entityId").GetGuid() == EntityId, "Read returned another entity.");
-        ScenarioHttp.Require(read.Value.GetProperty("versionId").GetGuid() == VersionId, "Read returned another version.");
-        ScenarioHttp.Require(!read.Value.GetProperty("content").EnumerateObject().Any(), "Stored content changed.");
+        var read = await http.RequestAsync("GET", api + $"/observations/{ObservationId}", 200, token);
+        ScenarioHttp.Require(read!.Value.GetProperty("observationId").GetGuid() == ObservationId, "Read returned another Observation.");
+        ScenarioHttp.Require(!read!.Value.GetProperty("content").EnumerateObject().Any(), "Stored content changed.");
     }
 }

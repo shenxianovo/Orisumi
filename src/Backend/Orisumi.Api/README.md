@@ -1,6 +1,6 @@
 # Orisumi.Api
 
-Orisumi.Api 是后端的 HTTP 宿主，提供 [API](../../Docs/Orisumi.Docs/content/docs/api/index.mdx) 中的实体接口。项目分工见 [ADR · 后端运行与本地环境](../../Docs/Orisumi.Docs/content/docs/adr/backend-runtime.mdx#components)，接口契约见 [openapi.json](../../Docs/Orisumi.Docs/content/docs/api/openapi.json)。
+Orisumi.Api 是后端的 HTTP 宿主，提供 [API](../../Docs/Orisumi.Docs/content/docs/api/index.mdx) 中的数据接口。项目分工见 [ADR · 后端运行与本地环境](../../Docs/Orisumi.Docs/content/docs/adr/backend-runtime.mdx#components)，接口契约见 [openapi.json](../../Docs/Orisumi.Docs/content/docs/api/openapi.json)。
 
 ## 运行
 

@@ -5,7 +5,7 @@ description: "管理 Observer 的 HTTP 接口：配对与托管方、实例的�
 
 管理接口让客户端查看和修改各个托管方的程序实例，也让托管方登记实例、同步配置和报告状态。本页写每个接口的语义和响应；登记的含义、托管方一侧的同步步骤和状态的结构见 [Hosting · Management](../hosting/management.mdx)，表见 [Storage · Management](../storage/management.mdx)。
 
-例如用户在 Web 中停用服务器上的应用识别 Observer：Web 调用 `PATCH /observer-instances/{entityId}`，后端接受配置，修订号加 1；服务器上的 Runtime 正在等待 `POST /runtime/poll`，立即收到新的配置，停止进程，再用 `PUT /runtime/instances/{entityId}/status` 报告已停止。
+例如用户在 Web 中停用服务器上的应用识别 Observer：Web 调用 `PATCH /observer-instances/{thingId}`，后端接受配置，修订号加 1；服务器上的 Runtime 正在等待 `POST /runtime/poll`，立即收到新的配置，停止进程，再用 `PUT /runtime/instances/{thingId}/status` 报告已停止。
 
 ## 调用方 [#callers]
 
@@ -40,12 +40,12 @@ description: "管理 Observer 的 HTTP 接口：配对与托管方、实例的�
 | 接口 | 调用方 | 作用 |
 | --- | --- | --- |
 | [`GET /observer-instances`](/api/listObserverInstances) | 管理入口 | 列出实例，可以用 `hostId` 筛选；包括已删除的 |
-| [`GET /observer-instances/{entityId}`](/api/getObserverInstance) | 管理入口 | 读取一个实例 |
-| [`PATCH /observer-instances/{entityId}`](/api/updateObserverInstance) | 管理入口 | 修改启用或设置 |
-| [`DELETE /observer-instances/{entityId}`](/api/deleteObserverInstance) | 管理入口 | 删除实例 |
-| [`PUT /runtime/instances/{entityId}`](/api/registerObserverInstance) | 托管方 | 首次登记 |
-| [`POST /runtime/instances/{entityId}/changes`](/api/submitLocalChange) | 托管方 | 同步一次本机修改 |
-| [`PUT /runtime/instances/{entityId}/status`](/api/reportObserverStatus) | 托管方 | 报告状态 |
+| [`GET /observer-instances/{thingId}`](/api/getObserverInstance) | 管理入口 | 读取一个实例 |
+| [`PATCH /observer-instances/{thingId}`](/api/updateObserverInstance) | 管理入口 | 修改启用或设置 |
+| [`DELETE /observer-instances/{thingId}`](/api/deleteObserverInstance) | 管理入口 | 删除实例 |
+| [`PUT /runtime/instances/{thingId}`](/api/registerObserverInstance) | 托管方 | 首次登记 |
+| [`POST /runtime/instances/{thingId}/changes`](/api/submitLocalChange) | 托管方 | 同步一次本机修改 |
+| [`PUT /runtime/instances/{thingId}/status`](/api/reportObserverStatus) | 托管方 | 报告状态 |
 
 ### 首次登记 [#registration]
 
@@ -76,17 +76,17 @@ description: "管理 Observer 的 HTTP 接口：配对与托管方、实例的�
 
 ### 管理入口的修改 [#management-changes]
 
-`PATCH /observer-instances/{entityId}` 写入请求中出现的字段，`revision` 加 1，返回修改后的实例。请求中两个字段都没有时返回 `400`。不比较修订号：同一字段以后端最后接受的修改为准，见 [Hosting · 合并](../hosting/management.mdx#merge)。已删除的实例返回 `410`。
+`PATCH /observer-instances/{thingId}` 写入请求中出现的字段，`revision` 加 1，返回修改后的实例。请求中两个字段都没有时返回 `400`。不比较修订号：同一字段以后端最后接受的修改为准，见 [Hosting · 合并](../hosting/management.mdx#merge)。已删除的实例返回 `410`。
 
 ### 状态报告 [#status]
 
-`PUT /runtime/instances/{entityId}/status` 用请求体整体替换 `status`，后端把 `reportedAt` 设为收到请求的时刻，返回 `204`。已删除的实例也接受状态报告，所以界面能看到它实际停止。状态的字段见 [Hosting · 状态报告](../hosting/management.mdx#status)。
+`PUT /runtime/instances/{thingId}/status` 用请求体整体替换 `status`，后端把 `reportedAt` 设为收到请求的时刻，返回 `204`。已删除的实例也接受状态报告，所以界面能看到它实际停止。状态的字段见 [Hosting · 状态报告](../hosting/management.mdx#status)。
 
 ### 删除实例 [#removal]
 
-`DELETE /observer-instances/{entityId}` 在一个事务中把登记标记为已删除，并删除它的 Core 实体，返回 `204`；重复删除也返回 `204`，EntityId 没有登记时返回 `404`。[`DELETE /entities/{entityId}`](/api/deleteEntity) 删除一个已登记的程序实例时，做同样的事，见 [Writing · 删除](./writing.mdx#deletion)。
+`DELETE /observer-instances/{thingId}` 在一个事务中把登记标记为已删除，并删除这个事物，返回 `204`；重复删除也返回 `204`，`thingId` 没有登记时返回 `404`。[`DELETE /things/{thingId}`](/api/deleteThing) 删除一个已登记的程序实例时，做同样的事，见 [Writing · 删除](./writing.mdx#deletion)。
 
-之后以这个 EntityId 写入都按 [HISTORY-7](../core/rules/history.mdx#history-7) 被拒绝，包括它还没写入过的情况。
+之后以这个 `thingId` 写入都按 [HISTORY-7](../core/rules/history.mdx#history-7) 被拒绝，包括它还没写入过的情况。
 
 ## 长轮询 [#poll]
 
@@ -112,8 +112,8 @@ description: "管理 Observer 的 HTTP 接口：配对与托管方、实例的�
 | `install` | `packageId`，或 `url` | 实例 |
 | `update` | `packageId` | 实例 |
 | `uninstall` | `packageId` | 实例 |
-| `retry` | `entityId` | 无 |
-| `resendRejected` | `entityId` | 重发的写入数，见 [Runtime · 本地转发](../hosting/runtime.mdx#forwarding) |
+| `retry` | `thingId` | 无 |
+| `resendRejected` | `thingId` | 重发的写入数，见 [Runtime · 本地转发](../hosting/runtime.mdx#forwarding) |
 
 `install`、`update` 和 `uninstall` 按安装包寻址，语义见 [Packages](../hosting/packages.mdx)，结果是 `packageId` 和 `instanceId`；`retry` 和 `resendRejected` 按实例寻址。
 
@@ -142,7 +142,7 @@ description: "管理 Observer 的 HTTP 接口：配对与托管方、实例的�
 | `401` | `credential_invalid` | 凭证不属于任何托管方 |
 | `401` | `credential_revoked` | 托管方已移除 |
 | `403` | `host_mismatch` | 操作或者以另一个托管方的实例写入 |
-| `403` | `management_only` | 带托管方凭证调用管理入口的接口，或者删除实体 |
+| `403` | `management_only` | 带托管方凭证调用管理入口的接口，或者删除数据 |
 | `404` | 无 | 托管方、实例或操作不存在 |
 | `409` | `pairing_mismatch` | 配对码与请求中的 `hostId` 不符 |
 | `409` | `package_taken` | 这个托管方已有使用这个安装包的实例 |

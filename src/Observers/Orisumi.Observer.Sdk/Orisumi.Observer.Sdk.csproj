@@ -3,4 +3,7 @@
   <ItemGroup>
     <EmbeddedResource Include="device.schema.json" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="device.thing-types.json" LogicalName="Orisumi.Observer.Sdk.device.thing-types.json" />
+  </ItemGroup>
 </Project>

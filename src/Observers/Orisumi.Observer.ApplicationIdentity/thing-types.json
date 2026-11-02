@@ -1,0 +1,8 @@
+[
+  {
+    "schemaId": "019e1bbb-ec00-7000-8000-000000000004",
+    "displayName": "应用产品",
+    "description": "表示用户认知中的一款软件。名字是 Name，属于它的线索是线索归属。",
+    "resourceName": "application-products"
+  }
+]

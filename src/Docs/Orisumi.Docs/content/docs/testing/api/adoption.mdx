@@ -1,0 +1,37 @@
+---
+title: "Adoption"
+description: "一种类型的模型判断采用哪一代，可以只适用于一段时间"
+---
+
+export const caseId = 'api-adoption';
+
+## 为什么验证 [#why]
+
+换模型时要能比较新旧两代，切换和切回都不丢数据，用户的话不受影响。约定见 [Adoption](../../core/model/adoption.mdx)。
+
+## 前置条件 [#setup]
+
+通过真实 API 和独立的 PostgreSQL 数据库运行，见 [测试分工](../index.mdx#kinds)。同一种类型有两份 Observer 描述 D1、D2 形成的判断。
+
+## 操作与预期结果 [#steps]
+
+| 操作 | 预期结果 |
+| --- | --- |
+| 没有 Adoption | 两代的判断都可见 |
+| 写一条采用 D2 的 Adoption，事实时间未知 | 默认视图只有 D2 的判断，`view=all` 两代都有 |
+| Adoption 的事实时间是 10 月 | 10 月只有 D2 的判断，其他时间两代都可见 |
+| 再写一条采用 D1 的 Adoption | 切回 D1，旧判断没有丢 |
+| 同一类型两条 Adoption 时段重叠 | 重叠的部分取保存时间最晚的 |
+| 否定一条 Adoption | 它不再生效 |
+| 这个类型有 `stated` 的 Observation | 不受 Adoption 影响 |
+| 用户确认过 D1 的一条判断，再写采用 D2 的 Adoption | 这一条仍然可见 |
+| `direct` 或 `computed` 的 Observation | 不受影响 |
+| 两个边界都未知的判断，Adoption 有时段 | 不受这条 Adoption 影响 |
+
+## 测试实现 [#implementation]
+
+未覆盖：这个 Case 由实现任务补上测试。
+
+## 执行结果 [#results]
+
+<TestCaseResults caseId={caseId} />

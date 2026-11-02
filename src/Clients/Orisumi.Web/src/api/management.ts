@@ -27,7 +27,7 @@ export interface InstanceStatus {
 }
 
 export interface Instance {
-  entityId: string;
+  thingId: string;
   hostId: string;
   packageId: string;
   name: string;
@@ -45,11 +45,11 @@ export interface Operation {
   operationId: string;
   hostId: string;
   action: Action;
-  entityId: string | null;
+  thingId: string | null;
   packageId: string | null;
   state: "queued" | "delivered" | "succeeded" | "failed" | "expired" | "unconfirmed";
   error: string | null;
-  result: { packages?: Package[]; entityId?: string } | null;
+  result: { packages?: Package[]; thingId?: string } | null;
 }
 
 export interface Package {

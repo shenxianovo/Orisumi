@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { HostsPage } from "@/routes/hosts";
-import type { Host, Instance } from "@/api/management";
+import type { Action, Host, Instance, Operation, Package } from "@/api/management";
 
 const host: Host = {
   hostId: "019e1bbb-ec00-7000-8000-000000000001",
@@ -15,7 +15,7 @@ const host: Host = {
   lastSeenAt: "2026-01-01T00:00:00Z",
 };
 const initial: Instance = {
-  entityId: "019e1bbb-ec00-7000-8000-000000000002",
+  thingId: "019e1bbb-ec00-7000-8000-000000000002",
   hostId: host.hostId,
   packageId: "example",
   name: "测试 Observer",
@@ -30,6 +30,20 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+function renderHosts() {
+  const query = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const router = createRouter({
+    routeTree: createRootRoute({ component: HostsPage }),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  render(
+    <QueryClientProvider client={query}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  return query;
+}
 
 test("离线设备的旧运行报告显示未知，启用和设置仍可保存，在线操作不可用", async () => {
   let instance = structuredClone(initial);
@@ -48,16 +62,7 @@ test("离线设备的旧运行报告显示未知，启用和设置仍可保存�
       throw new Error(`Unexpected request: ${path}`);
     }),
   );
-  const query = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  const router = createRouter({
-    routeTree: createRootRoute({ component: HostsPage }),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
-  });
-  render(
-    <QueryClientProvider client={query}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
+  const query = renderHosts();
   const user = userEvent.setup();
   await screen.findByRole("button", { name: /测试 Observer/ });
   expect(screen.getByText("状态未知")).toBeInTheDocument();
@@ -77,5 +82,52 @@ test("离线设备的旧运行报告显示未知，启用和设置仍可保存�
   await user.paste('{"intervalSeconds":30}');
   await user.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(writes).toEqual([{ enabled: false }, { settings: { intervalSeconds: 30 } }]));
+  query.clear();
+});
+
+test("原实例已删除时可以新建实例，安装请求只带 action 和 packageId", async () => {
+  const online: Host = { ...host, name: "在线设备", connected: true };
+  const pkg: Package = {
+    id: initial.packageId,
+    name: "测试包",
+    version: "1.0.0",
+    compatible: true,
+    installedVersion: null,
+  };
+  const operationsPath = `/api/hosts/${online.hostId}/operations`;
+  const operations: Operation[] = [];
+  const requests: unknown[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/hosts") return Response.json({ hosts: [online] });
+      if (path === "/api/observer-instances") return Response.json({ instances: [{ ...initial, removed: true }] });
+      if (path === operationsPath && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { action: Action; packageId?: string };
+        requests.push(body);
+        const operation: Operation = {
+          operationId: `operation-${operations.length}`,
+          hostId: online.hostId,
+          action: body.action,
+          thingId: null,
+          packageId: body.packageId ?? null,
+          state: "succeeded",
+          error: null,
+          result: body.action === "catalog" ? { packages: [pkg] } : { thingId: "new-instance" },
+        };
+        operations.push(operation);
+        return Response.json(operation, { status: 202 });
+      }
+      const operation = operations.find(({ operationId }) => path === `${operationsPath}/${operationId}`);
+      if (operation) return Response.json(operation);
+      throw new Error(`Unexpected request: ${path}`);
+    }),
+  );
+  const query = renderHosts();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "安装" }));
+  await user.click(await screen.findByRole("button", { name: "新建实例" }));
+  expect(await screen.findByText("已安装")).toBeInTheDocument();
+  expect(requests).toEqual([{ action: "catalog" }, { action: "install", packageId: pkg.id }]);
   query.clear();
 });

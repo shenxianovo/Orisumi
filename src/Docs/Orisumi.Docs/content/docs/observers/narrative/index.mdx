@@ -13,18 +13,16 @@ description: "读一天的记录，写下这一天做了哪几件事"
 
 | 业务类型 | 用途 | 资源名 |
 | --- | --- | --- |
-| [Narrative Observer](./narrative-observer.mdx) | 程序实例的描述 | `narrative-observers` |
 | [Episode](./episode.mdx) | 观测：一天中的一件事 | `episodes` |
 
 ```mermaid
 flowchart LR
   E[Episode] -->|observerId| R[叙事 Observer]
-  E -->|inputSetVersionId| S[InputSet]
+  E -->|inputSetId| S[InputSet]
   E -->|sessionIds| A[Assistant Session]
   E -->|localApplicationIds| L[Local Application]
   S -->|members| I[Assistant Interaction]
   S -->|members| P[Foreground Application Period]
-  click R "/observers/narrative/narrative-observer"
   click E "/observers/narrative/episode"
   click S "/core/model/input-set"
   click A "/observers/assistant-sessions/assistant-session"
@@ -35,8 +33,8 @@ flowchart LR
 
 ## 程序实例 [#instance]
 
-- 每个部署一个叙事 Observer，由 API 进程托管。它的 EntityId 由后端在第一次启动时生成并保存，之后一直沿用，见 [OBSERVER-4](../../core/model/observer.mdx#observer-4)。
-- API 进程启动时，它声明用到的业务类型，写入自己的描述。程序版本或模型型号变化时，描述形成新版本。
+- 每个部署一个叙事 Observer，由 API 进程托管。它的 `thingId` 由后端在第一次启动时生成并保存，之后一直沿用，见 [OBSERVER-4](../../core/model/observer.mdx#observer-4)。
+- API 进程启动时，它声明用到的业务类型，写入自己的[描述](../../core/model/common-types.mdx#observer-descriptions)。程序版本或模型型号变化时，写入新的描述。
 - 同一时刻只写一个日期范围。另一个请求的范围和正在写的重叠时，后端拒绝它。
 
 ## 处理 [#processing]
@@ -94,9 +92,9 @@ flowchart LR
 | --- | --- |
 | `formation` | `inferred` |
 | `content` | 标题、摘要、会话和本机应用 |
-| `inputs` | 实际发送给模型的版本：用户说的话所在的助手交互、前台应用时段、名字，以及读到的否定 |
+| `inputs` | 实际发送给模型的 Observation：用户说的话所在的助手交互、前台应用时段、名字，以及读到的否定 |
 
-这一天原来有当前理解中的几件事时，同一次写入为它们各写一份 `supersede` 的 Review，见 [UNDERSTANDING-6](../../core/rules/understanding.mdx#understanding-6)。用户确认过的不取代，见 [UNDERSTANDING-4](../../core/rules/understanding.mdx#understanding-4)。
+这一天原来有当前理解中的几件事时，新的一批用 `replaces` 替换它们，见 [OBSERVATION-18](../../core/model/observation.mdx#observation-18)。用户确认过的不受影响，见 [REVIEW-7](../../core/model/review.mdx#review-7)。
 
 ## 实现 [#implementation]
 

@@ -13,7 +13,7 @@ public sealed class JsonAmbiguityTests
     {
         using var fields = JsonDocument.Parse("""{"message":{"type":"string","description":"Test field value.","required":true,"nullable":false}}""");
         using var content = JsonDocument.Parse(properties);
-        await Assert.That(EntitySchemaRules.ValidEntity(fields.RootElement, content.RootElement)).IsFalse();
+        await Assert.That(SchemaRules.ValidContent(fields.RootElement, content.RootElement)).IsFalse();
     }
 
     // SCHEMA-10, SCHEMA-12, SCHEMA-14
@@ -25,7 +25,7 @@ public sealed class JsonAmbiguityTests
     public async Task DuplicateDeclarationNamesAreRejected(string json)
     {
         using var fields = JsonDocument.Parse(json);
-        await Assert.That(EntitySchemaRules.ValidFields(fields.RootElement)).IsFalse();
+        await Assert.That(SchemaRules.ValidFields(fields.RootElement)).IsFalse();
     }
 
     // SCHEMA-12, SCHEMA-14
@@ -34,7 +34,7 @@ public sealed class JsonAmbiguityTests
     {
         using var fields = JsonDocument.Parse("""{"samples":{"type":"array","description":"Test field value.","required":true,"nullable":false,"items":{"type":"object","description":"Test field value.","nullable":false,"fields":{"value":{"type":"string","description":"Test field value.","required":true,"nullable":false}}}}}""");
         using var content = JsonDocument.Parse("""{"samples":[{"value":"before","value":"after"}]}""");
-        await Assert.That(EntitySchemaRules.ValidEntity(fields.RootElement, content.RootElement)).IsFalse();
+        await Assert.That(SchemaRules.ValidContent(fields.RootElement, content.RootElement)).IsFalse();
     }
 
     // SCHEMA-12, SCHEMA-14
@@ -43,7 +43,7 @@ public sealed class JsonAmbiguityTests
     {
         using var fields = JsonDocument.Parse("""{"labels":{"type":"array","description":"Test field value.","required":true,"nullable":false,"items":{"type":"string","description":"Test field value.","nullable":false}},"record":{"type":"object","description":"Test field value.","required":true,"nullable":false,"fields":{"x":{"type":"string","description":"Test field value.","required":true,"nullable":false},"X":{"type":"string","description":"Test field value.","required":true,"nullable":false}}}}""");
         using var content = JsonDocument.Parse("""{"labels":["same","same"],"record":{"x":"one","X":"two"}}""");
-        await Assert.That(EntitySchemaRules.ValidFields(fields.RootElement)).IsTrue();
-        await Assert.That(EntitySchemaRules.ValidEntity(fields.RootElement, content.RootElement)).IsTrue();
+        await Assert.That(SchemaRules.ValidFields(fields.RootElement)).IsTrue();
+        await Assert.That(SchemaRules.ValidContent(fields.RootElement, content.RootElement)).IsTrue();
     }
 }

@@ -28,30 +28,30 @@ description: "用户的一台设备，被本机应用和其他业务类型提到
 
 | 变化 | 身份 |
 | --- | --- |
-| 设备改名 | 沿用，写入描述的新版本 |
+| 设备改名 | 沿用，新的 Name 替换旧的 |
 | 同一台设备上新接入一个托管方 | 沿用 |
 | 重装客户端 | 沿用 |
 | 重装 macOS | 沿用 |
 | 重装 Linux | 新建，`/etc/machine-id` 重新生成 |
 | 另一台设备 | 新建 |
 
-不同平台的标识代表的东西不同：硬件 UUID 跟着机器，`machine-id` 跟着系统安装，`scheme` 说明了它是哪一种。重装 Linux 前后是同一台机器时，模型或用户写一条 `same-as` [关系](../../core/rules/understanding.mdx#relation)，见 [THING-5](../../core/model/thing.mdx#thing-5)。
+不同平台的标识代表的东西不同：硬件 UUID 跟着机器，`machine-id` 跟着系统安装，`scheme` 说明了它是哪一种。重装 Linux 前后是同一台机器时，模型或用户写一条 [Same-As](../../core/model/same-as.mdx)，见 [THING-5](../../core/model/thing.mdx#thing-5)。
 
 ## 描述 [#description]
 
-设备描述是一份 Observation，说明这台设备是什么。每个用到设备的 Observer 各写一份，所以改名后各自形成新版本，互不影响，见 [IDENTITY-8](../../core/rules/identity.mdx#identity-8)。形成方式是 `direct`，事实时间未知。
+设备描述是一份 Observation，说明这台设备是什么。它是状态，全局一份：用到设备的 Observer 用同一份依据写入，内容相同时什么都不发生，内容变了，新的一份替换旧的，见 [OBSERVATION-19](../../core/model/observation.mdx#observation-19)。形成方式是 `direct`，事实时间未知。
 
 | 识别依据 | 值 |
 | --- | --- |
-| `scope` | 这个 Observer 的 EntityId |
+| `scope` | `null` |
 | `scheme` | `orisumi.device-description` |
 | `value` | 设备的稳定标识 |
 
-`platform` 是自由文字，单片机写自己的型号。设备的名字另写一份 [Name](../../core/rules/understanding.mdx#name)：macOS 上取计算机名，Linux 上取主机名。
+`platform` 是自由文字，单片机写自己的型号。设备的名字另写一份 [Name](../../core/model/common-types.mdx#name)：macOS 上取计算机名，Linux 上取主机名。
 
-## EntitySchema [#schema]
+## 类型 [#schema]
 
-设备：
+设备是事物类型：
 
 | 项目 | 值 |
 | --- | --- |
@@ -59,9 +59,8 @@ description: "用户的一台设备，被本机应用和其他业务类型提到
 | 显示名称 | 设备 |
 | 说明 | 表示平台给出的一个设备身份。 |
 | 资源名 | `devices` |
-| `kind` | `thing` |
 
-设备描述：
+设备描述是 Schema：
 
 | 项目 | 值 |
 | --- | --- |
@@ -69,12 +68,11 @@ description: "用户的一台设备，被本机应用和其他业务类型提到
 | 显示名称 | 设备描述 |
 | 说明 | 说明一台设备是什么。事实时间未知。 |
 | 资源名 | `device-descriptions` |
-| `kind` | `observation` |
-| `immutable` | `false` |
+| `stateFields` | `deviceId` |
 
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
-| `deviceId` | `reference`，目标为事物 | 是 | 否 | 被描述的设备 |
+| `deviceId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 被描述的设备 |
 | `platform` | `string` | 是 | 否 | 设备的平台或型号，例如 `macos`、`linux`、`esp32-s3` |
 
 ## 示例 [#example]

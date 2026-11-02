@@ -1,4 +1,4 @@
-import type { NarrativeEpisode, ObservationVersion } from "@/api/types";
+import type { NarrativeEpisode, Observation } from "@/api/types";
 import { parseTime } from "./time";
 
 // 一天中的一件事，见 Docs observers/narrative/episode.mdx。写着的时候来自叙事流，保存后来自 Observation。
@@ -17,17 +17,17 @@ export interface Episode extends EpisodeContent {
   start: number;
   end: number;
   /** 还没有保存时为 null。 */
-  version: ObservationVersion | null;
+  observation: Observation | null;
 }
 
-export function episodeOf(version: ObservationVersion): Episode {
-  const content = version.content as unknown as EpisodeContent;
+export function episodeOf(observation: Observation): Episode {
+  const content = observation.content as unknown as EpisodeContent;
   return {
     ...content,
-    key: version.entityId,
-    start: parseTime(version.startAt)!,
-    end: parseTime(version.endAt)!,
-    version,
+    key: observation.observationId,
+    start: parseTime(observation.startAt)!,
+    end: parseTime(observation.endAt)!,
+    observation,
   };
 }
 
@@ -41,6 +41,6 @@ export function streamedEpisode(episode: NarrativeEpisode, index: number): Episo
     key: `streamed-${index}`,
     start: Date.parse(episode.startAt),
     end: Date.parse(episode.endAt),
-    version: null,
+    observation: null,
   };
 }

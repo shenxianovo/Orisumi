@@ -43,7 +43,7 @@ if (services.Contains("api"))
         .WithEnvironment("OPENAI_API_KEY", builder.Configuration["OPENAI_API_KEY"] ?? "")
         .WithEnvironment("NARRATIVE_MODEL", builder.Configuration["NARRATIVE_MODEL"] ?? "gpt-6.1-terra")
         .WaitForCompletion(migrate)
-        .WithHttpHealthCheck("/entities/019a0d3b-1d20-7000-8000-000000000001", statusCode: 404);
+        .WithHttpHealthCheck("/observations/019a0d3b-1d20-7000-8000-000000000001", statusCode: 404);
 
 }
 
@@ -86,7 +86,7 @@ if (api is not null)
 {
     nginx.WithEnvironment("API_HOST", api.GetEndpoint("http").Property(EndpointProperty.Host))
         .WithEnvironment("API_PORT", api.GetEndpoint("http").Property(EndpointProperty.Port))
-        .WithHttpHealthCheck("/api/entities/019a0d3b-1d20-7000-8000-000000000001", statusCode: 404, endpointName: "api")
+        .WithHttpHealthCheck("/api/observations/019a0d3b-1d20-7000-8000-000000000001", statusCode: 404, endpointName: "api")
         .WaitFor(api);
 }
 if (docs is not null)

@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 
 namespace Orisumi.Observer.Sdk;
 
-/// <summary>Encodes the public HTTP contract. Identity and version formation belong to the backend.</summary>
+/// <summary>Encodes the public HTTP contract. Identity and Observation formation belong to the backend.</summary>
 public sealed class DataClient : IAsyncDisposable
 {
     public static JsonSerializerOptions Json { get; } = new(JsonSerializerDefaults.Web)
@@ -33,7 +33,7 @@ public sealed class DataClient : IAsyncDisposable
         var backend = api ?? new Uri(Required("ORISUMI_API_URL"));
         var read = Client(backend, credential ?? Environment.GetEnvironmentVariable("ORISUMI_API_TOKEN"));
         var write = managed ? Client(new Uri(Required("ORISUMI_WRITE_URL")), null) : read;
-        var client = new DataClient(write, read, observer ?? Ref.Entity(Guid.Parse(Required("ORISUMI_INSTANCE_ID"))), true)
+        var client = new DataClient(write, read, observer ?? Ref.Saved(Guid.Parse(Required("ORISUMI_INSTANCE_ID"))), true)
         {
             DataDirectory = managed ? Required("ORISUMI_DATA_DIR") : null,
             PackageVersion = managed ? Required("ORISUMI_PACKAGE_VERSION") : null,
@@ -57,9 +57,9 @@ public sealed class DataClient : IAsyncDisposable
         if (!string.IsNullOrEmpty(credential)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         return client;
     }
-    public async Task UseAsync(IEnumerable<SchemaDefinition> definitions, Guid selfSchema, object self, CancellationToken token = default)
+    public async Task UseAsync(IEnumerable<SchemaDefinition> definitions, IEnumerable<ThingTypeDefinition> thingTypes, ObserverDescription self, CancellationToken token = default)
     {
-        await SendAsync([], definitions.ToArray(), [], token, new { schemaId = selfSchema, content = self });
+        await SendAsync([], definitions.ToArray(), [], token, JsonSerializer.SerializeToElement(self, JsonSerializerOptions.Web), thingTypes.ToArray());
     }
     public async Task<WriteResult?> WriteAsync(WriteItem item, CancellationToken token = default)
     { var results = await WriteAllAsync([item], token); return results.Count == 0 ? null : results[0]; }
@@ -96,13 +96,13 @@ public sealed class DataClient : IAsyncDisposable
         var content = JsonSerializer.SerializeToElement(item.Content, options);
         return JsonSerializer.SerializeToElement(item with { Content = content }, Json);
     }
-    private byte[] Bytes(IReadOnlyList<JsonElement> writes, SchemaDefinition[]? schemas, long? sequence = null, object? description = null) =>
-        JsonSerializer.SerializeToUtf8Bytes(new { observer = Observer, schemas, writes, sequence, description }, Json);
+    private byte[] Bytes(IReadOnlyList<JsonElement> writes, SchemaDefinition[]? schemas, long? sequence = null, object? description = null, ThingTypeDefinition[]? thingTypes = null) =>
+        JsonSerializer.SerializeToUtf8Bytes(new { observer = Observer.Id is { } id ? (object)new { thingId = id } : Observer, schemas, thingTypes, writes, sequence, description }, Json);
     private async Task<IReadOnlyList<WriteResult>> SendAsync(IReadOnlyList<JsonElement> writes, SchemaDefinition[]? schemas,
-        Dictionary<string, BinaryContent> files, CancellationToken token, object? description = null)
+        Dictionary<string, BinaryContent> files, CancellationToken token, object? description = null, ThingTypeDefinition[]? thingTypes = null)
     {
-        var bytes = Bytes(writes, schemas, description: description);
-        if (Bytes(writes, schemas, long.MaxValue, description).Length > MaximumBytes) throw new InvalidDataException("Write request exceeds 10 MiB.");
+        var bytes = Bytes(writes, schemas, description: description, thingTypes: thingTypes);
+        if (Bytes(writes, schemas, long.MaxValue, description, thingTypes).Length > MaximumBytes) throw new InvalidDataException("Write request exceeds 10 MiB.");
         foreach (var file in files.Values)
         {
             using var upload = new ByteArrayContent(file.Data);
@@ -121,11 +121,11 @@ public sealed class DataClient : IAsyncDisposable
         if (results.FirstOrDefault(result => result.Error is not null) is { Error: { } error }) throw new WriteRejectedException(error);
         return results;
     }
-    public Task<JsonElement> VersionAsync(Guid id, CancellationToken token = default) => GetAsync($"versions/{id}", token);
-    public Task<JsonElement> EntityAsync(Guid id, CancellationToken token = default) => GetAsync($"entities/{id}", token);
-    public async Task<JsonElement> VersionsAsync(IEnumerable<Guid> ids, CancellationToken token = default)
+    public Task<JsonElement> ObservationAsync(Guid id, CancellationToken token = default) => GetAsync($"observations/{id}", token);
+    public Task<JsonElement> ThingAsync(Guid id, CancellationToken token = default) => GetAsync($"things/{id}", token);
+    public async Task<JsonElement> ReadObservationsAsync(IEnumerable<Guid> ids, CancellationToken token = default)
     {
-        using var response = await _api.PostAsJsonAsync("versions/read", new { versionIds = ids }, Json, token);
+        using var response = await _api.PostAsJsonAsync("observations/read", new { observationIds = ids }, Json, token);
         return await ReadAsync(response, token);
     }
     public Task<JsonElement> ObservationsAsync(string query = "", CancellationToken token = default) => GetAsync("observations" + query, token);
@@ -136,7 +136,7 @@ public sealed class DataClient : IAsyncDisposable
         do
         {
             var page = await GetAsync(path + (cursor is null ? "" : (path.Contains('?') ? "&" : "?") + "after=" + Uri.EscapeDataString(cursor)), token);
-            items.AddRange(page.GetProperty(path.StartsWith("things", StringComparison.Ordinal) ? "things" : "versions").EnumerateArray());
+            items.AddRange(page.GetProperty(path.StartsWith("things", StringComparison.Ordinal) ? "things" : path.StartsWith("schema-revisions", StringComparison.Ordinal) ? "schemaRevisions" : "observations").EnumerateArray());
             cursor = page.GetProperty("next").GetString();
         } while (cursor is not null);
         return items;

@@ -1,0 +1,38 @@
+---
+title: "Replacement"
+description: "变化都是再说一句：替换自动或显式声明，被替换的保留"
+---
+
+export const caseId = 'api-replacement';
+
+## 为什么验证 [#why]
+
+修解析器、来源对象变化和模型重判都靠替换表达，替换错了旧说法会复活或丢失。约定见 [Observation · 替换](../../core/model/observation.mdx#replacement)。
+
+## 前置条件 [#setup]
+
+通过真实 API 和独立的 PostgreSQL 数据库运行，见 [测试分工](../index.mdx#kinds)。
+
+## 操作与预期结果 [#steps]
+
+| 操作 | 预期结果 |
+| --- | --- |
+| 同一 `key` 写入不同内容 | 保存新的一份，`replaces` 自动指向这个依据最新的一条；旧的一份按 id 能读到 |
+| 同一 `key` 再写一次相同内容 | 什么都不发生，结果的 `observation` 是最新的一条，`changed` 为 `false` |
+| 写入显式声明 `replaces`，没有 `key` | 新的一份替换列出的 Observation |
+| 一份写入替换两份 Observation | `replaces` 有两个元素，两份都在默认视图中隐藏 |
+| 带 `key` 同时显式声明 `replaces` | 两者合在一起 |
+| `replaces` 的目标是另一种业务类型 | 按 OBSERVATION-13 拒绝 |
+| `replaces` 的目标用了同一 Schema 的另一条修订 | 保存成功 |
+| `replaces` 的目标不存在或已删除 | 按 REFERENCE-3 拒绝 |
+| A 被 B 替换，B 被 C 替换 | 默认视图只有 C，`view=all` 有三份 |
+| 修解析器后重读，部分内容变了 | 变了的那些条替换旧的，没变的什么都不发生 |
+| 已保存的 Observation | 没有修改它的接口，重复写入后 `recordedAt` 不变 |
+
+## 测试实现 [#implementation]
+
+未覆盖：这个 Case 由实现任务补上测试。
+
+## 执行结果 [#results]
+
+<TestCaseResults caseId={caseId} />

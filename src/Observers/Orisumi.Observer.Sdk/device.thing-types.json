@@ -1,0 +1,8 @@
+[
+  {
+    "schemaId": "019e1bbb-ec00-7000-8000-00000000000d",
+    "displayName": "设备",
+    "description": "表示平台给出的一个设备身份。",
+    "resourceName": "devices"
+  }
+]

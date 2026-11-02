@@ -70,7 +70,7 @@ export function InstancePanel({
                 disabled={!writable || manage.isPending}
                 onChange={(enabled) =>
                   manage.mutate({
-                    path: `/observer-instances/${instance.entityId}`,
+                    path: `/observer-instances/${instance.thingId}`,
                     method: "PATCH",
                     body: { enabled },
                   })
@@ -117,9 +117,9 @@ export function InstancePanel({
         {writable && <Removal instance={instance} onRemoved={onClose} />}
       </div>
       <footer className="border-line text-fg-3 flex items-center gap-3 border-t px-4 py-2 text-xs">
-        <span className="font-mono">…{instance.entityId.slice(-8)}</span>
+        <span className="font-mono">…{instance.thingId.slice(-8)}</span>
         <span className="flex-1" />
-        <Link to="/things/$thingId" params={{ thingId: instance.entityId }} className="hover:text-fg">
+        <Link to="/things/$thingId" params={{ thingId: instance.thingId }} className="hover:text-fg">
           它的记录 →
         </Link>
       </footer>
@@ -181,7 +181,7 @@ function SettingsEditor({ instance }: { instance: Instance }) {
           disabled={!changed || !parsed || manage.isPending}
           onClick={() =>
             manage.mutate({
-              path: `/observer-instances/${instance.entityId}`,
+              path: `/observer-instances/${instance.thingId}`,
               method: "PATCH",
               body: { settings: parsed },
             })
@@ -219,7 +219,7 @@ function Maintenance({ host, instance }: { host: Host; instance: Instance }) {
                   action,
                   action === "update" || action === "uninstall"
                     ? { packageId: instance.packageId }
-                    : { entityId: instance.entityId },
+                    : { thingId: instance.thingId },
                 )
               }
             >
@@ -275,7 +275,7 @@ function Removal({ instance, onRemoved }: { instance: Instance; onRemoved: () =>
               disabled={manage.isPending}
               onClick={() =>
                 manage.mutate(
-                  { path: `/observer-instances/${instance.entityId}`, method: "DELETE" },
+                  { path: `/observer-instances/${instance.thingId}`, method: "DELETE" },
                   { onSuccess: onRemoved },
                 )
               }

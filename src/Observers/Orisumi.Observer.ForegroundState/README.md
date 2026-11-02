@@ -44,7 +44,7 @@ orisumi verify checks --base HEAD --quality
 1. 同一应用连续确认时，尚未结束的时段不能从 API 读到。
 2. 切换应用或停用后，旧时段能从 API 读到，结束边界是最后一次确认。
 3. 已结束的时段可以用 `GET /api/entities/{observationId}` 读到。
-4. 再次运行，程序实例和本机应用的 EntityId 不变，Observation 是新的。
+4. 再次运行，程序实例和本机应用的 `thingId` 不变，Observation 是新的。
 5. 前台时段的 `icon` 有值，用 `GET /api/contents/{digest}` 读回的是 1024×1024 的 PNG，长度等于 `size`。同一个应用的下一段时段读到相同的摘要。
 
 真实休眠需要另外验证。自动测试只模拟计时差和采集空白。

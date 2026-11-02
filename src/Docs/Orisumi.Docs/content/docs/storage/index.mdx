@@ -1,9 +1,9 @@
 ---
 title: "Overview"
-description: "后端的十四张表：哪些是权威，哪些是可以重建的投影，以及共用的事务和命名"
+description: "后端的表：哪些是权威，哪些是可以重建的投影，以及共用的事务和命名"
 ---
 
-后端在 PostgreSQL 中保存十四张业务表。`versions`、`deleted_versions`、`things`、`contents` 和 `recognition_keys` 是 Core 数据的权威，`entities`、`schemas`、`observations`、`reviews`、`version_references` 和 `version_contents` 是推导出来、供查询使用的投影。`write_streams` 记下写入流的进度，另外两张是 Observer 的管理登记。这样设计的理由见 [ADR · 实体存储](../adr/entity-storage.mdx)。
+后端在 PostgreSQL 中保存二十一张业务表。九张是 Core 数据的权威，七张是推导出来、供查询使用的投影，`runs` 和 `run_reads` 记下一次工作读过什么，`write_streams` 记下写入流的进度，另外两张是 Observer 的管理登记。这样设计的理由见 [ADR · 数据存储](../adr/data-storage.mdx)。
 
 此外还有迁移工具自己的元数据表。
 
@@ -13,63 +13,67 @@ description: "后端的十四张表：哪些是权威，哪些是可以重建的
 
 | 表 | 这一段对应的行 |
 | --- | --- |
-| `versions` | 这一段一行，记着内容、Observer、形成方式和事实时间 |
+| `observations` | 这一段一行，记着内容、Observer、形成方式和事实时间 |
 | `things` | VS Code 这个本机应用一行，第一次提到时写入 |
-| `entities` | 这一段一行，记着当前版本；VS Code 一行 |
-| `observations` | 这一段一行，记着当前版本、类型和事实时间 |
-| `version_references` | 这一段对 VS Code 一行，对前台状态 Observer 一行 |
+| `observation_references` | 这一段对 VS Code 一行，对前台状态 Observer 一行 |
 | `contents` | VS Code 的图标一行，之后的时段读到同一个图标时共用 |
 | `recognition_keys` | VS Code 这个本机应用一行，第一次读到它时写入 |
-| `version_contents` | 这一段对图标一行 |
+| `observation_contents` | 这一段对图标一行 |
 | `observer_instances` | 前台状态 Observer 一行，记着它的启用状态、设置和最近的状态报告 |
 
-第二天用户删掉浏览器的时段，它的版本从 `versions` 中移除，身份写入 `deleted_versions`，它在各张投影中的行也随之移除；图标还有其他时段使用，所以保留。
+第二天用户删掉浏览器的时段，它从 `observations` 中移除，身份写入 `deleted_observations`，它在各张投影中的行也随之移除；图标还有其他时段使用，所以保留。
 
 ## 表 [#tables]
 
 | 表 | 每行 | 性质 | 见 |
 | --- | --- | --- | --- |
-| `versions` | 一个未删除的版本 | 权威：版本内容 | [Versions · versions](./versions.mdx#versions) |
-| `things` | 一个事物 | 权威：事物的身份和类型 | [Versions · things](./versions.mdx#things) |
-| `deleted_versions` | 一个已删除的版本 | 权威：删除的身份 | [Versions · deleted_versions](./versions.mdx#deleted-versions) |
+| `observations` | 一份未删除的 Observation | 权威：陈述的内容 | [Observations · observations](./observations.mdx#observations) |
+| `things` | 一个事物 | 权威：事物的身份和类型 | [Observations · things](./observations.mdx#things) |
+| `deleted_observations` | 一份已删除的 Observation | 权威：删除的身份 | [Observations · deleted_observations](./observations.mdx#deleted-observations) |
+| `schema_revisions` | 一条 SchemaRevision | 权威：类型的字段和含义 | [Observations · schema_revisions](./observations.mdx#schema-revisions) |
+| `thing_types` | 一个事物类型 | 权威：事物类型 | [Observations · thing_types](./observations.mdx#thing-types) |
+| `input_sets` | 一个 InputSet | 权威：实际的输入 | [Observations · input_sets](./observations.mdx#input-sets) |
 | `contents` | 一份已上传的二进制内容 | 权威：内容的字节 | [Contents · contents](./contents.mdx#contents) |
-| `recognition_keys` | 一份识别依据 | 权威：依据到实体的对应 | [Queries · 识别依据](./queries.mdx#recognition) |
-| `entities` | 一个未删除的实体 | 投影 | [Versions · entities](./versions.mdx#entities) |
-| `schemas` | 一个未删除的 EntitySchema | 投影 | [Versions · schemas](./versions.mdx#schemas) |
-| `observations` | 一份未删除的 Observation | 投影 | [Queries · 事实时间](./queries.mdx#fact-time) |
-| `reviews` | 一份 Review 的当前版本 | 投影 | [Queries · 复核](./queries.mdx#reviews) |
-| `version_references` | 一个版本对一个目标实体的引用 | 投影 | [Queries · 引用方](./queries.mdx#references) |
-| `version_contents` | 一个版本对一份内容的使用 | 投影 | [Contents · version_contents](./contents.mdx#version-contents) |
-| `write_streams` | 一个 Observer 的写入流 | 权威：处理进度和声明的 Schema 版本 | [Queries · 写入流](./queries.mdx#write-streams) |
+| `recognition_keys` | 一份识别依据 | 权威：依据到事物或最新一条 Observation 的对应 | [Queries · 识别依据](./queries.mdx#recognition) |
+| `key_tombstones` | 一份已删除的识别依据 | 权威：不能回来的内容 | [Queries · 墓碑](./queries.mdx#key-tombstones) |
+| `schemas` | 一个未删除的 Schema | 投影 | [Observations · schemas](./observations.mdx#schemas) |
+| `observation_references` | 一份 Observation 对一个目标的引用 | 投影 | [Queries · 引用方](./queries.mdx#references) |
+| `observation_contents` | 一份 Observation 对一份内容的使用 | 投影 | [Contents · observation_contents](./contents.mdx#observation-contents) |
+| `replacements` | 一次替换 | 投影 | [Queries · 默认视图](./queries.mdx#view) |
+| `reviews` | 一份 Review | 投影 | [Queries · 默认视图](./queries.mdx#view) |
+| `same_as_links` | 一份 Same-As | 投影 | [Queries · 默认视图](./queries.mdx#view) |
+| `adoptions` | 一份 Adoption | 投影 | [Queries · 默认视图](./queries.mdx#view) |
+| `runs` | 一次工作 | 读取记录 | [Queries · 一次工作](./queries.mdx#runs) |
+| `run_reads` | 一次工作读过的一份 Observation | 读取记录 | [Queries · 一次工作](./queries.mdx#runs) |
+| `write_streams` | 一个 Observer 的写入流 | 权威：处理进度和声明的 SchemaRevision | [Queries · 写入流](./queries.mdx#write-streams) |
 | `observer_hosts` | 一个托管方 | 权威：管理登记 | [Management](./management.mdx#observer-hosts) |
 | `observer_instances` | 一个受管理的程序实例 | 权威：管理登记 | [Management](./management.mdx#observer-instances) |
 
-- 六张投影可以随时从权威表重建，见[重建](#rebuild)。
+- 七张投影可以随时从权威表重建，见[重建](#rebuild)。
 - 权威表不设置指向投影的外键。投影可以有指向权威表或其他投影的外键。
-- `recognition_keys` 不能从版本推导：调用方给出的值由业务规则组成，后端不解释它们。`write_streams` 不是 Core 的数据，丢失时已经处理的请求可能再处理一次，程序下次启动时重新声明业务类型。
-- 两张管理表不是 Core 的投影，配置、凭证和移除标记都不能从版本推导。
+- `recognition_keys` 不能从 Observation 推导：调用方给出的值由业务规则组成，后端不解释它们。`write_streams` 不是 Core 的数据，丢失时已经处理的请求可能再处理一次，程序下次启动时重新声明业务类型。
+- 两张管理表不是 Core 的投影，配置、凭证和移除标记都不能从 Observation 推导。
 
 按类型的查询都从以类型开头的索引进入，只读取目标类型的行，所以数据量大的类型不影响其他类型的查询。各表的约束和索引写在表所在的页中，名字的写法见[命名](#naming)。
 
 ## 事务 [#transactions]
 
 - 每个操作在一个事务中完成，事务开始时取得一个固定键的事务级 advisory lock（`pg_advisory_xact_lock`）。所以所有读写，包括管理登记的写入，都串行执行。
-- 一个写入请求在一个事务中完成，每次写入一个保存点。一次写入被拒绝时回到它的保存点，其他写入照常保存，见 [VERSION-13](../core/model/version.mdx#version-13)。序号和请求中的写入在同一个事务中保存，所以重发不会重复。
-- 保存一个版本时，`versions` 的新行、它提到的新事物、它在投影中的变化和这次写入登记的识别依据在同一个事务中写入。
-- 删除一个实体时，删除身份、版本、投影的变化、识别依据、不再使用的内容和管理登记的移除标记在同一个事务中写入，见 [Versions · 删除](./versions.mdx#deletion)。
+- 一个写入请求在一个事务中完成，每次写入一个保存点。一次写入被拒绝时回到它的保存点，其他写入照常保存，见 [OBSERVATION-17](../core/model/observation.mdx#observation-17)。序号和请求中的写入在同一个事务中保存，所以重发不会重复。
+- 保存一份 Observation 时，`observations` 的新行、它提到的新事物、它在投影中的变化和这次写入登记的识别依据在同一个事务中写入。
+- 删除时，删除身份、Observation、投影的变化、墓碑、不再使用的内容和管理登记的移除标记在同一个事务中写入，见 [Observations · 删除](./observations.mdx#deletion)。
 
 ## 重建 [#rebuild]
 
-六张投影按以下方式从权威表算出，结果与逐次保存和删除后的投影相同：
+七张投影按以下方式从权威表算出，结果与逐次保存和删除后的投影相同：
 
-1. `entities`：每个在 `versions` 中有版本的实体一行，当前版本是版本链的最后一个，即 `ordinal` 最大的版本；每个未删除的事物一行。
-2. `schemas`：每个 `category` 为 `entity_schema` 的实体一行，资源名取当前版本的 `resourceName`。
-3. `observations`：每个 `category` 为 `observation` 的实体一行，取自当前版本的列。
-4. `reviews`：每份 Review 的当前版本一行，见 [Queries · 复核](./queries.mdx#reviews)。
-5. `version_references`：按每个版本的 Core 成员和 Schema 版本枚举它的引用，事物的目标就是引用的值，版本的目标从 `versions` 或 `deleted_versions` 中查出所属的实体。
-6. `version_contents`：按每个版本的 Schema 版本枚举它的 `binary` 值，每个版本对每个摘要一行。
+1. `schemas`：每个在 `schema_revisions` 中有行的 SchemaId 一行。
+2. `observation_references`：按每份 Observation 的 Core 成员和 SchemaRevision 枚举它的引用。
+3. `observation_contents`：按每份 Observation 的 SchemaRevision 枚举它的 `binary` 值，每份对每个摘要一行。
+4. `replacements`：每份 Observation 的 `replaces` 中每个元素一行。
+5. `reviews`、`same_as_links`、`adoptions`：读对应类型的 Observation，见 [Queries · 默认视图](./queries.mdx#view)。
 
-重建只读权威表，不写入它们。只从 `versions` 重建是不够的：引用已删除目标的边要靠 `deleted_versions` 才能算出。
+重建只读权威表，不写入它们。
 
 ## 命名 [#naming]
 
@@ -77,19 +81,19 @@ description: "后端的十四张表：哪些是权威，哪些是可以重建的
 
 | 位置 | 格式 | 示例 |
 | --- | --- | --- |
-| API 字段 | `camelCase` | `observerVersionId` |
-| C# 属性 | `PascalCase` | `ObserverVersionId` |
-| 表名、列名、约束名、索引名 | `snake_case` | `observer_version_id` |
+| API 字段 | `camelCase` | `observerDescriptionId` |
+| C# 属性 | `PascalCase` | `ObserverDescriptionId` |
+| 表名、列名、约束名、索引名 | `snake_case` | `observer_description_id` |
 
 约束和索引按下表命名：
 
 | 约束或索引 | 规则 | 示例 |
 | --- | --- | --- |
-| 主键 | `pk_<表名>` | `pk_versions` |
-| 外键 | `fk_<表名>_<目标表>_<列名>` | `fk_entities_versions_current_version_id` |
+| 主键 | `pk_<表名>` | `pk_observations` |
+| 外键 | `fk_<表名>_<目标表>_<列名>` | `fk_observations_schema_revisions_schema_revision_id` |
 | 检查 | `ck_<表名>_<内容>` | `ck_observer_hosts_kind` |
 | 唯一索引 | `ux_<表名>_<列名>` | `ux_schemas_resource_name` |
-| 普通索引 | `ix_<表名>_<列名>` | `ix_entities_schema_id_entity_id` |
+| 普通索引 | `ix_<表名>_<列名>` | `ix_things_schema_id_thing_id` |
 
 ## 数据量 [#volume]
 
@@ -97,5 +101,5 @@ description: "后端的十四张表：哪些是权威，哪些是可以重建的
 
 | 表 | 估算 |
 | --- | --- |
-| `versions`、`entities`、`observations` | 各约 255 万行 |
-| `version_references` | 约 535 万行：每份 Observation 引用程序实例，每个前台时段引用本机应用，键鼠事件引用设备 |
+| `observations` | 约 255 万行 |
+| `observation_references` | 约 535 万行：每份 Observation 引用程序实例，每个前台时段引用本机应用，键鼠事件引用设备 |

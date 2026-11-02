@@ -17,7 +17,7 @@ public sealed class SessionUnderstandingTests
         var sessions = await repository.SessionsAsync(CancellationToken.None);
         var model = new FakeModel { Decide = input => {
             var json = JsonSerializer.SerializeToElement(input, JsonSerializerOptions.Web);
-            var other = json.GetProperty("nearby")[0].GetProperty("entityId").GetGuid();
+            var other = json.GetProperty("nearby")[0].GetProperty("thingId").GetGuid();
             return new("接续会话设计", [new(other, "继续了", "用户提到继续另一个会话")]);
         } };
         var recognizer = Recognizer(fixture, repository, model, DateTimeOffset.Parse("2026-11-01T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
@@ -28,21 +28,21 @@ public sealed class SessionUnderstandingTests
         await Assert.That(names.All(n => n.GetProperty("startAt").ValueKind == JsonValueKind.Null)).IsTrue();
         var secondInput = JsonSerializer.SerializeToElement(model.Inputs[1], JsonSerializerOptions.Web);
         await Assert.That(secondInput.GetProperty("nearby")[0].GetProperty("name").GetString()).IsEqualTo("接续会话设计");
-        var inputSet = await fixture.Data.VersionAsync(names[0].GetProperty("inputSetVersionId").GetGuid());
-        await Assert.That(inputSet.GetProperty("content").GetProperty("members").GetArrayLength() >= 2).IsTrue();
+        var inputSet = await fixture.Data.GetAsync($"input-sets/{names[0].GetProperty("inputSetId").GetGuid()}");
+        await Assert.That(inputSet.GetProperty("members").GetArrayLength() >= 2).IsTrue();
         await recognizer.RunOnceAsync(CancellationToken.None);
         await Assert.That(model.Inputs.Count).IsEqualTo(2);
         // A user denial makes the named session pending again and is supplied to the model.
         await using var person = new DataClient(fixture.Http, fixture.Http, Ref.Recognize(Guid.Parse("019e1bbb-ec00-7000-8000-000000000006"), new(null, "test.person", "user")));
-        await person.WriteAsync(new(CommonSchemas.Review, new { targetVersionId = names[0].GetProperty("versionId").GetGuid(), verdict = "deny", text = "不是这个名字" }, "stated"));
+        await person.WriteAsync(new(CommonSchemas.Review, new { targetId = names[0].GetProperty("observationId").GetGuid(), scope = (object?)null, verdict = "deny", text = "不是这个名字" }, "stated"));
         await recognizer.RunOnceAsync(CancellationToken.None);
         await Assert.That(model.Inputs.Count).IsEqualTo(3);
-        await Assert.That((await fixture.Data.ListAsync("observations?resourceName=names&formation=inferred")).Count).IsEqualTo(2);
+        await Assert.That((await fixture.Data.ListAsync("observations?resourceName=names&formation=inferred")).Count).IsEqualTo(1);
         var retry = JsonSerializer.SerializeToElement(model.Inputs[2], JsonSerializerOptions.Web);
         await Assert.That(retry.GetProperty("denials").GetArrayLength()).IsEqualTo(1);
         model.Decide = _ => new("重新审视设计", []);
         await recognizer.RunOnceAsync(CancellationToken.None);
-        await Assert.That((await fixture.Data.ListAsync("observations?resourceName=names&formation=inferred&standing=current")).Count).IsEqualTo(2);
+        await Assert.That((await fixture.Data.ListAsync("observations?resourceName=names&formation=inferred&view=current")).Count).IsEqualTo(2);
     }
 
     [Test, Property("caseId", "assistant-sessions")]

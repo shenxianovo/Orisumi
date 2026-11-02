@@ -15,14 +15,14 @@ description: "设备和服务器运行同一个 Runtime，Runtime 启动各 Obse
 - Runtime 启动每个启用的程序实例的进程。Observer 是一个普通进程：运行上下文从环境变量读取，标准输入关闭时结束，诊断写入标准错误，见 [Protocol · Observer 进程](../hosting/protocol.mdx#observer-process)。
 - Runtime 用本地转发收下程序的写入，按顺序交给后端，不解释内容，见 [ADR · 单向写入与托管的分工](./data-capability.mdx)。
 - 设备上的客户端通过另一对管道向 Runtime 发出管理指令、读取状态，并取得数据连接。服务方式的 Runtime 没有客户端管道，只经后端接受远程管理，见 [ADR · Observer 的统一管理](./observer-management.mdx)。
-- Runtime 持久保存每个程序实例的 EntityId，启动进程时交给它。业务对象的 EntityId 仍由各 Observer 的业务规则确定。
+- Runtime 持久保存每个程序实例的 `thingId`，启动进程时交给它。业务对象的身份仍由各 Observer 的业务规则确定。
 - 业务代码自己的持久数据放在实例的数据目录中，由业务代码解释。
-- 程序文件和实例数据分开保存：`packages/<package-id>/<version>/` 是解压后的包，`instances/<entity-id>/` 是实例的数据。安装登记记录包和程序实例的对应关系。
+- 程序文件和实例数据分开保存：`packages/<package-id>/<version>/` 是解压后的包，`instances/<thing-id>/` 是实例的数据。安装登记记录包和程序实例的对应关系。
 - 数据目录是程序实例的身份和业务状态的权威位置。服务器部署必须持久保存它。
 - 设备上的 Runtime 随客户端运行，客户端退出时一起退出。服务方式的 Runtime 由服务管理器启停。
 - 服务器上的 Observer 是独立的安装包，和设备上的 Observer 使用同一种包格式、安装流程和 SDK。叙事 Observer 由 API 进程托管，见 [ADR · 叙事](./narrative.mdx)。
 - 开发时不启动客户端，用同一个 Runtime 在命令行中运行 Observer。
-- Runtime 不是 Observer，没有自己的实体。它在后端有一条管理登记，见 [ADR · Observer 的统一管理](./observer-management.mdx)。
+- Runtime 不是 Observer，不是事物。它在后端有一条管理登记，见 [ADR · Observer 的统一管理](./observer-management.mdx)。
 - 以上是桌面平台和服务器的做法。移动平台承担相同的职责，运行机制另定。
 
 ## 理由 [#rationale]

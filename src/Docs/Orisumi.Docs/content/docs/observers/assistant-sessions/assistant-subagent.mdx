@@ -35,7 +35,7 @@ description: "子 Agent 会话和发起它的会话之间的关系"
 
 来源没有单独记下子 Agent 开始的时刻，事实时间未知，由读取方从交互的时间计算。
 
-## EntitySchema [#schema]
+## Schema [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -43,13 +43,11 @@ description: "子 Agent 会话和发起它的会话之间的关系"
 | 显示名称 | 子 Agent 关系 |
 | 说明 | 表示一个子 Agent 的会话和发起它的会话之间的关系。一个子 Agent 的会话一份 Observation。 |
 | 资源名 | `assistant-subagents` |
-| `kind` | `observation` |
-| `immutable` | `true` |
 
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
-| `sessionId` | `reference`，目标为事物 | 是 | 否 | 子 Agent 的会话 |
-| `parentSessionId` | `reference`，目标为事物 | 是 | 否 | 发起这个子 Agent 的会话 |
+| `sessionId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 子 Agent 的会话 |
+| `parentSessionId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 发起这个子 Agent 的会话 |
 | `agentName` | `string` | 是 | 是 | 子 Agent 的类型或路径：Claude Code `meta.json` 的 `agentType`，Codex 的 `agent_path`。来源没有给出时为 `null` |
 | `spawnCallId` | `string` | 是 | 是 | 父会话中发起这个子 Agent 的工具调用标识，对应父会话中工具调用交互的 `callId`；来源没有给出时为 `null` |
 

@@ -1,6 +1,6 @@
 ---
 title: "PostgreSQL"
-description: "后端使用的 PostgreSQL：版本、数据访问、时间怎样截断，以及排查性能用的统计配置"
+description: "后端使用的 PostgreSQL：数据库版本、数据访问、时间怎样截断，以及排查性能用的统计配置"
 ---
 
 本页说明后端使用的 PostgreSQL：版本、数据访问方式、时间怎样保存，以及排查性能用的统计配置。
@@ -27,9 +27,9 @@ description: "后端使用的 PostgreSQL：版本、数据访问、时间怎样�
 
 已知的时间先转换为 UTC，再向下截断到整微秒。列中的时间以 `timestamptz` 保存，例如 `recorded_at`、`start_at`、`reported_at` 和 `fact_range` 的边界。
 
-截断在应用层完成。数据库驱动按自己的时间纪元截断，会让 2000 年以前的时间向后进位；应用层的截断与纪元无关，例如 `1999-12-31T23:59:59.9999999Z` 保存为 `1999-12-31T23:59:59.999999Z`。API 中时间的写法见 [API · 时间](../api/versions.mdx#time)。
+截断在应用层完成。数据库驱动按自己的时间纪元截断，会让 2000 年以前的时间向后进位；应用层的截断与纪元无关，例如 `1999-12-31T23:59:59.9999999Z` 保存为 `1999-12-31T23:59:59.999999Z`。API 中时间的写法见 [API · 时间](../api/reading.mdx#time)。
 
-- 换算由 Core 的 `VersionTime.Normalize` 完成。
+- 换算由 Core 的 `ObservationTime.Normalize` 完成。
 - 经过 EF 的读写使用 `Database/Converters/UtcDateTimeOffsetValueConverter.cs`，它对所有 `DateTimeOffset` 属性调用这个换算，包括可空的。
 - 不经过 EF 的参数化 SQL，写入时间前直接调用它。
 

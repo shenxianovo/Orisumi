@@ -1,24 +1,27 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { isEntitySchema, type ObservationVersion, type Thing } from "@/api/types";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { Observation, Thing, ThingActivity } from "@/api/types";
 import { InfoMark } from "@/components/token/Token";
 import { Button, Message } from "@/components/ui";
-import { useVersion } from "@/hooks/queries";
+import { useObservation, useSchemaRevision } from "@/hooks/queries";
 import { useCatalog } from "@/hooks/useApplications";
 import { useArchive, useWriteName, type ArchiveData } from "@/hooks/useArchive";
-import { useDescribe, timeLabel, type EntityInfo } from "@/hooks/useEntityInfo";
-import { useThingInfo } from "@/hooks/useEntityInfo";
+import { useActivity as useActivityPage } from "@/hooks/useArchive";
+import { useDescribe, timeLabel, type ItemInfo } from "@/hooks/useItemInfo";
+import { useTypes } from "@/hooks/useTypes";
+import { useThingInfo } from "@/hooks/useItemInfo";
 import { useObservers } from "@/hooks/useObservers";
+import { useReview } from "@/hooks/useReview";
 import { LOCAL_APPLICATIONS, PRODUCTS, type Catalog } from "@/lib/applications";
-import { statementSpan, type ArchiveBundle } from "@/lib/archive";
+import { statementSpan, type ArchiveLink } from "@/lib/archive";
 import { FORMATION_NAMES } from "@/lib/common";
 import type { EpisodeContent } from "@/lib/episodes";
 import { businessTitle } from "@/lib/titles";
 import { dayTitle, duration, parseTime } from "@/lib/time";
 import { NameNode, NodeGroup, ObserverNode, PendingNode, StatementNode, ThingNode } from "./nodes";
 
-/** 档案：以一个事物为中心的织图。左边是怎样称呼它、谁看到过它，右边是和它有关的事物和它的经历。 */
+/** 档案：以一个事物为中心的织图。左边是怎样称呼它、谁看到过它，右边是和它有关的事物和发生过的事。 */
 export function Archive({ thing }: { thing: Thing }) {
-  const archive = useArchive(thing.entityId);
+  const archive = useArchive(thing.thingId);
   const { info } = useDescribe(thing);
   const catalog = useCatalog();
   if (archive.isError) return <Message title="读不到这份档案" detail={archive.error.message} mascot />;
@@ -84,7 +87,7 @@ function Weave({
   catalog,
 }: {
   thing: Thing;
-  info: EntityInfo;
+  info: ItemInfo;
   data: ArchiveData;
   catalog: Catalog | undefined;
 }) {
@@ -92,26 +95,29 @@ function Weave({
   const resourceName = info.schema?.content.resourceName;
   const device = data.links.find((link) => link.label === "device");
 
-  const related: ReactNode[] = data.links.map((link) => (
-    <ThingNode
-      key={link.key}
-      thingId={link.thingId}
-      statement={link.statement}
-      label={link.label}
-      inferred={link.statement.formation === "inferred"}
-    />
-  ));
+  const related: ReactNode[] = [
+    ...data.sameAs.map((link) => <SameAsNode key={link.key} link={link} />),
+    ...data.links.map((link) => (
+      <ThingNode
+        key={link.key}
+        thingId={link.thingId}
+        statement={link.statement}
+        label={link.label}
+        inferred={link.statement.formation === "inferred"}
+      />
+    )),
+  ];
   if (resourceName === LOCAL_APPLICATIONS && catalog) {
     const product = catalog.productOf(thing);
     const membership = product?.memberships.find((m) =>
-      catalog.installsOf(m.clue.entityId).some((install) => install.thing.entityId === thing.entityId),
+      catalog.installsOf(m.clue.thingId).some((install) => install.thing.thingId === thing.thingId),
     );
     related.push(
       product ? (
         <ThingNode
           key="product"
-          thingId={product.thing.entityId}
-          statement={membership?.version}
+          thingId={product.thing.thingId}
+          statement={membership?.observation}
           label="属于"
           inferred
         />
@@ -122,12 +128,12 @@ function Weave({
   }
   if (resourceName === PRODUCTS && catalog)
     for (const install of catalog.installs)
-      if (catalog.productOf(install.thing)?.thing.entityId === thing.entityId)
-        related.push(<ThingNode key={install.thing.entityId} thingId={install.thing.entityId} label="属于它" />);
+      if (catalog.productOf(install.thing)?.thing.thingId === thing.thingId)
+        related.push(<ThingNode key={install.thing.thingId} thingId={install.thing.thingId} label="属于它" />);
 
   const experiences: ReactNode[] = [
-    ...data.episodes.map((episode) => <EpisodeNode key={episode.versionId} episode={episode} />),
-    ...data.bundles.map((bundle) => <Bundle key={bundle.resourceName} bundle={bundle} truncated={data.truncated} />),
+    ...data.episodes.map((episode) => <EpisodeNode key={episode.observationId} episode={episode} />),
+    ...data.activity.map((activity) => <Bundle key={activity.href} activity={activity} />),
   ];
 
   return (
@@ -152,10 +158,10 @@ function Weave({
         ))}
       </svg>
       <div className="relative grid items-start gap-x-16 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)_minmax(0,1fr)]">
-        <div className="grid gap-5 max-lg:order-2">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 max-lg:order-2">
           <NodeGroup title="怎样称呼它">
             {data.names.length
-              ? data.names.map((name) => <NameNode key={name.versionId} statement={name} />)
+              ? data.names.map((name) => <NameNode key={name.observationId} statement={name} />)
               : [<PendingNode key="pending" title="还没有名字" />]}
           </NodeGroup>
           {data.observers.length > 0 && (
@@ -172,7 +178,7 @@ function Weave({
         >
           <Center thing={thing} info={info} deviceId={device?.thingId} />
         </div>
-        <div className="grid gap-5 max-lg:order-3">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 max-lg:order-3">
           {related.length > 0 && <NodeGroup title="和它有关的">{related}</NodeGroup>}
           {experiences.length > 0 && <NodeGroup title="经历">{experiences}</NodeGroup>}
         </div>
@@ -182,7 +188,7 @@ function Weave({
 }
 
 /** 中间：记号、名字、类型和所在之处，名字由谁写下，以及“写一个名字”。 */
-function Center({ thing, info, deviceId }: { thing: Thing; info: EntityInfo; deviceId: string | undefined }) {
+function Center({ thing, info, deviceId }: { thing: Thing; info: ItemInfo; deviceId: string | undefined }) {
   const device = useThingInfo(deviceId);
   return (
     <>
@@ -199,9 +205,9 @@ function Center({ thing, info, deviceId }: { thing: Thing; info: EntityInfo; dev
 }
 
 function NamedBy({ thing }: { thing: Thing }) {
-  const version = useVersion(thing.nameVersionId);
+  const observation = useObservation(thing.nameObservationId);
   const observers = useObservers();
-  const name = version.data as ObservationVersion | undefined;
+  const name = observation.data as Observation | undefined;
   if (!thing.name) return <p className="text-fg-3 mt-2 text-xs">还没有名字</p>;
   if (!name) return null;
   const identity = observers.data?.get(name.observerId)?.identity;
@@ -229,7 +235,7 @@ function WriteName({ thing, current }: { thing: Thing; current: string }) {
         event.preventDefault();
         const name = value.trim();
         if (!name || name === current) return setValue(null);
-        write.mutate({ thingId: thing.entityId, name }, { onSuccess: () => setValue(null) });
+        write.mutate({ thingId: thing.thingId, name }, { onSuccess: () => setValue(null) });
       }}
     >
       <input
@@ -252,7 +258,7 @@ function WriteName({ thing, current }: { thing: Thing; current: string }) {
   );
 }
 
-function EpisodeNode({ episode }: { episode: ObservationVersion }) {
+function EpisodeNode({ episode }: { episode: Observation }) {
   const { title } = episode.content as unknown as EpisodeContent;
   const start = parseTime(episode.startAt);
   return (
@@ -265,51 +271,84 @@ function EpisodeNode({ episode }: { episode: ObservationVersion }) {
   );
 }
 
-const BUNDLE_STEP = 8;
-
-/** 一种类型的经历收成一束，写数量和总时长，点开逐条列出。 */
-function Bundle({ bundle, truncated }: { bundle: ArchiveBundle; truncated: boolean }) {
-  const [shown, setShown] = useState(0);
-  const count = useMemo(
-    () => `${bundle.statements.length}${truncated ? "+" : ""} 份${bundle.typeName}`,
-    [bundle.statements.length, bundle.typeName, truncated],
-  );
+/** 另一个按 Same-As 同一的事物，“拆开”否定这条 Same-As。 */
+function SameAsNode({ link }: { link: ArchiveLink }) {
+  const review = useReview();
   return (
-    <div>
+    <div className="min-w-0">
+      <ThingNode
+        thingId={link.thingId}
+        statement={link.statement}
+        label={link.label}
+        inferred={link.statement.formation === "inferred"}
+      />
+      <div className="mt-0.5 flex items-center justify-end gap-2">
+        {review.error && <span className="text-danger text-xs">{review.error.message}</span>}
+        <button
+          type="button"
+          disabled={review.isPending}
+          onClick={() => review.mutate({ targetId: link.statement.observationId, verdict: "deny" })}
+          className="text-fg-3 hover:text-fg cursor-pointer text-xs disabled:cursor-default"
+        >
+          拆开
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const BUNDLE_STEP = 20;
+
+/** 一种类型的经历收成一束，写数量，点开用它的 href 逐条列出。 */
+function Bundle({ activity }: { activity: ThingActivity }) {
+  const [open, setOpen] = useState(false);
+  const types = useTypes();
+  const typeName = types.data?.byResourceName.get(activity.resourceName)?.content.displayName ?? "…";
+  return (
+    <div className="min-w-0">
       <button
         type="button"
         data-wire=""
-        data-label={bundle.typeName}
-        aria-expanded={shown > 0}
-        onClick={() => setShown(shown ? 0 : BUNDLE_STEP)}
+        data-label={typeName}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
         className="bg-card border-line-2 hover:bg-accent-soft w-full cursor-pointer rounded-lg border px-2.5 py-1.5 text-left"
       >
-        <span className="block text-[13px] leading-snug font-medium tabular-nums">{count}</span>
-        {bundle.total > 0 && <span className="text-fg-3 block text-[11px]">{duration(bundle.total)}</span>}
+        <span className="block text-[13px] leading-snug font-medium tabular-nums">
+          {activity.count.toLocaleString()} 份{typeName}
+        </span>
+        <span className="text-fg-3 block text-[11px]">{activity.role === "part" ? "它的一部分" : "提到它"}</span>
       </button>
-      {shown > 0 && (
-        <div className="mt-1.5 ml-4 grid gap-1">
-          {bundle.statements.slice(0, shown).map((statement) => (
-            <BundleItem key={statement.versionId} statement={statement} />
-          ))}
-          {shown < bundle.statements.length && (
-            <button
-              type="button"
-              onClick={() => setShown(shown + BUNDLE_STEP)}
-              className="text-fg-3 hover:text-fg cursor-pointer px-2.5 py-1 text-left text-xs"
-            >
-              还有 {bundle.statements.length - shown} 个
-            </button>
-          )}
-        </div>
+      {open && <BundleItems activity={activity} />}
+    </div>
+  );
+}
+
+function BundleItems({ activity }: { activity: ThingActivity }) {
+  const page = useActivityPage(activity.href, BUNDLE_STEP);
+  const statements = page.data?.pages.flatMap((item) => item.observations) ?? [];
+  return (
+    <div className="mt-1.5 ml-4 grid gap-1">
+      {statements.map((statement) => (
+        <BundleItem key={statement.observationId} statement={statement} />
+      ))}
+      {page.isPending && <p className="text-fg-3 px-2.5 py-1 text-xs">读取中</p>}
+      {page.hasNextPage && (
+        <button
+          type="button"
+          onClick={() => void page.fetchNextPage()}
+          className="text-fg-3 hover:text-fg cursor-pointer px-2.5 py-1 text-left text-xs"
+        >
+          还有 {(activity.count - statements.length).toLocaleString()} 个
+        </button>
       )}
     </div>
   );
 }
 
-function BundleItem({ statement }: { statement: ObservationVersion }) {
-  const schema = useVersion(statement.schemaVersionId);
-  const type = schema.data && isEntitySchema(schema.data) ? schema.data.content : undefined;
+function BundleItem({ statement }: { statement: Observation }) {
+  const schema = useSchemaRevision(statement.schemaRevisionId);
+  const type = schema.data?.content;
   const title = businessTitle(statement.content, type?.fields, type?.resourceName)?.text;
   const span = statementSpan(statement);
   return (

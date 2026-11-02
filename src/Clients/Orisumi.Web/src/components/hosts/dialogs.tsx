@@ -118,7 +118,7 @@ export function InstallDialog({
               busy={install.running}
               onInstall={() => {
                 setChosen(pkg.id);
-                void install.start("install", { packageId: pkg.id, newInstance: isFresh(pkg, instances) });
+                void install.start("install", { packageId: pkg.id });
               }}
             />
           ))}

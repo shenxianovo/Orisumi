@@ -3,61 +3,70 @@ title: "Glossary"
 description: "Core 术语的定义"
 ---
 
-Observation、EntitySchema、InputSet、Observer 和各种 Id 用英文名，其余概念用中文。事物的英文名是 Thing。Observation 的中文名是“观测”。写作时用哪个词，见 [Writing · 用词](./writing.mdx#terms)。
+Observation、Schema、SchemaRevision、InputSet、Observer 和各种 Id 用英文名，其余概念用中文。事物的英文名是 Thing。Observation 的中文名是“观测”。写作时用哪个词，见 [Writing · 用词](./writing.mdx#terms)。
 
-## 实体与版本 [#entities]
+## 事物与观测 [#things]
 
 | 术语 | 定义 | 详见 |
 | --- | --- | --- |
-| 实体（Entity） | 有稳定身份的一项数据，例如一个人、一个本机应用或一份推断。所有数据都是实体 | [Entity](./model/entity.mdx) |
-| 事物（Thing） | 只有身份的实体，例如设备、会话、账号和人 | [Thing](./model/thing.mdx) |
-| EntityId | 实体的身份，UUIDv7 | [ENTITY-1](./model/entity.mdx#entity-1) |
-| 版本（Version） | 有版本的实体一次保存的完整内容，保存后不可改写 | [Version](./model/version.mdx) |
-| VersionId | 版本的身份，后端生成的 UUIDv7 | [VERSION-12](./model/version.mdx#version-12) |
-| 版本链 | 一个实体的全部版本，每个版本指向前一版本 | [VERSION-4](./model/version.mdx#version-4) |
-| 当前版本 | 有版本的实体最新保存的版本 | [VERSION-5](./model/version.mdx#version-5) |
-| 已保存 | 版本已被后端保存，可以被引用 | [ENTITY-6](./model/entity.mdx#entity-6) |
-| 写入 | 写入方把一份 Observation 的完整内容交给后端。全部保存或全部不保存 | [VERSION-13](./model/version.mdx#version-13) |
-| 识别依据 | 认出实体所用的一组值：业务类型、作用范围、标识方案和标识的值 | [IDENTITY-7](./rules/identity.mdx#identity-7) |
-| 引用 | 保存目标 EntityId 或 VersionId 的位置，由 Core 或 Schema 版本声明 | [ENTITY-4](./model/entity.mdx#entity-4) |
-| 引用方 | 保存引用的版本，以及它所属的实体 | [ENTITY-8](./model/entity.mdx#entity-8) |
-| 二进制内容 | 业务字段中的一份文件。版本保存它的描述，字节按摘要单独保存 | [Binary](./model/binary.mdx) |
+| 事物（Thing） | 只有身份的对象，例如设备、会话、账号和人 | [Thing](./model/thing.mdx) |
+| `thingId` | 事物的身份，UUIDv7 | [THING-6](./model/thing.mdx#thing-6) |
+| Observation（观测） | Observer 形成的一份陈述，说明谁负责、说了什么、怎么来的、依据什么、事实何时成立。保存后不可变 | [Observation](./model/observation.mdx) |
+| `observationId` | Observation 的身份，后端生成的 UUIDv7 | [OBSERVATION-12](./model/observation.mdx#observation-12) |
+| 已保存 | Observation 已被后端保存，可以被引用 | [REFERENCE-3](./rules/references.mdx#reference-3) |
+| 写入 | 写入方把一份 Observation 的完整内容交给后端。全部保存或全部不保存 | [OBSERVATION-17](./model/observation.mdx#observation-17) |
+| 识别依据 | 认出事物或 Observation 所用的一组值：业务类型、作用范围、标识方案和标识的值 | [IDENTITY-7](./rules/identity.mdx#identity-7) |
+| 引用 | 保存目标 `thingId` 或 `observationId` 的位置，由 Core 或 SchemaRevision 声明 | [REFERENCE-1](./rules/references.mdx#reference-1) |
+| 引用方 | 保存引用的 Observation | [REFERENCE-4](./rules/references.mdx#reference-4) |
+| 二进制内容 | 业务字段中的一份文件。Observation 保存它的描述，字节按摘要单独保存 | [Binary](./model/binary.mdx) |
 | 摘要 | 二进制内容的身份，`sha256:` 加字节的 SHA-256 摘要 | [BINARY-2](./model/binary.mdx#binary-2) |
-| 关系 | 实体之间的联系，都写成 Observation 中的引用 | [ENTITY-9](./model/entity.mdx#entity-9) |
+| 关系 | 事物之间的联系，都写成 Observation 中的引用 | [REFERENCE-5](./rules/references.mdx#reference-5) |
 
 ## 类型 [#types]
 
 | 术语 | 定义 | 详见 |
 | --- | --- | --- |
-| 业务字段 | Observation 的 `content` 中由 Schema 版本声明的字段 | [EntitySchema](./model/schema.mdx) |
-| 业务类型 | 一种事物或 Observation，由一个 EntitySchema 定义 | [SCHEMA-1](./model/schema.mdx#schema-1) |
-| EntitySchema | 定义业务类型的实体；它的每个版本是一版字段、约束和含义 | [EntitySchema](./model/schema.mdx) |
-| SchemaId | EntitySchema 的 EntityId，也就是业务类型的身份 | [SCHEMA-1](./model/schema.mdx#schema-1) |
-| Schema 版本 | EntitySchema 的一个版本，Observation 用 `schemaVersionId` 引用它 | [SCHEMA-2](./model/schema.mdx#schema-2) |
-| 资源名 | EntitySchema 的 `resourceName`，同一业务类型的各 Schema 版本相同 | [SCHEMA-5](./model/schema.mdx#schema-5) |
-| 业务规则 | 一种业务类型怎样记下事实：身份、粒度、事实时间、结束条件、原始材料，以及陈述冲突时以谁为准。写在业务类型页和 EntitySchema 的 `description` 中，由使用这种类型的 Observer 共用 | [Overview · 谁决定什么](./index.mdx#responsibility) |
-| Observation（观测） | Observer 形成的一份陈述，说明谁负责、说了什么、怎么来的、依据什么、事实何时成立 | [Observation](./model/observation.mdx) |
-| InputSet（输入集） | 一次处理实际用到的版本集合，可以被多份观测共用 | [InputSet](./model/input-set.mdx) |
+| 业务字段 | Observation 的 `content` 中由 SchemaRevision 声明的字段 | [Schema](./model/schema.mdx) |
+| 业务类型 | 一种事物或 Observation | [Schema](./model/schema.mdx) |
+| Schema | 定义一种 Observation 类型；每次修改是一条 SchemaRevision | [Schema](./model/schema.mdx) |
+| SchemaId | 业务类型的身份，是一个常量 | [SCHEMA-1](./model/schema.mdx#schema-1) |
+| SchemaRevision | Schema 的一次修改，Observation 用 `schemaRevisionId` 引用它 | [SCHEMA-2](./model/schema.mdx#schema-2) |
+| 事物类型 | 定义一种事物，只有名称和说明 | [SCHEMA-17](./model/schema.mdx#schema-17) |
+| 资源名 | 业务类型的 `resourceName`，同一个 Schema 的各修订相同 | [SCHEMA-5](./model/schema.mdx#schema-5) |
+| 引用的角色 | 引用事物的字段声明的 `role`：`about` 关于它，`part` 它的一部分，`mention` 提到它 | [SCHEMA-19](./model/schema.mdx#schema-19) |
+| 状态 | 声明了 `stateFields` 的类型，这些字段的值相同的 Observation 是对同一状态的不同说法 | [SCHEMA-20](./model/schema.mdx#schema-20) |
+| 命题键 | 类型加 `claimFields` 字段的值，相同的 Observation 说的是同一件事 | [SCHEMA-21](./model/schema.mdx#schema-21) |
+| 业务规则 | 一种业务类型怎样记下事实：身份、粒度、事实时间、结束条件、原始材料，以及陈述冲突时以谁为准。写在业务类型页和 Schema 的 `description` 中，由使用这种类型的 Observer 共用 | [Overview · 谁决定什么](./index.mdx#responsibility) |
+| InputSet（输入集） | 一次处理实际用到的 Observation，是一个值，可以被多份观测共用 | [InputSet](./model/input-set.mdx) |
 
 ## 角色 [#roles]
 
 | 术语 | 定义 | 详见 |
 | --- | --- | --- |
 | Observer | 对一份观测负责的事物，被 `observerId` 引用 | [OBSERVER-1](./model/observer.mdx#observer-1) |
-| 输入 | InputSet 的成员，一次处理用到的版本 | [InputSet](./model/input-set.mdx) |
+| 说话人 | 说这句话的事物，`speakerId`。为 `null` 时和 Observer 相同 | [OBSERVATION-20](./model/observation.mdx#observation-20) |
+| 输入 | InputSet 的成员，一次处理用到的 Observation | [InputSet](./model/input-set.mdx) |
 
 ## 陈述与处理 [#statements]
 
 | 术语 | 定义 | 详见 |
 | --- | --- | --- |
 | 陈述 | Observation 表达的内容，由业务字段和事实时间组成 | [OBSERVER-1](./model/observer.mdx#observer-1) |
-| 处理 | 读取已保存的版本、形成观测的一次过程，例如一次模型调用。一次处理可以形成多份 Observation | [EVIDENCE-1](./rules/evidence.mdx#evidence-1) |
+| 处理 | 读取已保存的 Observation、形成观测的一次过程，例如一次模型调用。一次处理可以形成多份 Observation | [EVIDENCE-1](./rules/evidence.mdx#evidence-1) |
+| 一次工作 | 由 `POST /runs` 开始，后端记下读过的 Observation，写入时作为输入 | [EVIDENCE-9](./rules/evidence.mdx#evidence-9) |
 | 采集诊断 | 读取、解析或匹配失败的情况，作为诊断信息处理 | [OBSERVER-8](./model/observer.mdx#observer-8) |
 | 形成方式 | 这份陈述怎么来的：直接读到、亲口陈述、确定计算、模型提取或推断 | [Observation · 形成方式](./model/observation.mdx#formation) |
+| 模型判断 | 形成方式为 `inferred` 或 `extracted` 的 Observation | [ADOPTION-1](./model/adoption.mdx#adoption-1) |
 | 证据 | 来源给出的内容，由 Observer 记下 | [Understanding](./rules/understanding.mdx) |
 | 理解 | 模型读证据形成、用户可以否定的陈述 | [Understanding](./rules/understanding.mdx) |
-| 复核 | 对一条陈述的确认、否定或取代，写成一份 Review | [UNDERSTANDING-5](./rules/understanding.mdx#understanding-5) |
-| 当前理解 | 没有被否定也没有被取代的陈述 | [UNDERSTANDING-4](./rules/understanding.mdx#understanding-4) |
+| 复核 | 对一条陈述或一个范围的确认或否定，写成一份 Review | [Review](./model/review.mdx) |
+| 否定 | `verdict` 为 `deny` 的 Review。否定 Review 本身就是撤回 | [REVIEW-6](./model/review.mdx#review-6) |
+| 范围否定 | 指向事物和业务类型而不是一条 Observation 的否定，在读取时计算 | [REVIEW-5](./model/review.mdx#review-5) |
+| 同一 | 两个事物是同一个，写成一份 Same-As，读取时展开 | [Same-As](./model/same-as.mdx) |
+| 一代 | 一份 Observer 描述形成的判断 | [Adoption](./model/adoption.mdx) |
+| Adoption（采用） | 说明一种类型的模型判断采用哪一代 | [Adoption](./model/adoption.mdx) |
+| 默认视图 | 后端按否定、替换、代和状态算出的结果，`view=current` | [UNDERSTANDING-4](./rules/understanding.mdx#understanding-4) |
+| 当前理解 | 默认视图中的陈述 | [UNDERSTANDING-4](./rules/understanding.mdx#understanding-4) |
 | 叙事 | 模型读一天的记录写下的几件事，每件一份 Episode | [UNDERSTANDING-3](./rules/understanding.mdx#understanding-3) |
 | 一件事（Episode） | 一天中的一段时间在做什么，引用涉及的会话和本机应用 | [Episode](../observers/narrative/episode.mdx) |
 
@@ -67,19 +76,19 @@ Observation、EntitySchema、InputSet、Observer 和各种 Id 用英文名，其
 | --- | --- | --- |
 | 用户 | 拥有数据的人。在模型中是事物，可以作为 Observer | [OBSERVER-6](./model/observer.mdx#observer-6) |
 | 程序 | 实现一项观测工作的一份代码 | [Observer · 程序实例](./model/observer.mdx#instances) |
-| 程序实例 | 由程序承担的 Observer：有自己的 EntityId 和配置的责任身份，例如这台 Mac 上的前台状态 Observer | [OBSERVER-5](./model/observer.mdx#observer-5) |
+| 程序实例 | 由程序承担的 Observer：有自己的 `thingId` 和配置的责任身份，例如这台 Mac 上的前台状态 Observer | [OBSERVER-5](./model/observer.mdx#observer-5) |
 | 一次执行 | 程序实例的一次运行 | [Observer · 程序实例](./model/observer.mdx#instances) |
 | 安装包 | 分发程序的 ZIP 文件，一个操作系统和架构一个 | [Hosting · Packages](../hosting/packages.mdx) |
-| 数据能力 | 读写 Core 数据的一组操作：写入、读取、使用文件和删除。由后端的 API 提供 | [API · Writing](../api/writing.mdx) |
+| 数据能力 | 读写 Core 数据的一组操作：写入、读取、搜索、使用文件和删除。由后端的 API 提供 | [API · Writing](../api/writing.mdx) |
 | 托管方 | 管理程序实例和配置、提供运行上下文、启动和停止程序的组件 | [Hosting · Overview](../hosting/index.mdx) |
 | 本地转发 | 托管方的一部分：收下程序的写入请求，按顺序交给后端，留住被拒绝的写入 | [Hosting · 本地转发](../hosting/runtime.mdx#forwarding) |
 | Runtime | 托管方的当前实现，一个运行 Observer 进程的 .NET 程序。设备上由设备端客户端启动，服务器上由服务管理器或容器启动 | [Hosting · Runtime](../hosting/runtime.mdx) |
 | 运行上下文 | 托管方交给程序实例的内容：实例身份、配置、写入和读取的地址、运行设备和停止信号 | [Hosting · 运行上下文](../hosting/index.mdx#context) |
 | SDK | 业务代码使用写入接口的便利库，按语言提供。不用它也能写 Observer | [API · SDK](../api/sdk.mdx) |
-| 管理登记 | 后端为一个托管方或它的一个程序实例保存的管理数据：身份、配置、最近的状态报告和移除标记。它不是 Core 的实体 | [Hosting · Management](../hosting/management.mdx) |
+| 管理登记 | 后端为一个托管方或它的一个程序实例保存的管理数据：身份、配置、最近的状态报告和移除标记。它不是 Core 的数据 | [Hosting · Management](../hosting/management.mdx) |
 | 写入方 | 决定写入什么的软件：Observer 的业务代码、托管方和用户使用的工具 | [Conventions · 规则的格式](./conventions.mdx#rules) |
 | 读取方 | 读取和追溯数据的软件，例如 Agent 和 Web 控制台。读取不需要 Observer 身份 | [Conventions · 规则的格式](./conventions.mdx#rules) |
-| 后端 | 提供数据能力、校验并保存版本的服务 | [Overview · 谁决定什么](./index.mdx#responsibility) |
+| 后端 | 提供数据能力、校验并保存 Observation、算出默认视图的服务 | [Overview · 谁决定什么](./index.mdx#responsibility) |
 
 ## 时间 [#time]
 
@@ -89,16 +98,17 @@ Observation、EntitySchema、InputSet、Observer 和各种 Id 用英文名，其
 | 时间点 | `startAt` 等于 `endAt` 的事实时间 | [OBSERVATION-7](./model/observation.mdx#observation-7) |
 | 时段 | `startAt` 早于 `endAt` 的事实时间，左闭右开 | [OBSERVATION-8](./model/observation.mdx#observation-8) |
 | 进行中 | 证据表明事实仍在持续 | [TIME-4](./rules/time.mdx#time-4) |
-| 保存时间 | 后端保存一个版本的时刻，即 `recordedAt` | [VERSION-10](./model/version.mdx#version-10) |
+| 保存时间 | 后端保存一份 Observation 的时刻，即 `recordedAt` | [OBSERVATION-16](./model/observation.mdx#observation-16) |
 
 ## 变化与历史 [#history]
 
 | 术语 | 定义 | 详见 |
 | --- | --- | --- |
-| 更新 | 形成同一实体的新版本 | [HISTORY-1](./rules/history.mdx#history-1) |
-| 补全 | 随证据积累更新同一事实，例如延长时段 | [HISTORY-1](./rules/history.mdx#history-1) |
-| 纠正 | 用新版本修正错误的值 | [HISTORY-1](./rules/history.mdx#history-1) |
-| 删除 | 移除选中实体的全部版本，之后不再接受它的新版本 | [HISTORY-6](./rules/history.mdx#history-6) |
+| 替换 | 一份 Observation 用 `replaces` 说明它取代哪些 Observation，被替换的保留 | [OBSERVATION-18](./model/observation.mdx#observation-18) |
+| 补全 | 随证据积累再写一份替换原来的，例如延长时段 | [TIME-4](./rules/time.mdx#time-4) |
+| 纠正 | 再写一份替换错误的值 | [OBSERVATION-18](./model/observation.mdx#observation-18) |
+| 删除 | 移除选中的 Observation 和它的替换链，或者一个事物和关于它的 Observation | [History · 删除](./rules/history.mdx#deletion) |
+| 墓碑 | 被删除的识别依据留下的痕迹，不含内容，写入时命中就跳过 | [HISTORY-11](./rules/history.mdx#history-11) |
 | 原始材料 | 来源提供、尚未按业务规则解释的数据 | [HISTORY-4](./rules/history.mdx#history-4) |
 
 ## 不再使用的术语 [#deprecated]
@@ -108,18 +118,31 @@ Observation、EntitySchema、InputSet、Observer 和各种 Id 用英文名，其
 | 术语 | 替代说法 |
 | --- | --- |
 | `ITimed` | Observation 的[事实时间](./model/observation.mdx#fact-time) |
-| `IEntity` | [Entity](./model/entity.mdx) 和 [Version](./model/version.mdx)：身份属于实体，内容和引用属于版本 |
+| `IEntity` | [事物](./model/thing.mdx)和 [Observation](./model/observation.mdx)，各有自己的身份 |
 | `ObservationContent`、`Observation Content` | Observation 的业务字段 |
 | `观测时间`、`接收时间` | 形成观测的时刻、后端收到请求的时刻，见 [TIME-1](./rules/time.mdx#time-1) |
 | `观测草稿`、`ObservationDraft`、`observation-drafts`、`publishDraft`、`观测预览`、`ObservationPreview`、`observation-previews`、`publishPreview` | 已删除。进行中的事实在业务代码写入它的 Observation 之后才能读到 |
-| `草稿`、`冻结`、`提交策略`、`及时提交`、`结束后提交`、`OnCompletion`、`本地回执`、`本地保存` | 已删除。业务代码直接[写入](../api/writing.mdx)，版本由后端形成 |
-| `ObserverStore`、`LocalObserverSession`、`store.sqlite` | 已删除。本地不保存版本，见 [API · Writing](../api/writing.mdx) |
-| `LocalState` | 已删除。客户端从 API 读取已保存的版本，见 [API · Reading](../api/reading.mdx) |
+| `草稿`、`冻结`、`提交策略`、`及时提交`、`结束后提交`、`OnCompletion`、`本地回执`、`本地保存` | 已删除。业务代码直接[写入](../api/writing.mdx)，由后端保存 |
+| `ObserverStore`、`LocalObserverSession`、`store.sqlite` | 已删除。本地不保存数据，见 [API · Writing](../api/writing.mdx) |
+| `LocalState` | 已删除。客户端从 API 读取已保存的数据，见 [API · Reading](../api/reading.mdx) |
 | `ObserverSession`、`IObserverSession`、`PipeObserverSession`、`RuntimeObserverSession`、`RuntimeReader`、`LocalApplicationRegistry`、`IdentityWork`、`SubmissionContract`、`SameSubmission` | 已删除。业务代码经 [HTTP SDK](../api/sdk.mdx) 写入 [`POST /writes`](../api/writing.mdx)，受托管时经[本地转发](../hosting/runtime.mdx#forwarding)，对象靠[识别依据](../api/writing.mdx#recognition)认出 |
 | `--device`、`ORISUMI_DEVICE_ID` | 运行设备由托管方自动读取，见 [Device · 身份](../observers/device-state/device.mdx#identity) |
 | `服务端托管`、`ServerObserverHost`、`ServerObserverSession`、`IServerObserverStore` | 运行在服务器上的 [Runtime](../hosting/server.mdx)；服务器上的 Observer 和设备上的一样由它托管 |
 | `contentVersionId`、`观测内容`、`业务实体`、`业务版本` | Observation 自己就是陈述，内容是它的业务字段；它关于的对象是[事物](./model/thing.mdx) |
-| `关系实体` | 关系是 Observation 中的引用，见 [ENTITY-9](./model/entity.mdx#entity-9)；模型发现的关系写成 [Relation](./rules/understanding.mdx#relation) |
-| `deviceVersionId`、`sessionVersionId`、`localApplicationVersionId`、`productVersionId`、`parentSessionVersionId` | 引用事物写 EntityId：`deviceId`、`sessionId`、`localApplicationId`、`productId`、`parentSessionId` |
-| `session-titles`、`assistant-session-titles` | 会话的标题是它的 [Name](./rules/understanding.mdx#name) |
+| `关系实体` | 关系是 Observation 中的引用，见 [REFERENCE-5](./rules/references.mdx#reference-5)；模型发现的关系写成 [Relation](./model/common-types.mdx#relation) |
+| `deviceVersionId`、`sessionVersionId`、`localApplicationVersionId`、`productVersionId`、`parentSessionVersionId` | 引用事物写 `thingId`：`deviceId`、`sessionId`、`localApplicationId`、`productId`、`parentSessionId` |
+| `session-titles`、`assistant-session-titles` | 会话的标题是它的 [Name](./model/common-types.mdx#name) |
 | `observerEntityId`、`contentEntityId` | 查询观测时按 `observerId` 筛选，见 [API · 查询观测](../api/reading.mdx#observations) |
+| `实体` | 数据只有[事物](./model/thing.mdx)和 [Observation](./model/observation.mdx) 两种 |
+| `EntityId`、`entityId` | 事物是 `thingId`，Observation 是 `observationId` |
+| `VersionId`、`versionId`、`previousVersionId`、`版本链`、`当前版本` | Observation 不可变，身份是 `observationId`，变化用 [`replaces`](./model/observation.mdx#observation-18) 表达 |
+| `category` | 事物和 Observation 各有自己的接口和成员 |
+| `schemaVersionId` | [`schemaRevisionId`](./model/schema.mdx) |
+| `observerVersionId` | `observerDescriptionId`，见 [Observer 描述](./model/common-types.mdx#observer-descriptions) |
+| `inputSetVersionId` | `inputSetId` |
+| `targetVersionId` | `targetId`，见 [Review](./model/review.mdx) |
+| `toolCallVersionId`、`foregroundApplicationPeriodVersionId`、`nameVersionId` | `toolCallId`、`foregroundApplicationPeriodId`、`nameObservationId` |
+| `EntitySchema`、`Schema 版本` | [Schema](./model/schema.mdx) 和 SchemaRevision |
+| `supersede` | Observation 的 [`replaces`](./model/observation.mdx#observation-18) |
+| `standing` | 读取时的 [`view`](../api/reading.mdx#view) |
+| `foreground-state-observers`、`assistant-sessions-observers`、`application-identity-observers`、`narrative-observers`、`session-understanding-observers` | 公共类型 [`observer-descriptions`](./model/common-types.mdx#observer-descriptions) |

@@ -3,7 +3,7 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using Orisumi.Core;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 
 namespace Orisumi.Api;
 
@@ -19,7 +19,7 @@ internal static class WriteContract
     private static WriteRequest ReadCore(JsonElement body)
     {
         CheckDuplicateMembers(body);
-        Members(body, ["observer", "writes"], ["sequence", "schemas", "description"]);
+        Members(body, ["observer", "writes"], ["sequence", "schemas", "thingTypes", "description"]);
         var observer = Reference(body.GetProperty("observer"));
         CheckStorageValues(body.GetProperty("observer"));
         if (observer.Key is { } observerKey) CheckKeySize(observerKey);
@@ -31,15 +31,15 @@ internal static class WriteContract
             {
                 Object(declaration, "schemaId", "content");
                 var content = declaration.GetProperty("content");
-                Object(content, "displayName", "description", "resourceName", "fields", "kind", "immutable");
+                Members(content, ["displayName", "description", "resourceName", "fields"], ["stateFields", "claimFields"]);
                 Fields(content.GetProperty("fields"));
                 CheckStorageValues(declaration);
-                schemas.Add(new(new(declaration.GetProperty("schemaId").GetGuid()), (EntitySchema)VersionJson.ReadContent("entity_schema", content)));
+                schemas.Add(new(declaration.GetProperty("schemaId").GetGuid(), ObservationJson.ReadSchema(content)));
             }
-        var writes = new List<EntityWrite>();
+        var writes = new List<ObservationWrite>();
         foreach (var write in body.GetProperty("writes").EnumerateArray())
         {
-            Members(write, ["schemaId", "content", "formation"], ["key", "time", "inputs"]);
+            Members(write, ["schemaId", "content", "formation"], ["key", "time", "inputs", "replaces", "speakerId", "runId"]);
             var content = write.GetProperty("content");
             if (content.ValueKind != JsonValueKind.Object) throw new JsonException("content must be an object.");
             FactTime? time = null;
@@ -49,7 +49,7 @@ internal static class WriteContract
                 time = new(Time(fact.GetProperty("startAt")), Time(fact.GetProperty("endAt")), fact.GetProperty("timeZone").GetString());
             }
             var inputs = write.TryGetProperty("inputs", out var list)
-                ? list.EnumerateArray().Select(v => new VersionId(v.GetGuid())).ToArray() : null;
+                ? list.EnumerateArray().Select(v => v.GetGuid()).ToArray() : null;
             var key = write.TryGetProperty("key", out var recognition) ? Key(recognition) : null;
             string? storageError = null;
             try
@@ -58,29 +58,39 @@ internal static class WriteContract
                 if (key is not null) CheckKeySize(key);
             }
             catch (JsonException error) { storageError = error.Message; }
-            writes.Add(new(new(write.GetProperty("schemaId").GetGuid()), content.Clone(), write.GetProperty("formation").GetString()!, key, time, inputs, storageError));
+            if (write.TryGetProperty("runId", out _) && inputs is not null) throw new JsonException("inputs and runId are mutually exclusive.");
+            var speaker = write.TryGetProperty("speakerId", out var speakerValue) ? speakerValue.ValueKind == JsonValueKind.String ? new ThingReference(speakerValue.GetGuid()) : Reference(speakerValue) : null;
+            writes.Add(new(write.GetProperty("schemaId").GetGuid(), content.Clone(), write.GetProperty("formation").GetString()!, key, time, inputs, storageError,
+                speaker, write.TryGetProperty("replaces", out var replaces) ? replaces.EnumerateArray().Select(value => value.GetGuid()).ToArray() : null,
+                write.TryGetProperty("runId", out var run) ? run.GetGuid() : null));
         }
-        ObserverDescription? description = null;
+        JsonElement? description = null;
         if (body.TryGetProperty("description", out var self))
         {
-            Object(self, "schemaId", "content");
             CheckStorageValues(self);
-            if (self.GetProperty("content").ValueKind != JsonValueKind.Object) throw new JsonException("description content must be an object.");
-            description = new(new(self.GetProperty("schemaId").GetGuid()), self.GetProperty("content").Clone());
+            description = self.Clone();
         }
-        return new(observer, writes, schemas, sequence, description);
+        var thingTypes = new List<ThingType>();
+        if (body.TryGetProperty("thingTypes", out var types))
+            foreach (var type in types.EnumerateArray())
+            {
+                Object(type, "schemaId", "displayName", "description", "resourceName");
+                CheckStorageValues(type);
+                thingTypes.Add(type.Deserialize<ThingType>(ObservationJson.Options)!);
+            }
+        return new(observer, writes, schemas, sequence, description, thingTypes);
     }
 
-    private static DateTimeOffset? Time(JsonElement value) => value.ValueKind == JsonValueKind.Null ? null : VersionJson.ParseTime(value.GetString()!);
-    private static EntityReference Reference(JsonElement value)
+    private static DateTimeOffset? Time(JsonElement value) => value.ValueKind == JsonValueKind.Null ? null : ObservationJson.ParseTime(value.GetString()!);
+    private static ThingReference Reference(JsonElement value)
     {
-        if (value.TryGetProperty("entityId", out var entity))
+        if (value.TryGetProperty("thingId", out var entity))
         {
-            Object(value, "entityId");
-            return new(new(entity.GetGuid()));
+            Object(value, "thingId");
+            return new(entity.GetGuid());
         }
         Object(value, "schemaId", "key");
-        return new(null, new(value.GetProperty("schemaId").GetGuid()), Key(value.GetProperty("key")));
+        return new(null, value.GetProperty("schemaId").GetGuid(), Key(value.GetProperty("key")));
     }
     private static RecognitionKey Key(JsonElement value)
     {

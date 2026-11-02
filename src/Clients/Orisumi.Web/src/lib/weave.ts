@@ -1,11 +1,11 @@
-import type { InputSet, Item, ObservationVersion, Thing, Version } from "@/api/types";
+import { handleOf, type InputSet, type Item, type Observation, type Thing } from "@/api/types";
 
-// 织图：从一个实体出发，点一个节点，和它有关的实体从两边长出来。
+// 织图：从一项记录出发，点一个节点，和它有关的记录从两边长出来。
 // 事物是线，Observation 是把线系在一起的结：谁（Observer）依据什么（InputSet 的输入）说了什么（业务字段）。
 // - 有事实时间的 Observation 是经历的节点，写出事实时间和 Observer。
 // - 事实时间未知的 Observation 画成结；它的 InputSet 并进结，输入是结左边的线。Observer 写在结上，点名字才长出来。
 // - Relation 是两个事物之间的一条线，线上写 predicate。
-// 位置按来龙去脉从左往右：Observer 和输入在陈述左边，引用方在被引用的实体左边。
+// 位置按来龙去脉从左往右：Observer 和输入在陈述左边，引用方在被引用的记录左边。
 // 只用 Core 的结构，新的 Observer 和类型接入后不用改这里。
 
 export const NODE_W = 208;
@@ -24,33 +24,33 @@ export const REVEAL = 8;
 /** 连线上表示来源和依据的字。 */
 export const SOURCE = "来源";
 export const INPUT = "依据";
+export const REPLACE = "替换";
 
 /** 节点画的东西：一个事物或一份经历，或者一个结。 */
 export type Payload =
-  | { kind: "entity"; item: Thing | ObservationVersion }
-  | { kind: "knot"; observation: ObservationVersion; inputSet: Version<InputSet> | null };
+  { kind: "record"; item: Thing | Observation } | { kind: "knot"; observation: Observation; inputSet: InputSet | null };
 
 export function payloadKey(payload: Payload): string {
-  return payload.kind === "entity" ? payload.item.entityId : payload.observation.entityId;
+  return payload.kind === "record" ? handleOf(payload.item) : payload.observation.observationId;
 }
 
 /** 邻居在哪一边：left 在来龙去脉的上游，right 在下游。 */
 export type Side = "left" | "right";
 
-/** 还没解析成节点的邻居：读到的实体、在哪一边、经由什么，以及分组和排序用的类型名和时间。 */
+/** 还没解析成节点的邻居：读到的记录、在哪一边、经由什么，以及分组和排序用的类型名和时间。 */
 export interface Neighbor {
   item: Item;
   side: Side;
   /** 连线上写的字：来源、依据、业务字段名（例如 `localApplication`），或者关系的 predicate。 */
   label: string;
-  /** 这条线是一份 Relation 时，它的 EntityId。 */
+  /** 这条线是一份 Relation 时，它的 observationId。 */
   via?: string;
   typeName: string;
   time: number;
 }
 
 export interface ItemNode {
-  kind: "entity" | "knot";
+  kind: "record" | "knot";
   key: string;
   payload: Payload;
   col: number;

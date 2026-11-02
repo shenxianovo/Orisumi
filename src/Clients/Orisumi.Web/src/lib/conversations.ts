@@ -1,4 +1,4 @@
-import type { BinaryValue, ObservationVersion, Thing } from "@/api/types";
+import type { BinaryValue, Observation, Thing } from "@/api/types";
 import { parseTime } from "./time";
 
 // 助手会话页的纯函数：把一天的交互按会话分组，把工具调用和结果配成一项，按视图筛选。
@@ -26,7 +26,7 @@ export interface InteractionContent {
   sourceId: string;
   sourceTurnId: string | null;
   callId: string | null;
-  toolCallVersionId: string | null;
+  toolCallId: string | null;
   toolName: string | null;
   toolServer: string | null;
   isError: boolean | null;
@@ -40,19 +40,19 @@ export interface InteractionContent {
 
 /** 写在子 Agent 关系上的会话信息。 */
 export interface SessionMeta {
-  parentEntityId: string | null;
+  parentThingId: string | null;
   agentName: string | null;
 }
 
 /** 会话事物的产品和来源标识，取自识别依据，例如 `codex.session`。 */
 export function sessionSource(session: Thing): { product: string; sourceSessionId: string } {
   const key = session.keys[0];
-  return { product: key?.scheme.replace(/\.session$/, "") ?? "", sourceSessionId: key?.value ?? session.entityId };
+  return { product: key?.scheme.replace(/\.session$/, "") ?? "", sourceSessionId: key?.value ?? session.thingId };
 }
 
 /** 一次交互和它的事实时间。 */
 export interface Interaction {
-  version: ObservationVersion<InteractionContent>;
+  observation: Observation<InteractionContent>;
   observationId: string;
   start: number | null;
   end: number | null;
@@ -66,10 +66,10 @@ export type Item =
   | { type: "tool"; call: Interaction | null; result: Interaction | null; at: number };
 
 export interface SessionGroup {
-  entityId: string;
+  thingId: string;
   session: Thing | null;
   title: string | null;
-  parentEntityId: string | null;
+  parentThingId: string | null;
   agentName: string | null;
   client: string | null;
   interactions: Interaction[];
@@ -97,7 +97,7 @@ export function productName(product: string | null | undefined): string {
 export function sessionTitle(group: SessionGroup): string {
   if (!group.session) return "读不到的会话";
   if (group.title) return group.title;
-  return group.parentEntityId
+  return group.parentThingId
     ? `子 Agent · ${group.agentName ?? sessionSource(group.session).sourceSessionId}`
     : "未命名会话";
 }
@@ -120,13 +120,13 @@ export function contextLabel(content: InteractionContent): string {
   return content.sourceRole ? `${kind} · ${content.sourceRole}` : kind;
 }
 
-export function toInteraction(observation: ObservationVersion<InteractionContent>): Interaction {
+export function toInteraction(observation: Observation<InteractionContent>): Interaction {
   const start = parseTime(observation.startAt);
   const end = parseTime(observation.endAt);
-  return { version: observation, observationId: observation.entityId, start, end, at: start ?? end ?? 0 };
+  return { observation: observation, observationId: observation.observationId, start, end, at: start ?? end ?? 0 };
 }
 
-/** 按会话分组，组内按时间排列。sessions 和 metas 都按会话的 EntityId 索引，读不到的会话为 null。 */
+/** 按会话分组，组内按时间排列。sessions 和 metas 都按会话的 thingId 索引，读不到的会话为 null。 */
 export function groupSessions(
   interactions: readonly Interaction[],
   sessions: ReadonlyMap<string, Thing | null>,
@@ -134,16 +134,16 @@ export function groupSessions(
 ): SessionGroup[] {
   const groups = new Map<string, SessionGroup>();
   for (const interaction of interactions) {
-    const entityId = interaction.version.content.sessionId;
-    let group = groups.get(entityId);
+    const thingId = interaction.observation.content.sessionId;
+    let group = groups.get(thingId);
     if (!group) {
-      const session = sessions.get(entityId) ?? null;
+      const session = sessions.get(thingId) ?? null;
       group = {
-        entityId,
+        thingId,
         session,
         title: session?.name ?? null,
-        parentEntityId: metas.get(entityId)?.parentEntityId ?? null,
-        agentName: metas.get(entityId)?.agentName ?? null,
+        parentThingId: metas.get(thingId)?.parentThingId ?? null,
+        agentName: metas.get(thingId)?.agentName ?? null,
         client: null,
         interactions: [],
         first: Infinity,
@@ -152,12 +152,12 @@ export function groupSessions(
         toolCalls: 0,
         workingDirectory: null,
       };
-      groups.set(entityId, group);
+      groups.set(thingId, group);
     }
     group.interactions.push(interaction);
     group.first = Math.min(group.first, interaction.at);
     group.last = Math.max(group.last, interaction.end ?? interaction.at);
-    const content = interaction.version.content;
+    const content = interaction.observation.content;
     if (content.kind === "message" && content.actor === "user") group.userMessages++;
     if (content.kind === "tool-call") group.toolCalls++;
   }
@@ -165,49 +165,48 @@ export function groupSessions(
     group.interactions.sort(byTime);
     const latest = [...group.interactions].reverse();
     group.workingDirectory =
-      latest.find((i) => i.version.content.workingDirectory)?.version.content.workingDirectory ?? null;
-    group.client = latest.find((i) => i.version.content.client)?.version.content.client ?? null;
+      latest.find((i) => i.observation.content.workingDirectory)?.observation.content.workingDirectory ?? null;
+    group.client = latest.find((i) => i.observation.content.client)?.observation.content.client ?? null;
   }
   return [...groups.values()].sort((a, b) => b.last - a.last);
 }
 
 /** 子 Agent 的会话排在父会话后面，父会话不在这一天时单独排。返回每个会话和它的缩进层级。 */
 export function nestSessions(groups: readonly SessionGroup[]): { group: SessionGroup; depth: number }[] {
-  const present = new Set(groups.map((g) => g.entityId));
+  const present = new Set(groups.map((g) => g.thingId));
   const children = new Map<string, SessionGroup[]>();
   const roots: SessionGroup[] = [];
   for (const group of groups) {
-    if (group.parentEntityId && present.has(group.parentEntityId)) {
-      const list = children.get(group.parentEntityId) ?? [];
+    if (group.parentThingId && present.has(group.parentThingId)) {
+      const list = children.get(group.parentThingId) ?? [];
       list.push(group);
-      children.set(group.parentEntityId, list);
+      children.set(group.parentThingId, list);
     } else roots.push(group);
   }
   const result: { group: SessionGroup; depth: number }[] = [];
   const visit = (group: SessionGroup, depth: number) => {
     result.push({ group, depth });
-    for (const child of (children.get(group.entityId) ?? []).sort((a, b) => a.first - b.first)) visit(child, depth + 1);
+    for (const child of (children.get(group.thingId) ?? []).sort((a, b) => a.first - b.first)) visit(child, depth + 1);
   };
   for (const root of roots) visit(root, 0);
   return result;
 }
 
-/** 按视图筛选，再把工具调用和结果配成一项：结果按 toolCallVersionId 找调用，找不到时按 callId。 */
+/** 按视图筛选，再把工具调用和结果配成一项：结果按 toolCallId 找调用，找不到时按 callId。 */
 export function buildItems(interactions: readonly Interaction[], view: View): Item[] {
-  const shown = interactions.filter((interaction) => visible(interaction.version.content.kind, view));
+  const shown = interactions.filter((interaction) => visible(interaction.observation.content.kind, view));
   const calls = new Map<string, { type: "tool"; call: Interaction; result: Interaction | null; at: number }>();
   const byCallId = new Map<string, string>();
   const items: Item[] = [];
   for (const interaction of shown) {
-    const content = interaction.version.content;
+    const content = interaction.observation.content;
     if (content.kind === "tool-call") {
       const item = { type: "tool" as const, call: interaction, result: null, at: interaction.at };
-      calls.set(interaction.version.versionId, item);
-      if (content.callId) byCallId.set(content.callId, interaction.version.versionId);
+      calls.set(interaction.observation.observationId, item);
+      if (content.callId) byCallId.set(content.callId, interaction.observation.observationId);
       items.push(item);
     } else if (content.kind === "tool-result") {
-      const callVersion =
-        content.toolCallVersionId ?? (content.callId ? byCallId.get(content.callId) : undefined) ?? null;
+      const callVersion = content.toolCallId ?? (content.callId ? byCallId.get(content.callId) : undefined) ?? null;
       const call = callVersion ? calls.get(callVersion) : undefined;
       if (call && !call.result) call.result = interaction;
       else items.push({ type: "tool", call: null, result: interaction, at: interaction.at });
@@ -223,7 +222,7 @@ function visible(kind: InteractionKind, view: View): boolean {
 }
 
 function byTime(a: Interaction, b: Interaction): number {
-  return a.at - b.at || (a.version.versionId < b.version.versionId ? -1 : 1);
+  return a.at - b.at || (a.observation.observationId < b.observation.observationId ? -1 : 1);
 }
 
 /** 按 RFC 6901 的 JSON Pointer 取值，取不到时返回 undefined。 */

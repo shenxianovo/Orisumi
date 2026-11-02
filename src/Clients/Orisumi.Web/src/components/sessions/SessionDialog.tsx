@@ -20,7 +20,7 @@ export function SessionDialog({
   onView: (view: View) => void;
 }) {
   const conversations = useConversations(dateKey);
-  const group = conversations.groups?.find((candidate) => candidate.entityId === sessionId);
+  const group = conversations.groups?.find((candidate) => candidate.thingId === sessionId);
   const { range, today } = conversations;
   return (
     <section aria-label="对话" className="mt-10">
@@ -47,8 +47,8 @@ export function SessionDialog({
 /** 会话的产品，以及交互中记下的客户端、工作目录和模型；子 Agent 的会话写出它的父会话。 */
 function SessionSource({ group }: { group: SessionGroup }) {
   const session = group.session ? sessionSource(group.session) : null;
-  const models = [...new Set(group.interactions.map((i) => i.version.content.model).filter(Boolean))];
-  const parent = useThing(group.parentEntityId);
+  const models = [...new Set(group.interactions.map((i) => i.observation.content.model).filter(Boolean))];
+  const parent = useThing(group.parentThingId);
   return (
     <p className="text-fg-2 mt-1 text-xs break-all">
       {[productName(session?.product), group.client, group.workingDirectory, models.join("、")]

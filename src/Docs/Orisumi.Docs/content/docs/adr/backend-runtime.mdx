@@ -11,8 +11,8 @@ description: "四个后端项目组成一个进程，Aspire 编排本地环境�
 
 ### 项目分工 [#components]
 
-- `Orisumi.Core` 负责实体、契约和模型规则。
-- `Orisumi.Application` 负责实体操作和应用规则。
+- `Orisumi.Core` 负责事物、Observation、契约和模型规则。
+- `Orisumi.Application` 负责数据操作和应用规则。
 - `Orisumi.Infrastructure` 负责 PostgreSQL 映射、事务和迁移。
 - `Orisumi.Api` 负责 HTTP 请求校验、响应映射和启动组装。
 - 四个项目组成一个后端进程。API 进程托管叙事 Observer，见 [ADR · 叙事](./narrative.mdx)；其余服务器上的 Observer 由 Runtime 运行，见 [ADR · Runtime 与进程托管](./observer-runtime.mdx)。

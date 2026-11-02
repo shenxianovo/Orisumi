@@ -14,8 +14,8 @@ describe("splitServerEvents", () => {
   });
 
   it("接受 CRLF 换行", () => {
-    const { events, rest } = splitServerEvents('event: saved\r\ndata: {"versionIds":[]}\r\n\r\n');
-    expect(events).toEqual([{ event: "saved", data: '{"versionIds":[]}' }]);
+    const { events, rest } = splitServerEvents('event: saved\r\ndata: {"observationIds":[]}\r\n\r\n');
+    expect(events).toEqual([{ event: "saved", data: '{"observationIds":[]}' }]);
     expect(rest).toBe("");
   });
 });

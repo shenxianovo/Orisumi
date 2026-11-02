@@ -16,16 +16,16 @@ public sealed class AssistantTimeTests
         var path = fixture.Write("claude/projects/project/main.jsonl", ClaudeMessage("history", "old", cwd: "/old"),
             ClaudeMessage("reply", new[] { new { type = "text", text = "reply" } }, "assistant", cwd: null));
         await fixture.Collector.PollAsync();
-        var initial = fixture.Observations().Select(value => (Observation)value.Content).ToArray();
+        var initial = fixture.Observations().Select(value => value).ToArray();
         await Assert.That(initial.All(value => value.TimeZone is null)).IsTrue();
         await Assert.That(initial.Count(value => value.StartAt is null && value.EndAt is not null)).IsEqualTo(1);
         await File.AppendAllTextAsync(path, Encoding.UTF8.GetString(ClaudeMessage("live", "new", cwd: "/new")) + "\n");
         await fixture.Collector.PollAsync();
-        await Assert.That(((Observation)fixture.Observations()[^1].Content).TimeZone).IsEqualTo("Asia/Tokyo");
+        await Assert.That(fixture.Observations()[^1].TimeZone).IsEqualTo("Asia/Tokyo");
         fixture.Restart();
         await File.AppendAllTextAsync(path, Encoding.UTF8.GetString(ClaudeMessage("stopped", "while stopped")) + "\n");
         await fixture.Collector.PollAsync();
-        await Assert.That(((Observation)fixture.Observations()[^1].Content).TimeZone).IsNull();
+        await Assert.That(fixture.Observations()[^1].TimeZone).IsNull();
         await Assert.That(fixture.Interactions().Select(Content).Single(value => value.Text("sourceId") == "history").Text("workingDirectory")).IsEqualTo("/old");
         await Assert.That(fixture.Interactions().Select(Content).Single(value => value.Text("sourceId") == "live").Text("workingDirectory")).IsEqualTo("/new");
         await Assert.That(fixture.Interactions().Select(Content).Single(value => value.Text("sourceId") == "reply").Text("workingDirectory")).IsNull();
@@ -44,11 +44,11 @@ public sealed class AssistantTimeTests
             Json(new { type = "turn_context", payload = new { cwd = "/second", turn_id = "turn-two" } }),
             Item("CommandExecution", "call", Fields("""{"command":["true"],"aggregated_output":"","status":"completed","exit_code":0}""")));
         await fixture.Collector.PollAsync();
-        var interactions = fixture.Interactions().ToDictionary(value => value.VersionId);
+        var interactions = fixture.Interactions().ToDictionary(value => value.ObservationId);
         foreach (var entry in fixture.Observations())
         {
-            var observation = (Observation)entry.Content;
-            var content = Content(interactions[entry.VersionId]);
+            var observation = entry;
+            var content = Content(interactions[entry.ObservationId]);
             if (content.Text("sourceId") == "first")
             {
                 await Assert.That(observation.EndAt - observation.StartAt).IsEqualTo(TimeSpan.FromSeconds(2));

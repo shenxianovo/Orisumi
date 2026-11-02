@@ -56,7 +56,7 @@ orisumi verify checks --base HEAD --quality
 
 | 目录 | 内容 |
 | --- | --- |
-| `src/Core` | 实体、契约和模型规则 |
+| `src/Core` | 事物、Observation、契约和模型规则 |
 | `src/Backend` | API、应用操作和 PostgreSQL 实现 |
 | `src/Observers` | Observer 程序 |
 | `src/Clients/Orisumi.Web` | Web 控制台 |

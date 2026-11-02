@@ -1,11 +1,11 @@
 {
   "title": "Storage",
-  "description": "实体的数据库存储",
+  "description": "事物与观测的数据库存储",
   "icon": "Database",
   "root": true,
   "pages": [
     "index",
-    "versions",
+    "observations",
     "contents",
     "queries",
     "management",

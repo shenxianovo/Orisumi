@@ -13,9 +13,8 @@ description: "给没有标题的助手会话起名字，找出会话之间的关
 
 | 业务类型 | 用途 | 资源名 |
 | --- | --- | --- |
-| [Session Understanding Observer](./session-understanding-observer.mdx) | 程序实例的描述 | `session-understanding-observers` |
-| [Name](../../core/rules/understanding.mdx#name) | 观测：模型给会话起的名字 | `names` |
-| [Relation](../../core/rules/understanding.mdx#relation) | 观测：两个会话之间的关系 | `relations` |
+| [Name](../../core/model/common-types.mdx#name) | 观测：模型给会话起的名字 | `names` |
+| [Relation](../../core/model/common-types.mdx#relation) | 观测：两个会话之间的关系 | `relations` |
 
 ```mermaid
 flowchart LR
@@ -23,11 +22,10 @@ flowchart LR
   N -->|thingId| S[Assistant Session]
   L[Relation] -->|subjectId| S
   L -->|objectId| S
-  N -->|inputSetVersionId| I[InputSet]
+  N -->|inputSetId| I[InputSet]
   I -->|members| A[Assistant Interaction]
-  click R "/observers/session-understanding/session-understanding-observer"
-  click N "/core/rules/understanding#name"
-  click L "/core/rules/understanding#relation"
+  click N "/core/model/common-types#name"
+  click L "/core/model/common-types#relation"
   click S "/observers/assistant-sessions/assistant-session"
   click I "/core/model/input-set"
   click A "/observers/assistant-sessions/assistant-interaction"
@@ -36,8 +34,8 @@ flowchart LR
 ## 程序实例 [#instance]
 
 - 每个部署运行一个会话理解 Observer：它的安装包在清单中声明 `scope` 为 `deployment`，见 [Management · 每个部署一个实例](../../hosting/management.mdx#singleton)。
-- 程序实例的 EntityId 由 Runtime 保存，第一次安装时生成，之后一直沿用，见 [OBSERVER-4](../../core/model/observer.mdx#observer-4)。
-- 启动时，它声明用到的业务类型，写入自己的描述。程序版本或模型型号变化时，描述形成新版本。
+- 程序实例的 `thingId` 由 Runtime 保存，第一次安装时生成，之后一直沿用，见 [OBSERVER-4](../../core/model/observer.mdx#observer-4)。
+- 启动时，它声明用到的业务类型，写入自己的[描述](../../core/model/common-types.mdx#observer-descriptions)。程序版本或模型型号变化时，写入新的描述。
 - 轮次由它自己安排，同一时刻只有一轮，上一轮结束后等待一个间隔再开始下一轮。
 
 ## 处理 [#processing]
@@ -54,7 +52,7 @@ flowchart LR
 | --- | --- |
 | 产品和工作目录 | Codex、`Heartbeat` |
 | 用户说的话，按时间排列，最多 20 句，每句取前 240 个字符 | “你看看 Claude Code 这个会话……” |
-| 附近的会话：前后 24 小时内有交互的会话，每个写出 EntityId、产品、当前的名字和用户说的第一句 | Claude Code 的“Observer 与 Runtime 建模” |
+| 附近的会话：前后 24 小时内有交互的会话，每个写出 `thingId`、产品、当前的名字和用户说的第一句 | Claude Code 的“Observer 与 Runtime 建模” |
 | 这个会话被否定过的名字和关系 | 不叫“重启项目栈” |
 
 接着把这些内容交给模型，按模型的结果写入。
@@ -66,7 +64,7 @@ flowchart LR
 | 字段 | 内容 |
 | --- | --- |
 | `name` | 会话的名字，像会话标题，不超过 16 个字 |
-| `relations` | 和附近会话的关系，每条写对方的 EntityId、`predicate` 和一句理由。`predicate` 是简短的动词短语，例如“继续了”“讨论同一件事”。只写证据明确的关系 |
+| `relations` | 和附近会话的关系，每条写对方的 `thingId`、`predicate` 和一句理由。`predicate` 是简短的动词短语，例如“继续了”“讨论同一件事”。只写证据明确的关系 |
 
 回答中的会话不在附近会话中，或名字为空时，这个会话不写入，下一轮重试。被否定过的名字和关系，它跳过不写，见 [UNDERSTANDING-7](../../core/rules/understanding.mdx#understanding-7)。
 
@@ -102,7 +100,7 @@ flowchart LR
 | Name | `thingId` 是这个会话，`name` 是模型起的名字 |
 | Relation | 每条关系一份，`subjectId` 是这个会话，`objectId` 是对方，`text` 是理由 |
 
-它们的 `formation` 都是 `inferred`，事实时间都是 `null`，`inputs` 是用户说的话所在的助手交互、附近会话的名字和第一句所在的版本，以及读到的否定。
+它们的 `formation` 都是 `inferred`，事实时间都是 `null`，`inputs` 是用户说的话所在的助手交互、附近会话的名字和第一句所在的 Observation，以及读到的否定。
 
 ## 实现 [#implementation]
 
@@ -111,4 +109,4 @@ flowchart LR
 ## 待定 [#open]
 
 - 会话停下后又继续时，是否重起名字。
-- 来源后来给出标题时，模型起的名字是否取代。
+- 来源后来给出标题时，默认视图取保存时间最晚的一条，是否改由来源优先。

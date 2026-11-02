@@ -3,11 +3,11 @@ title: "Foreground State"
 description: "前台应用时段与窗口标题时段"
 ---
 
-前台状态 Observer 记下某台设备上系统确认的前台应用和窗口标题。两种观测由同一个程序实例形成，各有自己的 EntitySchema 和时间线：标题变化时，应用时段照样延续；标题读取失败时，应用时段照样记录。
+前台状态 Observer 记下某台设备上系统确认的前台应用和窗口标题。两种观测由同一个程序实例形成，各有自己的 Schema 和时间线：标题变化时，应用时段照样延续；标题读取失败时，应用时段照样记录。
 
 它记下的是前台时长。用户是否活跃由读取方组合多条时间线判断，见 [Observers · 前台、输入与设备的时间线](../index.mdx#timelines)。
 
-本页写这个 Observer 的职责和运行规则。程序实例自身也是一种业务类型，它的字段和 EntitySchema 见 [Foreground State Observer](./foreground-state-observer.mdx)。
+本页写这个 Observer 的职责和运行规则。程序实例用公共的 [Observer 描述](../../core/model/common-types.mdx#observer-descriptions)说明自己。
 
 <ObserverStructure node="FOREGROUND_STATE" />
 
@@ -15,10 +15,9 @@ description: "前台应用时段与窗口标题时段"
 
 | 业务类型 | 用途 | 资源名 |
 | --- | --- | --- |
-| [Foreground State Observer](./foreground-state-observer.mdx) | 程序实例的描述 | `foreground-state-observers` |
 | [Local Application](./local-application.mdx) | 事物：设备上的一个应用安装，以及它的描述 | `local-applications`、`local-application-descriptions` |
 | [Device](../device-state/device.mdx) | 事物：应用所在的设备，以及它的描述 | `devices`、`device-descriptions` |
-| [Name](../../core/rules/understanding.mdx#name) | 观测：本机应用的名称，见 [Local Application · 名字](./local-application.mdx#name) | `names` |
+| [Name](../../core/model/common-types.mdx#name) | 观测：本机应用的名称，见 [Local Application · 名字](./local-application.mdx#name) | `names` |
 | [Foreground Application Period](./foreground-application-period.mdx) | 观测：应用处于前台的一个时段 | `foreground-application-periods` |
 | [Foreground Window Title](./foreground-window-title.mdx) | 观测：窗口标题的一个时段 | 待定 |
 
@@ -30,13 +29,12 @@ flowchart LR
   L -->|deviceId| D[Device]
   N[Name] -->|thingId| A
   T[Foreground Window Title] -->|observerId| R
-  T -->|foregroundApplicationPeriodVersionId| C
-  click R "/observers/foreground-state/foreground-state-observer"
+  T -->|foregroundApplicationPeriodId| C
   click C "/observers/foreground-state/foreground-application-period"
   click A "/observers/foreground-state/local-application"
   click L "/observers/foreground-state/local-application#description"
   click D "/observers/device-state/device"
-  click N "/core/rules/understanding#name"
+  click N "/core/model/common-types#name"
   click T "/observers/foreground-state/foreground-window-title"
 ```
 
@@ -64,7 +62,7 @@ macOS 唤醒后立即重新读取。休眠、读取失败等情况下时段怎�
 
 ## 写入 [#submission]
 
-前台状态 Observer 使用 [.NET 的 SDK](../../api/sdk.mdx#dotnet)，写给本地转发。进行中的时段只在内存中补全，时段结束时才写入，所以后端为每个时段保存一个版本，进行中的时段读不到；采样的次数不决定版本的数量。业务事件对应的操作如下：
+前台状态 Observer 使用 [.NET 的 SDK](../../api/sdk.mdx#dotnet)，写给本地转发。进行中的时段只在内存中延长，时段结束时才写入，所以后端为每个时段保存一份 Observation，进行中的时段读不到；采样的次数不决定数据的数量。业务事件对应的操作如下：
 
 | 业务事件 | 处理 |
 | --- | --- |

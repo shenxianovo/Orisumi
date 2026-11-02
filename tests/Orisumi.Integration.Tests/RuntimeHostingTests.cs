@@ -251,7 +251,7 @@ public sealed class RuntimeHostingTests
             #!/usr/bin/env python3
             import json, sys, os, pathlib, urllib.request
             def write():
-                body = json.dumps({'observer': {'entityId': os.environ['ORISUMI_INSTANCE_ID']}, 'writes': []}).encode()
+                body = json.dumps({'observer': {'thingId': os.environ['ORISUMI_INSTANCE_ID']}, 'writes': []}).encode()
                 req = urllib.request.Request(os.environ['ORISUMI_WRITE_URL'] + 'writes', data=body, headers={'Content-Type': 'application/json'})
                 return str(urllib.request.urlopen(req).status)
             replies = [write()]

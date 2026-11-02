@@ -1,13 +1,13 @@
 ---
 title: "Deletion"
-description: "删除实体时移除它的识别依据"
+description: "删除移除替换链，事物按角色移除，依据被删除的陈述被列出，已删除的内容不回来"
 ---
 
 export const caseId = 'api-deletion';
 
 ## 为什么验证 [#why]
 
-删除实体时移除它的识别依据，明确的 EntityId 不能复活。约定见 [删除](../../storage/versions.mdx#deletion)。
+删除不能让旧说法复活，重读来源不能让内容回来，用户要知道哪些陈述依据被删除的内容。约定见 [History · 删除](../../core/rules/history.mdx#deletion) 和 [Observations · 删除](../../storage/observations.mdx#deletion)。
 
 ## 前置条件 [#setup]
 
@@ -18,25 +18,36 @@ HTTP 用例经真实 API 和独立的 PostgreSQL 数据库运行。Runtime 使�
 | 操作 | 预期结果 |
 | --- | --- |
 | 删除 Observation 后按 ID 读取 | 410，批量读取为 deleted |
-| 删除事物后再按 EntityId 引用 | 按 ENTITY-6 拒绝；原引用仍保留 |
-| 按原 key 再写入 | 形成新实体 |
-| 删除已有登记、没有首版的程序实例 | 登记 removed；首版写入按 HISTORY-7 被拒绝 |
-| 带托管方凭证删除实体 | 403 |
-| 删除仍在使用的 EntitySchema | 409，HISTORY-9 |
-| 删除被引用的目标 | 引用方保留原 VersionId |
+| A 被 B 替换，B 被 C 替换，删除 C | A、B、C 都移除，响应的 `deleted` 列出三份；默认视图中这个依据没有内容 |
+| 同样的链，删除 B | A、B 移除；C 保留，它的 `replaces` 仍是 B，读取 B 为 410 |
+| 删除依据它的推断的输入 | 响应的 `dependents` 列出这份推断；推断保留，读取它的 InputSet 时成员不可读取 |
+| 删除事物，它有 `about`、`part` 和 `mention` 三种引用方 | `about` 和 `part` 的 Observation 连同替换链移除；`mention` 的保留，引用的目标不可读取 |
+| 删除事物，`observerId` 或 `speakerId` 引用它的 Observation | 保留，目标不可读取 |
+| 删除事物后再按 `thingId` 引用 | 按 REFERENCE-3 拒绝；原引用仍保留 |
+| 按原 key 再写入，内容与删除前相同 | 墓碑命中，`skipped` 为 `true`，什么都不保存 |
+| 按原 key 再写入，内容不同 | 同样跳过 |
+| 写入用已删除的识别依据以 `about` 或 `part` 提到事物 | 这次写入被跳过 |
+| 写入用已删除的识别依据以 `mention` 提到事物 | 照常保存，引用指向被删除的事物，读到时目标不可读取 |
+| 从头重读来源，其中一段已被用户删除 | 这一段被跳过，其余内容什么都不发生 |
+| 查询 `key_tombstones` | 只有摘要，不含作用范围、方案和值的原文 |
+| 删除已有登记、没有写入过的程序实例 | 登记 removed；之后的写入按 HISTORY-7 被拒绝 |
+| 带托管方凭证删除 | 403 |
+| 删除仍在使用的 Schema 或事物类型 | 409，HISTORY-9 |
+| 删除被引用的目标 | 引用方保留原 id |
+| 重复删除 | 200，两个数组为空 |
 
 ## 测试实现 [#implementation]
 
 方法位于 `tests/Orisumi.Integration.Tests/`：
 
-- 删除事物、保留引用、拒绝再引用原身份和重建依据：`UnderstandingApiTests.ThingNamesPreferPeopleThenLatestAndDeletionRetainsReferences`。
-- 删除 Observation 和识别依据重建：`WriteApiTests.DeletionRemovesRecognitionAndBatchReadPreservesOrderDuplicatesAndStatus`。
+- 删除事物、保留引用、拒绝再引用原身份：`UnderstandingApiTests.ThingNamesPreferPeopleThenLatestAndDeletionRetainsReferences`。
+- 删除 Observation：`WriteApiTests.DeletionRemovesRecognitionAndBatchReadPreservesOrderDuplicatesAndStatus`。
 - 预留实例删除：`ManagementApiTests.RemovingBeforeFirstVersionReservesIdentityAndStopsLocalChanges`。
 - 托管方权限：`ManagementApiTests.CredentialsEnforceOwnershipRevocationAndRePairing`。
 - Schema 删除限制：`WriteApiTests.ConcurrentRecognitionPreservesOneChainAndHttpBoundariesRemainExplicit`。
 - 目标删除后引用：`ReferrerApiTests.ReferencesFilterBeforePagingKeepPathsAndSurviveTargetDeletion`。
 
-未覆盖：本次未重新覆盖删除 Schema 后复用资源名，以及删除和首版写入同时发生。
+未覆盖：沿替换链删除、按角色删除、`dependents`、墓碑，由实现任务补上测试；删除 Schema 后复用资源名；删除和首次写入同时发生。
 
 ## 执行结果 [#results]
 

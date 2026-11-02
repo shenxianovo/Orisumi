@@ -1,4 +1,4 @@
-import type { ObservationVersion, Thing } from "@/api/types";
+import type { Observation, Thing } from "@/api/types";
 import { thingColor } from "./roles";
 
 // 一天的经历：有时段的 Observation 和它引用的事物。今天页面的应用只看前台应用时段，事物的面板看所有经历。
@@ -14,10 +14,10 @@ export interface DayThing {
 
 /** 解析过的一份经历。things 是它引用的事物（例如本机应用）。 */
 export interface Experience {
-  /** Observation 的 EntityId。 */
+  /** Observation 的 thingId。 */
   observationId: string;
-  /** 已保存的当前版本。 */
-  observation: ObservationVersion;
+  /** 已保存的这一份。 */
+  observation: Observation;
   observerId: string;
   /** 保存时间。 */
   writtenAt: number;
@@ -27,6 +27,8 @@ export interface Experience {
   things: DayThing[];
   start: number;
   end: number;
+  /** 被否定的时段，算时长和画条时裁掉。 */
+  denied?: { start: number; end: number }[];
 }
 
 /** 只有时间点的 Observation，按 Observer 汇总。 */
@@ -65,6 +67,23 @@ export function clip(start: number, end: number, from: number, to: number): [num
   return e > s ? [s, e] : null;
 }
 
+/** [start, end) 减去被否定的时段后剩下的各段。 */
+export function remaining(
+  start: number,
+  end: number,
+  denied: readonly { start: number; end: number }[] = [],
+): [number, number][] {
+  const left: [number, number][] = [];
+  let at = start;
+  for (const range of [...denied].sort((a, b) => a.start - b.start)) {
+    if (range.start > at) left.push([at, Math.min(range.start, end)]);
+    at = Math.max(at, range.end);
+    if (at >= end) return left;
+  }
+  if (at < end) left.push([at, end]);
+  return left;
+}
+
 export function summarize(experiences: readonly Experience[], from: number, to: number): DaySummary {
   const things = new Map<string, Row>();
   const sorted = [...experiences].sort((a, b) => a.start - b.start);
@@ -75,8 +94,8 @@ export function summarize(experiences: readonly Experience[], from: number, to: 
     const range = clip(experience.start, experience.end, from, to);
     if (!range || !experience.things.length) continue;
     for (const { thing, title, typeName } of experience.things) {
-      const row = things.get(thing.entityId) ?? {
-        key: thing.entityId,
+      const row = things.get(thing.thingId) ?? {
+        key: thing.thingId,
         thing,
         title,
         typeName,
@@ -84,17 +103,19 @@ export function summarize(experiences: readonly Experience[], from: number, to: 
         total: 0,
         segments: [],
       };
-      row.segments.push({
-        start: range[0],
-        end: range[1],
-        observationId: experience.observationId,
-        label: experience.contentTitle ?? title,
-      });
-      row.total += range[1] - range[0];
-      things.set(thing.entityId, row);
+      for (const [start, end] of remaining(range[0], range[1], experience.denied)) {
+        row.segments.push({
+          start,
+          end,
+          observationId: experience.observationId,
+          label: experience.contentTitle ?? title,
+        });
+        row.total += end - start;
+      }
+      things.set(thing.thingId, row);
     }
     const observer = experience.observerId;
-    const target = experience.things[0]!.thing.entityId;
+    const target = experience.things[0]!.thing.thingId;
     if (last.has(observer) && last.get(observer) !== target) switches++;
     last.set(observer, target);
   }
@@ -112,7 +133,7 @@ export function groupThings(experiences: readonly Experience[], group: ThingGrou
     const things = new Map<string, DayThing>();
     for (const thing of experience.things) {
       const target = group(thing) ?? thing;
-      if (!things.has(target.thing.entityId)) things.set(target.thing.entityId, target);
+      if (!things.has(target.thing.thingId)) things.set(target.thing.thingId, target);
     }
     return { ...experience, things: [...things.values()] };
   });

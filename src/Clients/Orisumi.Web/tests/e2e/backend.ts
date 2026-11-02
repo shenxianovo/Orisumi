@@ -1,32 +1,43 @@
 import type { Page, Route } from "@playwright/test";
 
-// 用路由拦截在内存里模拟后端：事物、Observation、EntitySchema 和 InputSet，按 openapi.json 的形状读写。
+// 用路由拦截在内存里模拟后端：事物、Observation 和类型，按 openapi.json 的形状读写。
 // 只实现控制台用到的接口和筛选。
 
 export interface Thing {
-  entityId: string;
-  category: "thing";
+  thingId: string;
   schemaId: string;
   keys: { scope: string | null; scheme: string; value: string }[];
   name: string | null;
-  nameVersionId: string | null;
+  nameObservationId: string | null;
 }
 
-export interface Version {
-  entityId: string;
-  versionId: string;
-  previousVersionId: string | null;
-  category: "observation" | "entity_schema" | "input_set";
+export interface Observation {
+  observationId: string;
+  schemaRevisionId: string;
+  observerId: string;
+  speakerId: string | null;
+  observerDescriptionId: string | null;
+  formation: string;
+  inputSetId: string | null;
+  replaces: string[];
+  startAt: string | null;
+  endAt: string | null;
+  timeZone: string | null;
   recordedAt: string;
   content: Record<string, unknown>;
-  schemaVersionId?: string;
-  observerId?: string;
-  observerVersionId?: string | null;
-  formation?: string;
-  inputSetVersionId?: string | null;
-  startAt?: string | null;
-  endAt?: string | null;
-  timeZone?: string | null;
+}
+
+/** 一种类型：schemaRevisionId 只有 Observation 类型才用。 */
+export interface Type {
+  schemaId: string;
+  schemaRevisionId: string;
+  thing: boolean;
+  content: {
+    displayName: string;
+    description: string;
+    resourceName: string;
+    fields: Record<string, Record<string, unknown>>;
+  };
 }
 
 let counter = 0;
@@ -36,20 +47,22 @@ export const PERSON = "019e1bbb-ec00-7000-8000-000000000006";
 export const PROGRAM = "019e1bbb-ec00-7000-8000-000000000012";
 export const REVIEW = "019e1bbb-ec00-7000-8000-00000000000e";
 export const NAME = "019e1bbb-ec00-7000-8000-000000000010";
+export const DESCRIPTION = "019e1bbb-ec00-7000-8000-00000000001c";
 
-const thingRef = (description = "") => ({
+const thingRef = (role: string, description = "") => ({
   type: "reference",
   target: "thing",
+  role,
   description,
   required: true,
   nullable: false,
 });
-const versionRef = (description = "") => ({
+const observationRef = (description = "") => ({
   type: "reference",
-  target: "version",
+  target: "observation",
   description,
   required: true,
-  nullable: false,
+  nullable: true,
 });
 const text = (description = "") => ({ type: "string", description, required: true, nullable: true });
 
@@ -64,15 +77,18 @@ export interface NarrativeStream {
 
 export class Backend {
   readonly things: Thing[] = [];
-  readonly versions: Version[] = [];
+  readonly observations: Observation[] = [];
+  readonly types: Type[] = [];
+  readonly instances: { thingId: string; name: string; packageId: string }[] = [];
   readonly contents = new Map<string, string>();
   /** 收到的 POST /narratives 请求。 */
   readonly narratives: unknown[] = [];
   /** 下一次 POST /narratives 的响应；没有时返回 503。 */
   narrative: NarrativeStream | null = null;
   readonly people: Thing;
-  readonly review: Version;
-  readonly nameType: Version;
+  readonly review: Type;
+  readonly nameType: Type;
+  readonly description: Type;
 
   constructor() {
     this.schema("people", "人", "thing", {}, PERSON);
@@ -81,10 +97,17 @@ export class Backend {
       "reviews",
       "复核",
       "observation",
-      { targetVersionId: versionRef(), verdict: text(), text: text() },
+      { verdict: text(), targetId: observationRef(), scope: text(), text: text() },
       REVIEW,
     );
-    this.nameType = this.schema("names", "名字", "observation", { thingId: thingRef(), name: text() }, NAME);
+    this.nameType = this.schema("names", "名字", "observation", { thingId: thingRef("about"), name: text() }, NAME);
+    this.description = this.schema(
+      "observer-descriptions",
+      "Observer 描述",
+      "observation",
+      { platform: text(), model: text() },
+      DESCRIPTION,
+    );
     this.people = this.thing(PERSON, { scope: null, scheme: "orisumi.user", value: "owner" });
   }
 
@@ -92,56 +115,59 @@ export class Backend {
     resourceName: string,
     displayName: string,
     kind: "thing" | "observation",
-    fields: Record<string, unknown> = {},
-    entityId = uuid(),
-  ): Version {
-    const version: Version = {
-      entityId,
-      versionId: uuid(),
-      previousVersionId: null,
-      category: "entity_schema",
-      recordedAt: new Date().toISOString(),
-      content: { displayName, description: `${displayName}。`, resourceName, kind, immutable: false, fields },
+    fields: Type["content"]["fields"] = {},
+    schemaId = uuid(),
+  ): Type {
+    const type: Type = {
+      schemaId,
+      schemaRevisionId: uuid(),
+      thing: kind === "thing",
+      content: { displayName, description: `${displayName}。`, resourceName, fields },
     };
-    this.versions.push(version);
-    return version;
+    this.types.push(type);
+    return type;
   }
 
   thing(schemaId: string, key: Thing["keys"][number] | null, name: string | null = null): Thing {
     const thing: Thing = {
-      entityId: uuid(),
-      category: "thing",
+      thingId: uuid(),
       schemaId,
       keys: key ? [key] : [],
       name,
-      nameVersionId: null,
+      nameObservationId: null,
     };
     this.things.push(thing);
     return thing;
   }
 
-  /** 一个程序实例和它的描述。 */
-  program(description: Version, content: Record<string, unknown> = {}): { thing: Thing; description: Version } {
+  /** 一个登记过的程序实例和它的描述。 */
+  program(
+    name: string,
+    packageId: string,
+    content: Record<string, unknown> = {},
+  ): { thing: Thing; description: Observation } {
     const thing = this.thing(PROGRAM, { scope: null, scheme: "test.instance", value: uuid() });
-    return { thing, description: this.observe(description, thing, content, { observerVersionId: null }) };
+    this.instances.push({ thingId: thing.thingId, name, packageId });
+    return { thing, description: this.observe(this.description, thing, content) };
   }
 
   observe(
-    schema: Version,
+    schema: Type,
     observer: Thing,
     content: Record<string, unknown>,
-    options: Partial<Pick<Version, "startAt" | "endAt" | "formation" | "inputSetVersionId" | "observerVersionId">> = {},
-  ): Version {
-    const version: Version = {
-      entityId: uuid(),
-      versionId: uuid(),
-      previousVersionId: null,
-      category: "observation",
-      schemaVersionId: schema.versionId,
-      observerId: observer.entityId,
-      observerVersionId: null,
+    options: Partial<
+      Pick<Observation, "startAt" | "endAt" | "formation" | "inputSetId" | "observerDescriptionId" | "replaces">
+    > = {},
+  ): Observation {
+    const observation: Observation = {
+      observationId: uuid(),
+      schemaRevisionId: schema.schemaRevisionId,
+      observerId: observer.thingId,
+      speakerId: null,
+      observerDescriptionId: null,
       formation: "direct",
-      inputSetVersionId: null,
+      inputSetId: null,
+      replaces: [],
       startAt: null,
       endAt: null,
       timeZone: "Asia/Shanghai",
@@ -149,8 +175,8 @@ export class Backend {
       content,
       ...options,
     };
-    this.versions.push(version);
-    return version;
+    this.observations.push(observation);
+    return observation;
   }
 
   raw(line: unknown) {
@@ -160,50 +186,62 @@ export class Backend {
     return { digest, mediaType: "application/json", size: body.length };
   }
 
-  private resourceOf(version: Version): string | null {
-    const schema = this.versions.find((v) => v.versionId === version.schemaVersionId);
-    return (schema?.content.resourceName as string | undefined) ?? null;
+  private typeOf(observation: Observation): Type | undefined {
+    return this.types.find((type) => type.schemaRevisionId === observation.schemaRevisionId);
+  }
+
+  private resourceOf(observation: Observation): string | null {
+    return this.typeOf(observation)?.content.resourceName ?? null;
   }
 
   private schemaFor(resourceName: string) {
-    return this.versions.find((v) => v.category === "entity_schema" && v.content.resourceName === resourceName);
+    return this.types.find((type) => type.content.resourceName === resourceName);
   }
 
-  /** 一个版本引用了哪些实体，位置写成 JSON Pointer。 */
-  private references(version: Version) {
-    const found: { path: string; targetEntityId: string; targetVersionId: string | null }[] = [];
-    if (version.observerId)
-      found.push({ path: "/observerId", targetEntityId: version.observerId, targetVersionId: null });
-    const visit = (value: unknown, path: string) => {
+  /** 一份 Observation 引用了什么，位置写成 JSON Pointer。 */
+  private references(observation: Observation) {
+    const found: { path: string; targetId: string; role: string | null }[] = [
+      { path: "/observerId", targetId: observation.observerId, role: null },
+    ];
+    observation.replaces.forEach((targetId, i) => found.push({ path: `/replaces/${i}`, targetId, role: null }));
+    const fields = this.typeOf(observation)?.content.fields ?? {};
+    const visit = (value: unknown, path: string, role: string | null) => {
       if (typeof value === "string") {
-        const thing = this.things.find((t) => t.entityId === value);
-        const target = this.versions.find((v) => v.versionId === value);
-        if (thing) found.push({ path, targetEntityId: thing.entityId, targetVersionId: null });
-        else if (target) found.push({ path, targetEntityId: target.entityId, targetVersionId: target.versionId });
-      } else if (Array.isArray(value)) value.forEach((item, i) => visit(item, `${path}/${i}`));
+        if (this.things.some((t) => t.thingId === value) || this.observations.some((v) => v.observationId === value))
+          found.push({ path, targetId: value, role });
+      } else if (Array.isArray(value)) value.forEach((item, i) => visit(item, `${path}/${i}`, role));
       else if (value && typeof value === "object")
-        for (const [key, item] of Object.entries(value)) visit(item, `${path}/${key}`);
+        for (const [key, item] of Object.entries(value)) visit(item, `${path}/${key}`, role);
     };
-    visit(version.content, "/content");
+    for (const [key, value] of Object.entries(observation.content)) {
+      const field = fields[key];
+      const items = field?.items as { role?: string } | undefined;
+      visit(value, `/content/${key}`, (field?.role as string | undefined) ?? items?.role ?? "mention");
+    }
     return found;
   }
 
-  /** 写下 Name 后，事物按 UNDERSTANDING-9 带上用户写的名字。 */
-  private applyName(version: Version) {
-    const thing = this.things.find((t) => t.entityId === version.content.thingId);
+  /** 写下 Name 后，事物按 SCHEMA-20 带上用户写的名字。 */
+  private applyName(observation: Observation) {
+    const thing = this.things.find((t) => t.thingId === observation.content.thingId);
     if (!thing) return;
-    thing.name = version.content.name as string;
-    thing.nameVersionId = version.versionId;
+    thing.name = observation.content.name as string;
+    thing.nameObservationId = observation.observationId;
   }
 
-  /** 当前理解：没有针对整条的否定，被取代时有用户的确认。 */
-  private current(version: Version): boolean {
-    const reviews = this.versions.filter(
-      (v) => v.schemaVersionId === this.review.versionId && v.content.targetVersionId === version.versionId,
+  /** 默认视图：被整条否定的和被替换的隐藏，否定 Review 就是撤回。 */
+  private current(observation: Observation): boolean {
+    const denied = this.observations.some(
+      (v) =>
+        v.schemaRevisionId === this.review.schemaRevisionId &&
+        v.content.targetId === observation.observationId &&
+        v.content.verdict === "deny" &&
+        !v.startAt &&
+        !v.endAt &&
+        this.current(v),
     );
-    const by = (verdict: string) => reviews.filter((r) => r.content.verdict === verdict);
-    if (by("deny").some((r) => !r.startAt && !r.endAt)) return false;
-    return !by("supersede").length || by("confirm").some((r) => r.observerId === this.people.entityId);
+    if (denied) return false;
+    return !this.observations.some((v) => v.replaces.includes(observation.observationId));
   }
 
   async serve(page: Page) {
@@ -211,6 +249,75 @@ export class Backend {
       (url) => url.pathname.startsWith("/api/"),
       (route) => this.handle(route),
     );
+  }
+
+  private page<T>(items: T[], limit: string | null) {
+    return items.slice(0, Number(limit ?? 100));
+  }
+
+  private matches(observations: Observation[], param: (name: string) => string | null) {
+    const from = param("from") ? Date.parse(param("from")!) : null;
+    const to = param("to") ? Date.parse(param("to")!) : null;
+    let list = observations;
+    if (param("resourceName")) list = list.filter((v) => this.resourceOf(v) === param("resourceName"));
+    if (param("observerId")) list = list.filter((v) => v.observerId === param("observerId"));
+    if (param("formation")) list = list.filter((v) => v.formation === param("formation"));
+    if (param("view") !== "all") list = list.filter((v) => this.current(v));
+    if (param("thingId"))
+      list = list.filter((v) =>
+        this.references(v).some(
+          (r) => r.targetId === param("thingId") && r.role && (!param("role") || r.role === param("role")),
+        ),
+      );
+    if (from !== null && to !== null)
+      list = list.filter((v) => {
+        const start = v.startAt ? Date.parse(v.startAt) : null;
+        const end = v.endAt ? Date.parse(v.endAt) : null;
+        if (start === null && end === null) return false;
+        if (start !== null && end !== null && end > start) return start < to && end > from;
+        const point = (start ?? end)!;
+        return point >= from && point < to;
+      });
+    return param("order") === "desc" ? [...list].reverse() : list;
+  }
+
+  /** 对象视图，按引用的 role 归类。 */
+  private view(thing: Thing) {
+    const related = this.observations
+      .filter((v) => this.current(v))
+      .map((observation) => ({
+        observation,
+        references: this.references(observation).filter((r) => r.role),
+      }));
+    const about = (references: { targetId: string; role: string | null }[]) =>
+      references.filter((r) => r.role === "about").map((r) => r.targetId);
+    const mine = related.filter(({ references }) => references.some((r) => r.targetId === thing.thingId));
+    const counts = new Map<string, { resourceName: string; role: string; count: number }>();
+    for (const { observation, references } of mine)
+      for (const role of new Set(references.filter((r) => r.targetId === thing.thingId).map((r) => r.role!))) {
+        if (role === "about") continue;
+        const resourceName = this.resourceOf(observation)!;
+        const key = `${resourceName}|${role}`;
+        const entry = counts.get(key) ?? { resourceName, role, count: 0 };
+        entry.count += 1;
+        counts.set(key, entry);
+      }
+    return {
+      thing,
+      sameAsThingIds: [],
+      state: mine
+        .filter(({ references }) => about(references).includes(thing.thingId))
+        .filter(({ references }) => about(references).every((id) => id === thing.thingId))
+        .map(({ observation }) => observation),
+      relations: mine
+        .filter(({ references }) => about(references).includes(thing.thingId))
+        .filter(({ references }) => about(references).some((id) => id !== thing.thingId))
+        .map(({ observation }) => observation),
+      activity: [...counts.values()].map((item) => ({
+        ...item,
+        href: `/observations?thingId=${thing.thingId}&role=${item.role}&resourceName=${item.resourceName}`,
+      })),
+    };
   }
 
   private handle(route: Route) {
@@ -227,54 +334,59 @@ export class Backend {
 
     if (path === "/observations") {
       if (unknownResource()) return notFound();
-      const from = param("from") ? Date.parse(param("from")!) : null;
-      const to = param("to") ? Date.parse(param("to")!) : null;
-      let versions = this.versions.filter((v) => v.category === "observation");
-      if (param("resourceName")) versions = versions.filter((v) => this.resourceOf(v) === param("resourceName"));
-      if (param("observerId")) versions = versions.filter((v) => v.observerId === param("observerId"));
-      if (param("formation")) versions = versions.filter((v) => v.formation === param("formation"));
-      if (param("standing") === "current") versions = versions.filter((v) => this.current(v));
-      if (from !== null && to !== null)
-        versions = versions.filter((v) => {
-          const start = v.startAt ? Date.parse(v.startAt) : null;
-          const end = v.endAt ? Date.parse(v.endAt) : null;
-          if (start === null && end === null) return false;
-          if (start !== null && end !== null && end > start) return start < to && end > from;
-          const point = (start ?? end)!;
-          return point >= from && point < to;
-        });
-      return json({ versions, next: null });
+      const observations = this.page(this.matches(this.observations, param), param("limit"));
+      return json({ observations, next: null });
     }
-    if (path === "/entities") {
-      if (unknownResource()) return notFound();
-      const category = param("category");
-      const versions = this.versions.filter(
-        (v) =>
-          (!category || v.category === category) &&
-          (!param("resourceName") || this.resourceOf(v) === param("resourceName")),
-      );
-      return json({ versions, next: null });
+    if (path === "/search") {
+      const q = param("q")!;
+      const observations = this.matches(this.observations, param).filter((v) => JSON.stringify(v.content).includes(q));
+      return json({ observations: this.page(observations, param("limit")), next: null });
     }
+    if (path === "/schema-revisions")
+      return json({
+        schemaRevisions: this.types
+          .filter((type) => !type.thing)
+          .map(({ schemaRevisionId, schemaId, content }) => ({
+            schemaRevisionId,
+            schemaId,
+            recordedAt: new Date(0).toISOString(),
+            content,
+          })),
+        next: null,
+      });
+    if (path === "/thing-types")
+      return json({
+        thingTypes: this.types
+          .filter((type) => type.thing)
+          .map(({ schemaId, content: { displayName, description, resourceName } }) => ({
+            schemaId,
+            displayName,
+            description,
+            resourceName,
+          })),
+      });
+    if (path === "/observer-instances") return json({ instances: this.instances });
+    if (path === "/hosts") return json({ hosts: [] });
     if (path === "/things") {
       if (unknownResource()) return notFound();
       const schema = param("resourceName") ? this.schemaFor(param("resourceName")!) : null;
-      return json({ things: this.things.filter((t) => !schema || t.schemaId === schema.entityId), next: null });
+      return json({ things: this.things.filter((t) => !schema || t.schemaId === schema.schemaId), next: null });
     }
     if (path === "/things/read") {
-      const { entityIds } = request.postDataJSON() as { entityIds: string[] };
+      const { thingIds } = request.postDataJSON() as { thingIds: string[] };
       return json({
-        results: entityIds.map((entityId) => {
-          const thing = this.things.find((t) => t.entityId === entityId);
-          return thing ? { entityId, status: "found", thing } : { entityId, status: "not_found" };
+        results: thingIds.map((thingId) => {
+          const thing = this.things.find((t) => t.thingId === thingId);
+          return thing ? { thingId, status: "found", thing } : { thingId, status: "not_found" };
         }),
       });
     }
-    if (path === "/versions/read") {
-      const { versionIds } = request.postDataJSON() as { versionIds: string[] };
+    if (path === "/observations/read") {
+      const { observationIds } = request.postDataJSON() as { observationIds: string[] };
       return json({
-        results: versionIds.map((versionId) => {
-          const version = this.versions.find((v) => v.versionId === versionId);
-          return version ? { versionId, status: "found", version } : { versionId, status: "not_found" };
+        results: observationIds.map((observationId) => {
+          const observation = this.observations.find((v) => v.observationId === observationId);
+          return observation ? { observationId, status: "found", observation } : { observationId, status: "not_found" };
         }),
       });
     }
@@ -283,14 +395,15 @@ export class Backend {
         writes: { schemaId: string; formation: string; content: Record<string, unknown> }[];
       };
       const results = body.writes.map((write) => {
-        const schema = this.versions.find((v) => v.entityId === write.schemaId && v.category === "entity_schema")!;
+        const schema = this.types.find((type) => type.schemaId === write.schemaId)!;
         return {
-          version: this.observe(schema, this.people, write.content, { formation: write.formation }),
+          observation: this.observe(schema, this.people, write.content, { formation: write.formation }),
           changed: true,
+          replaced: [],
         };
       });
-      for (const { version } of results)
-        if (version.schemaVersionId === this.nameType.versionId) this.applyName(version);
+      for (const { observation } of results)
+        if (observation.schemaRevisionId === this.nameType.schemaRevisionId) this.applyName(observation);
       return json({ results });
     }
     if (path === "/narratives") {
@@ -312,34 +425,38 @@ export class Backend {
       const body = this.contents.get(decodeURIComponent(id!));
       return body ? route.fulfill({ body, contentType: "application/octet-stream" }) : notFound();
     }
-    if (kind === "versions") {
-      const found = this.versions.find((v) => v.versionId === id);
-      return found ? json(found) : notFound();
+    if (kind === "schema-revisions") {
+      const type = this.types.find((item) => item.schemaRevisionId === id);
+      if (!type) return notFound();
+      const { schemaRevisionId, schemaId, content } = type;
+      return json({ schemaRevisionId, schemaId, recordedAt: new Date(0).toISOString(), content });
     }
-    if (kind === "entities" && id) {
-      const thing = this.things.find((t) => t.entityId === id);
-      const chain = this.versions.filter((v) => v.entityId === id);
-      if (!thing && !chain.length) return notFound();
+    if ((kind === "observations" || kind === "things") && rest === "referrers") {
+      let referrers = this.observations
+        .map((observation) => ({
+          observation,
+          references: this.references(observation).filter((r) => r.targetId === id),
+        }))
+        .filter((r) => r.references.length);
+      if (param("view") !== "all") referrers = referrers.filter((r) => this.current(r.observation));
+      if (param("path")) referrers = referrers.filter((r) => r.references.some((l) => l.path === param("path")));
+      if (param("resourceName"))
+        referrers = referrers.filter((r) => this.resourceOf(r.observation) === param("resourceName"));
+      if (param("order") === "desc") referrers.reverse();
+      return json({ referrers: this.page(referrers, param("limit")), next: null });
+    }
+    if (kind === "observations") {
+      const found = this.observations.find((v) => v.observationId === id);
+      if (!found) return notFound();
       if (request.method() === "DELETE") {
-        this.versions.splice(0, this.versions.length, ...this.versions.filter((v) => v.entityId !== id));
-        return route.fulfill({ status: 204 });
+        this.observations.splice(this.observations.indexOf(found), 1);
+        return json({ deleted: [id], dependents: [] });
       }
-      if (rest === "versions") return json({ versions: chain });
-      if (rest === "referrers") {
-        let referrers = this.versions
-          .map((version) => ({
-            version,
-            references: this.references(version).filter((r) => r.targetEntityId === id),
-          }))
-          .filter((r) => r.references.length);
-        if (param("path")) referrers = referrers.filter((r) => r.references.some((l) => l.path === param("path")));
-        if (param("resourceName"))
-          referrers = referrers.filter((r) => this.resourceOf(r.version) === param("resourceName"));
-        if (param("order") === "desc") referrers.reverse();
-        const limit = Number(param("limit") ?? 100);
-        return json({ referrers: referrers.slice(0, limit), next: null });
-      }
-      return json(thing ?? chain.at(-1));
+      return json(found);
+    }
+    if (kind === "things" && id) {
+      const thing = this.things.find((t) => t.thingId === id);
+      return thing ? json(this.view(thing)) : notFound();
     }
     return notFound();
   }

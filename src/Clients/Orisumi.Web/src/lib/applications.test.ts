@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ObservationVersion, Thing } from "@/api/types";
+import type { Observation, Thing } from "@/api/types";
 import { observation, thing } from "@/test/fixtures";
 import { buildCatalog, installDetails, type CatalogInput } from "./applications";
 
@@ -14,10 +14,10 @@ const membership = (identifier: Thing, target: Thing, recordedAt = "2026-10-29T0
     recordedAt,
     startAt: null,
     endAt: null,
-    content: { identifierId: identifier.entityId, productId: target.entityId },
+    content: { identifierId: identifier.thingId, productId: target.thingId },
   });
 
-function install(identifiers: Thing[], path: string): [Thing, ObservationVersion] {
+function install(identifiers: Thing[], path: string): [Thing, Observation] {
   const app = thing();
   return [
     app,
@@ -25,20 +25,20 @@ function install(identifiers: Thing[], path: string): [Thing, ObservationVersion
       startAt: null,
       endAt: null,
       content: {
-        localApplicationId: app.entityId,
+        localApplicationId: app.thingId,
         deviceId: "device",
-        identifierIds: identifiers.map((i) => i.entityId),
+        identifierIds: identifiers.map((i) => i.thingId),
         executablePath: path,
       },
     }),
   ];
 }
 
-function catalogOf(products: Thing[], memberships: ObservationVersion[], installs: [Thing, ObservationVersion][]) {
+function catalogOf(products: Thing[], memberships: Observation[], installs: [Thing, Observation][]) {
   const input: CatalogInput = {
     products,
     memberships,
-    clues: new Map([qqMac, qqAndroid, lark].map((c) => [c.entityId, c])),
+    clues: new Map([qqMac, qqAndroid, lark].map((c) => [c.thingId, c])),
     installs: installs.map(([app]) => app),
     descriptions: installs.map(([, description]) => description),
   };
@@ -53,7 +53,7 @@ describe("归属", () => {
     const catalog = catalogOf([qq], [membership(qqMac, qq)], [a, b]);
     expect(catalog.productOf(a[0])?.name).toBe("QQ");
     expect(catalog.productOf(b[0])?.name).toBe("QQ");
-    expect(catalog.installsOf(qqMac.entityId)).toHaveLength(2);
+    expect(catalog.installsOf(qqMac.thingId)).toHaveLength(2);
   });
 
   it("一个产品的线索来自各自的线索归属", () => {

@@ -13,7 +13,7 @@ const host = (overrides: Partial<Host> = {}): Host => ({
 });
 
 const instance = (overrides: Partial<Instance> = {}): Instance => ({
-  entityId: "a",
+  thingId: "a",
   hostId: "mac",
   packageId: "foreground-state",
   name: "Foreground State",
@@ -45,7 +45,7 @@ describe("collectionProblems", () => {
     expect(
       collectionProblems(
         [host()],
-        [instance({ status: failed }), instance({ entityId: "b", name: "停用的", enabled: false, status: failed })],
+        [instance({ status: failed }), instance({ thingId: "b", name: "停用的", enabled: false, status: failed })],
       ),
     ).toEqual(["Foreground State：读不到前台窗口"]);
     expect(collectionProblems([host({ connected: false })], [instance({ status: failed })])).toEqual(["J929 离线"]);

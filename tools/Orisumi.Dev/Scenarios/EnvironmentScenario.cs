@@ -23,24 +23,24 @@ internal sealed class EnvironmentScenario(RepositoryContext repository, IProcess
             var entries = state.Entries!;
             await RoutingAsync(http, entries, token);
             await http.RequestAsync("POST", entries.Api + "/writes", 413, token, new string('x', 10 * 1024 * 1024 + 1), problem: true);
-            var entity = ScenarioEntity.Create();
-            await entity.SubmitAsync(http, entries.Api, token);
+            var observation = ScenarioObservation.Create();
+            await observation.SubmitAsync(http, entries.Api, token);
             await manager.DownAsync(token, preserveVolume: true);
 
             state = await manager.UpAsync(["api"], true, token, volume);
             entries = state.Entries!;
-            await entity.ReadAsync(http, entries.Api, token);
+            await observation.ReadAsync(http, entries.Api, token);
             await http.RequestAsync("GET", entries.Docs, 503, token, problem: true);
             await http.RequestAsync("GET", entries.Web, 503, token, problem: true);
-            await http.RequestAsync("GET", entries.Docs + "api/entities", 200, token);
+            await http.RequestAsync("GET", entries.Docs + "api/observations", 200, token);
             await manager.DownAsync(token, preserveVolume: true);
 
             state = await manager.UpAsync(["docs"], true, token, volume);
             entries = state.Entries!;
             await http.RequestAsync("GET", entries.Docs + "core", 200, token);
-            await http.RequestAsync("GET", entries.Api + "/entities", 503, token, problem: true);
-            await http.RequestAsync("GET", entries.Docs + "api/entities", 503, token, problem: true);
-            await http.RequestAsync("GET", entries.Web + "api/entities", 503, token, problem: true);
+            await http.RequestAsync("GET", entries.Api + "/observations", 503, token, problem: true);
+            await http.RequestAsync("GET", entries.Docs + "api/observations", 503, token, problem: true);
+            await http.RequestAsync("GET", entries.Web + "api/observations", 503, token, problem: true);
             await manager.DownAsync(token, preserveVolume: true);
 
             await VerifyMigrationFailureAsync(manager, volume, log, token);
@@ -83,15 +83,15 @@ internal sealed class EnvironmentScenario(RepositoryContext repository, IProcess
 
     private static async Task RoutingAsync(ScenarioHttp http, EnvironmentEntries entries, CancellationToken token)
     {
-        await http.RequestAsync("GET", entries.Api + "/entities", 200, token);
+        await http.RequestAsync("GET", entries.Api + "/observations", 200, token);
         await http.RequestAsync("GET", new Uri(new Uri(entries.Api), "/").ToString(), 404, token);
         await http.RequestAsync("GET", entries.Docs + "core", 200, token);
         await http.RequestAsync("GET", entries.Docs + "api", 200, token);
         await http.RequestAsync("GET", entries.Web, 200, token);
         foreach (var prefix in new[] { entries.Api + "/", entries.Docs + "api/", entries.Web + "api/" })
         {
-            await http.RequestAsync("GET", prefix + "entities", 200, token);
-            await http.RequestAsync("GET", prefix + "versions/019a0d3b-1d20-7000-8000-000000000001", 404, token, problem: true);
+            await http.RequestAsync("GET", prefix + "observations", 200, token);
+            await http.RequestAsync("GET", prefix + "observations/019a0d3b-1d20-7000-8000-000000000001", 404, token, problem: true);
             await http.RequestAsync("GET", prefix + "observations?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z", 200, token);
         }
     }

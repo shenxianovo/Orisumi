@@ -10,7 +10,7 @@ import { DayNav } from "@/components/day/DayNav";
 import { Message, PageHeader } from "@/components/ui";
 import { useCatalog } from "@/hooks/useApplications";
 import { useConversations } from "@/hooks/useConversations";
-import { describeItem } from "@/hooks/useEntityInfo";
+import { describeItem } from "@/hooks/useItemInfo";
 import { useNow } from "@/hooks/useNow";
 import { useTypes } from "@/hooks/useTypes";
 import { dayOf, dayRange } from "@/lib/time";
@@ -110,7 +110,7 @@ function ThingsPage() {
               {list.length ? (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
                   {list.map(({ thing }) => (
-                    <ThingNode key={thing.entityId} thingId={thing.entityId} />
+                    <ThingNode key={thing.thingId} thingId={thing.thingId} />
                   ))}
                 </div>
               ) : (

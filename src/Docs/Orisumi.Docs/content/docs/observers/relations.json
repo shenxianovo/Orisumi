@@ -6,15 +6,6 @@
     "PLATFORM": {
       "label": "platform"
     },
-    "HOST_NAME": {
-      "label": "hostName"
-    },
-    "PROGRAM_VERSION": {
-      "label": "programVersion"
-    },
-    "FOREGROUND_APPLICATION_PERIOD_VERSION_ID": {
-      "label": "foregroundApplicationPeriodVersionId"
-    },
     "OBSERVED_NAME": {
       "label": "name"
     },
@@ -29,9 +20,6 @@
     },
     "STATE": {
       "label": "state<br/>草案"
-    },
-    "MODEL": {
-      "label": "model"
     },
     "ACTOR": {
       "label": "actor"
@@ -75,23 +63,18 @@
     "LOCAL_APPLICATION_IDS": {
       "label": "localApplicationIds"
     },
-    "DECISION_MODEL": {
-      "label": "decisionModel"
+    "FOREGROUND_APPLICATION_PERIOD_ID": {
+      "label": "foregroundApplicationPeriodId"
     }
   },
   "nodes": {
     "FOREGROUND_STATE": {
-      "path": "/observers/foreground-state/foreground-state-observer",
-      "schemaPath": "/observers/foreground-state/foreground-state-observer#schema",
-      "label": "前台状态 Observer<br/>描述",
+      "path": "/observers/foreground-state",
+      "label": "前台状态 Observer",
       "interfaces": [
-        "Observation"
+        "Observer"
       ],
-      "fields": [
-        "PLATFORM",
-        "HOST_NAME",
-        "PROGRAM_VERSION"
-      ]
+      "fields": []
     },
     "INPUT_EVENTS": {
       "path": "/observers/input-events",
@@ -142,7 +125,7 @@
         "Observation"
       ],
       "fields": [
-        "FOREGROUND_APPLICATION_PERIOD_VERSION_ID",
+        "FOREGROUND_APPLICATION_PERIOD_ID",
         "TITLE"
       ]
     },
@@ -181,17 +164,12 @@
       ]
     },
     "APPLICATION_IDENTITY": {
-      "path": "/observers/application-identity/application-identity-observer",
-      "schemaPath": "/observers/application-identity/application-identity-observer#schema",
-      "label": "应用识别 Observer<br/>描述",
+      "path": "/observers/application-identity",
+      "label": "应用识别 Observer",
       "interfaces": [
-        "Observation"
+        "Observer"
       ],
-      "fields": [
-        "PROGRAM_VERSION",
-        "DECISION_MODEL",
-        "MODEL"
-      ]
+      "fields": []
     },
     "APPLICATION_PRODUCT": {
       "path": "/observers/application-identity/application-product",
@@ -224,17 +202,12 @@
       "fields": []
     },
     "ASSISTANT_SESSIONS": {
-      "path": "/observers/assistant-sessions/assistant-sessions-observer",
-      "schemaPath": "/observers/assistant-sessions/assistant-sessions-observer#schema",
-      "label": "助手会话 Observer<br/>描述",
+      "path": "/observers/assistant-sessions",
+      "label": "助手会话 Observer",
       "interfaces": [
-        "Observation"
+        "Observer"
       ],
-      "fields": [
-        "PLATFORM",
-        "HOST_NAME",
-        "PROGRAM_VERSION"
-      ]
+      "fields": []
     },
     "ASSISTANT_SESSION": {
       "path": "/observers/assistant-sessions/assistant-session",
@@ -274,16 +247,12 @@
       ]
     },
     "NARRATIVE": {
-      "path": "/observers/narrative/narrative-observer",
-      "schemaPath": "/observers/narrative/narrative-observer#schema",
-      "label": "叙事 Observer<br/>描述",
+      "path": "/observers/narrative",
+      "label": "叙事 Observer",
       "interfaces": [
-        "Observation"
+        "Observer"
       ],
-      "fields": [
-        "PROGRAM_VERSION",
-        "MODEL"
-      ]
+      "fields": []
     },
     "EPISODE": {
       "path": "/observers/narrative/episode",
@@ -300,16 +269,12 @@
       ]
     },
     "SESSION_UNDERSTANDING": {
-      "path": "/observers/session-understanding/session-understanding-observer",
-      "schemaPath": "/observers/session-understanding/session-understanding-observer#schema",
-      "label": "会话理解 Observer<br/>描述",
+      "path": "/observers/session-understanding",
+      "label": "会话理解 Observer",
       "interfaces": [
-        "Observation"
+        "Observer"
       ],
-      "fields": [
-        "PROGRAM_VERSION",
-        "MODEL"
-      ]
+      "fields": []
     }
   }
 }

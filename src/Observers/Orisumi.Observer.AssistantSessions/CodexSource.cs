@@ -157,7 +157,7 @@ internal static partial class CodexSource
             var pointer = "/payload/item/content/" + index++;
             switch (block.Text("type"))
             {
-                case "text" or "input_text" or "output_text": parts.Add(new("text", block.RequiredText("text"), 0, pointer + "/text")); break;
+                case "Text" or "text" or "input_text" or "output_text": parts.Add(new("text", block.RequiredText("text"), 0, pointer + "/text")); break;
                 case "image" or "input_image": parts.Add(new("image", null, 0, pointer + "/image_url", ImageMediaType(block.Text("image_url")))); break;
                 case "local_image": parts.Add(new("image", null, 0, pointer + "/path", null, readImage?.Invoke(block.Required("path")))); break;
                 default: parts.Add(new("json", null, 0, pointer)); break;

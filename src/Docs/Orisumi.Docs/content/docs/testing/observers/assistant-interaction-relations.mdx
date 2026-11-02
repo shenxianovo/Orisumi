@@ -17,8 +17,8 @@ export const caseId = 'assistant-interaction-relations';
 
 | 输入 | 预期结果 |
 | --- | --- |
-| 一次响应中有两个并行的工具调用，结果按相反的顺序返回 | 每个结果的 `toolCallVersionId` 指向 `callId` 相同的调用 |
-| 调用在这一轮读到，结果在下一轮才写入 | 结果形成时引用已形成的调用，调用的交互没有新版本 |
+| 一次响应中有两个并行的工具调用，结果按相反的顺序返回 | 每个结果的 `toolCallId` 指向 `callId` 相同的调用 |
+| 调用在这一轮读到，结果在下一轮才写入 | 结果形成时引用已形成的调用，调用的交互不变 |
 | 调用之后没有结果 | 只有调用的交互 |
 | 工具结果的 `is_error` 为 `true`，或 Codex 的 `status` 为 `failed` | 形成 `isError` 为 `true` 的 `tool-result` |
 | Claude Code 中回到第二句话重新提问，形成两条分支 | 两条分支的交互都保留，各自的 `sourceParentId` 与来源相同 |
@@ -26,7 +26,7 @@ export const caseId = 'assistant-interaction-relations';
 | Codex 的子 Agent rollout，`source.subagent` 带父会话的标识 | 同上；子 Agent 会话中的 `UserMessage` 的 `actor` 为 `agent` |
 | 子 Agent 的文件先于父会话的文件被读到 | 先形成两个会话，再由关系引用它们 |
 | 两个来源会话出现同名 item-N 或全局标识；Claude fork 复用 sourceId | 按来源会话分别形成 Observation，工具结果只引用本会话的调用 |
-| item-N 的 Reasoning 同一 id 连续变化 | 保持待配对；下一个 id 出现时只保存最后一行，形成一个版本 |
+| item-N 的 Reasoning 同一 id 连续变化 | 保持待配对；下一个 id 出现时只保存最后一行，形成一份 Observation |
 
 ## 测试实现 [#implementation]
 

@@ -1,0 +1,37 @@
+---
+title: "Runs"
+description: "一次工作记下读过的 Observation，写入时形成 InputSet"
+---
+
+export const caseId = 'api-runs';
+
+## 为什么验证 [#why]
+
+Agent 用了哪些数据要由系统保证，读过的和列出的不能有差别。约定见 [EVIDENCE-9](../../core/rules/evidence.mdx#evidence-9) 和 [Reading · 一次工作](../../api/reading.mdx#runs)。
+
+## 前置条件 [#setup]
+
+通过真实 API 和独立的 PostgreSQL 数据库运行，见 [测试分工](../index.mdx#kinds)。
+
+## 操作与预期结果 [#steps]
+
+| 操作 | 预期结果 |
+| --- | --- |
+| `POST /runs` | 201，返回 `runId` |
+| 带 `runId` 查询观测，再写入带同一个 `runId` | InputSet 的成员是查询返回的 Observation |
+| 带 `runId` 搜索、读取对象视图、读取引用方和按 id 读取 | 返回的 Observation 都算读过 |
+| 查询时结果被分页，只读了第一页 | 只有第一页算读过 |
+| 带 `runId` 读取之后写入，再读取，再写入 | 第二次的 InputSet 包含第二次读取；第一次不变 |
+| 还没有读取就写入 | `inputSetId` 为 `null` |
+| 一个请求中两次写入带同一个 `runId` | 共用一个 InputSet |
+| 不带 `runId` 的读取 | 不计入 |
+| 写入同时带 `inputs` 和 `runId` | 400 |
+| `runId` 不存在 | 这次读取或写入返回 400 |
+
+## 测试实现 [#implementation]
+
+未覆盖：这个 Case 由实现任务补上测试。
+
+## 执行结果 [#results]
+
+<TestCaseResults caseId={caseId} />

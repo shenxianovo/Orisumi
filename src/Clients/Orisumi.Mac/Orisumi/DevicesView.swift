@@ -437,7 +437,7 @@ struct RemoteInspector: View {
     }
 
     private var maintenanceNote: String {
-        if let operation = management.operation, operation.entityId == instance.id {
+        if let operation = management.operation, operation.thingId == instance.id {
             return HostText.operation(operation)
         }
         return host.connected ? "更新到目录中的最新版本，或重新启动失败的实例。" : "它连接后才能操作。"
@@ -564,7 +564,7 @@ struct RemotePackageSheet: View {
             } else {
                 Button(fresh ? "新建实例" : "安装") {
                     installing = package.id
-                    Task { await management.execute(host: host.id, action: "install", package: package.id, newInstance: fresh) }
+                    Task { await management.execute(host: host.id, action: "install", package: package.id) }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!package.compatible || management.busy)

@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { BookOpen, Box, Layers } from "lucide-react";
 import { isThing, type Item } from "@/api/types";
-import { useDescribe, useEntityInfo, useThingInfo, type EntityInfo } from "@/hooks/useEntityInfo";
+import { useDescribe, useObservationInfo, useThingInfo, type ItemInfo } from "@/hooks/useItemInfo";
 import { useThingImage } from "@/hooks/useIcons";
 import type { Role } from "@/lib/roles";
 import { UNREADABLE } from "@/lib/observers";
@@ -91,19 +91,19 @@ export function Mark({
 }
 
 /**
- * 一个实体的记号。同一实体在任何地方出现都是这个样子；悬停时页面上它的其他记号一起亮起。
- * 点事物打开它的档案，点其他实体在右边推出它的面板。
+ * 一项记录的记号。同一项记录在任何地方出现都是这个样子；悬停时页面上它的其他记号一起亮起。
+ * 点事物打开它的档案，点其他记录在右边推出它的面板。
  */
 export function Token({
-  versionId,
+  observationId,
   thingId,
   item,
   size = "md",
   detail,
   className,
 }: {
-  /** 版本按 VersionId，事物按 EntityId；已经读到时直接给 item。 */
-  versionId?: string | null;
+  /** Observation 按 observationId，事物按 thingId；已经读到时直接给 item。 */
+  observationId?: string | null;
   thingId?: string | null;
   item?: Item;
   size?: "sm" | "md";
@@ -111,15 +111,15 @@ export function Token({
   detail?: string | null | undefined;
   className?: string;
 }) {
-  const byVersion = useEntityInfo(item ? null : versionId);
+  const byObservation = useObservationInfo(item ? null : observationId);
   const byThing = useThingInfo(item ? null : thingId);
   const given = useDescribe(item);
-  const { info, pending, unreadable } = item ? given : thingId ? byThing : byVersion;
+  const { info, pending, unreadable } = item ? given : thingId ? byThing : byObservation;
 
   if (unreadable)
     return (
       <span className={cn(chip(size), "text-fg-3 border-line-2 border border-dashed", className)}>
-        <span className="font-mono text-[11px]">{(thingId ?? versionId)?.slice(-8)}</span> {UNREADABLE}
+        <span className="font-mono text-[11px]">{(thingId ?? observationId)?.slice(-8)}</span> {UNREADABLE}
       </span>
     );
   if (pending || !info)
@@ -133,18 +133,18 @@ export function Token({
 }
 
 /** 事物的记号用它所属类型的图标。 */
-export function iconOf(info: EntityInfo) {
+export function iconOf(info: ItemInfo) {
   return info.role === "thing" ? typeIcon(info.schema?.content.resourceName) : undefined;
 }
 
-/** 一个实体的记号：角色的形状，事物有自己的图标时用它的图标。 */
+/** 一项记录的记号：角色的形状，事物有自己的图标时用它的图标。 */
 export function InfoMark({
   info,
   size = "md",
   framed,
   className,
 }: {
-  info: EntityInfo;
+  info: ItemInfo;
   size?: keyof typeof MARK_SIZES;
   framed?: boolean | undefined;
   className?: string | undefined;
@@ -177,7 +177,7 @@ function LiveToken({
   detail,
   className,
 }: {
-  info: EntityInfo;
+  info: ItemInfo;
   size: "sm" | "md";
   detail?: string | null | undefined;
   className?: string | undefined;
@@ -186,28 +186,28 @@ function LiveToken({
   const depth = useDepth();
   const stack = useStack();
   const navigate = useNavigate();
-  const entityId = info.entityId;
-  const lit = highlight.active === entityId;
-  const open = stack.ids.includes(entityId);
+  const id = info.id;
+  const lit = highlight.active === id;
+  const open = stack.ids.includes(id);
   return (
     <button
       type="button"
-      data-entity={entityId}
+      data-record={id}
       title={`${info.roleName} · ${info.typeName}`}
       aria-label={`${info.typeName} ${info.title}`}
-      onPointerEnter={() => highlight.set(entityId)}
+      onPointerEnter={() => highlight.set(id)}
       onPointerLeave={() => highlight.set(null)}
-      onFocus={() => highlight.set(entityId)}
+      onFocus={() => highlight.set(id)}
       onBlur={() => highlight.set(null)}
       onClick={(event) => {
         event.stopPropagation();
         if (info.role === "thing")
           void navigate({
             to: "/things/$thingId",
-            params: { thingId: entityId },
+            params: { thingId: id },
             search: ((prev: { date?: string }) => (prev.date ? { date: prev.date } : {})) as never,
           });
-        else stack.open(entityId, depth);
+        else stack.open(id, depth);
       }}
       className={cn(
         chip(size),

@@ -25,7 +25,7 @@ description: "某台设备上的一个应用安装"
 
 | 变化 | 身份 |
 | --- | --- |
-| 应用名称变化 | 复用；新名称保存在前台时段中，名字形成新版本 |
+| 应用名称变化 | 复用；新名称保存在前台时段中，新的 Name 替换旧的 |
 | 应用退出后重新启动 | 复用 |
 | 前台状态 Observer 重启或升级 | 复用 |
 | 同一台设备上的另一个托管方读到它 | 复用 |
@@ -41,11 +41,11 @@ description: "某台设备上的一个应用安装"
 
 识别时宁可多建身份。名称会随语言和版本变化，两个不同的安装也可能同名；多出来的身份按跨设备线索归到同一个[应用产品](../application-identity/application-product.mdx)，错误合并的身份却无法拆开。
 
-用户删除一个本机应用后，识别依据随它删除。之后读到同一个安装时，它是一个新的事物，见 [IDENTITY-7](../../core/rules/identity.mdx#identity-7)。
+用户删除一个本机应用后，识别依据留下墓碑。之后再读到同一个安装时，关于它的描述被跳过；前台时段只是提到它，照常保存，引用不可读取，见 [HISTORY-11](../../core/rules/history.mdx#history-11)。
 
 ## 描述 [#description]
 
-本机应用描述是一份 Observation，说明这个安装在哪台设备上、有哪些标识线索。它用下面的依据写入，两个托管方读到的内容相同，所以第二次写入什么都不发生，见 [OBSERVATION-10](../../core/model/observation.mdx#observation-10)。
+本机应用描述是一份 Observation，说明这个安装在哪台设备上、有哪些标识线索。它是状态，全局一份：用下面的依据写入，两个托管方读到的内容相同时，第二次写入什么都不发生；内容变了，新的一份替换旧的，见 [OBSERVATION-19](../../core/model/observation.mdx#observation-19)。
 
 | 识别依据 | 值 |
 | --- | --- |
@@ -71,7 +71,7 @@ Android 上的前台状态 Observer 尚未实现，`android.package-name` 目前
 
 ## 名字 [#name]
 
-前台状态 Observer 把读到的应用名称写成本机应用的一份 [Name](../../core/rules/understanding.mdx#name)，所以读取方读本机应用时就能得到“Visual Studio Code”这样的名字，不用写出识别依据。每个本机应用一份名字，用下面的依据写入：名称没变时，第二次写入什么都不发生；名称变了，名字形成新版本。
+前台状态 Observer 把读到的应用名称写成本机应用的一份 [Name](../../core/model/common-types.mdx#name)，所以读取方读本机应用时就能得到“Visual Studio Code”这样的名字，不用写出识别依据。每个本机应用一份名字，用下面的依据写入：名称没变时，第二次写入什么都不发生；名称变了，新的 Name 替换旧的。
 
 | 识别依据 | 值 |
 | --- | --- |
@@ -86,9 +86,9 @@ Android 上的前台状态 Observer 尚未实现，`android.package-name` 目前
 
 形成方式是 `direct`，事实时间和 `timeZone` 都是 `null`。时段的 `name` 为 `null` 时不写名字。
 
-## EntitySchema [#schema]
+## 类型 [#schema]
 
-本机应用：
+本机应用是事物类型：
 
 | 项目 | 值 |
 | --- | --- |
@@ -96,9 +96,8 @@ Android 上的前台状态 Observer 尚未实现，`android.package-name` 目前
 | 显示名称 | 本机应用 |
 | 说明 | 表示某台设备上的一个应用安装。 |
 | 资源名 | `local-applications` |
-| `kind` | `thing` |
 
-本机应用描述：
+本机应用描述是 Schema：
 
 | 项目 | 值 |
 | --- | --- |
@@ -106,15 +105,14 @@ Android 上的前台状态 Observer 尚未实现，`android.package-name` 目前
 | 显示名称 | 本机应用描述 |
 | 说明 | 说明一个本机应用所在的设备和它的标识线索。事实时间未知。 |
 | 资源名 | `local-application-descriptions` |
-| `kind` | `observation` |
-| `immutable` | `false` |
+| `stateFields` | `localApplicationId` |
 
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
-| `localApplicationId` | `reference`，目标为事物 | 是 | 否 | 被描述的本机应用 |
-| `deviceId` | `reference`，目标为事物 | 是 | 否 | 应用所在的设备 |
+| `localApplicationId` | `reference`，目标为事物，`role` 为 `about` | 是 | 否 | 被描述的本机应用 |
+| `deviceId` | `reference`，目标为事物，`role` 为 `mention` | 是 | 否 | 应用所在的设备 |
 | `identifierIds` | `array` | 是 | 否 | 跨设备线索，顺序无意义；没有时为 `[]` |
-| `identifierIds[]` | `reference`，目标为事物 | 不适用 | 否 | 一条应用线索 |
+| `identifierIds[]` | `reference`，目标为事物，`role` 为 `mention` | 不适用 | 否 | 一条应用线索 |
 | `executablePath` | `string` | 是 | 是 | 可执行文件路径，读不到时为 `null` |
 
 ## 示例 [#example]

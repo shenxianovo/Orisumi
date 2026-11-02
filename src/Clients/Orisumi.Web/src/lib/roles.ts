@@ -1,7 +1,7 @@
-import { isThing, type Item } from "@/api/types";
+import { isInputSet, isSchemaRevision, isThing, type Item } from "@/api/types";
 import { isUser, PROGRAM_SCHEMA } from "./common";
 
-// 实体在记录里扮演的角色，由类别和事实时间决定：对观测负责的程序实例和用户本人是来源，有事实时间的 Observation 是经历，
+// 一项记录扮演的角色，由它的种类和事实时间决定：对观测负责的程序实例和用户本人是来源，有事实时间的 Observation 是经历，
 // 事实时间未知的 Observation 是陈述，其余事物是事物。角色决定记号的形状；颜色只给事物。
 
 export type Role = "thing" | "experience" | "statement" | "source" | "evidence" | "definition";
@@ -17,8 +17,8 @@ export const ROLE_NAMES: Record<Role, string> = {
 
 export function roleOf(item: Item): Role {
   if (isThing(item)) return item.schemaId === PROGRAM_SCHEMA || isUser(item) ? "source" : "thing";
-  if (item.category === "input_set") return "evidence";
-  if (item.category === "entity_schema") return "definition";
+  if (isInputSet(item)) return "evidence";
+  if (isSchemaRevision(item)) return "definition";
   const { startAt, endAt } = item as { startAt?: string | null; endAt?: string | null };
   return startAt || endAt ? "experience" : "statement";
 }

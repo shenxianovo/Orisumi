@@ -2,8 +2,9 @@ import Foundation
 
 /// A saved foreground application period shown in the client.
 public struct Period: Equatable, Identifiable, Sendable {
-    /// The Observation's EntityId.
-    public var id: UUID
+    public var observationId: UUID
+    /// A partly denied Observation is shown as the parts that remain.
+    public var part: Int
     public var name: String?
     /// The local application the period mentions.
     public var applicationId: UUID?
@@ -13,14 +14,18 @@ public struct Period: Equatable, Identifiable, Sendable {
     /// The last confirmation.
     public var endAt: Date
 
-    public init(id: UUID, name: String?, applicationId: UUID?, icon: String? = nil, startAt: Date, endAt: Date) {
-        self.id = id
+    public init(observationId: UUID, part: Int = 0, name: String?, applicationId: UUID?, icon: String? = nil,
+                startAt: Date, endAt: Date) {
+        self.observationId = observationId
+        self.part = part
         self.name = name
         self.applicationId = applicationId
         self.icon = icon
         self.startAt = startAt
         self.endAt = endAt
     }
+
+    public var id: String { "\(observationId)/\(part)" }
 
     /// Groups periods of the same local application.
     public var applicationKey: String { applicationId?.uuidString ?? name ?? "" }
@@ -56,6 +61,18 @@ public struct HourSlice: Equatable, Identifiable, Sendable {
 public enum Today {
     public static func interval(containing date: Date, calendar: Calendar = .current) -> DateInterval {
         calendar.dateInterval(of: .day, for: date)!
+    }
+
+    /// What is left of `[start, end)` after the denied ranges. The backend computes them; the client only cuts.
+    public static func remaining(from start: Date, to end: Date, denied: [DeniedRange]) -> [DateInterval] {
+        var parts: [DateInterval] = []
+        var cursor = start
+        for range in denied.sorted(by: { $0.startAt < $1.startAt }) {
+            if range.startAt > cursor { parts.append(DateInterval(start: cursor, end: min(range.startAt, end))) }
+            cursor = max(cursor, range.endAt)
+        }
+        if cursor < end { parts.append(DateInterval(start: cursor, end: end)) }
+        return denied.isEmpty ? [DateInterval(start: start, end: end)] : parts
     }
 
     /// Foreground time per application inside `day`, longest first.

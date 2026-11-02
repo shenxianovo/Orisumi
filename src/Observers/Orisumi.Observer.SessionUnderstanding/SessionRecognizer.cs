@@ -13,13 +13,9 @@ internal interface ISessionModel
 internal sealed class SessionRecognizer(DataClient data, SessionRepository repository, ISessionModel model,
     string modelName, string programVersion, TimeSpan idle, TimeProvider time, Action<string> diagnostic)
 {
-    internal static readonly Guid SchemaId = Guid.Parse("019e1bbb-ec00-7000-8000-000000000019");
-    internal static readonly SchemaDefinition[] Definitions = SchemaDefinition.Load(typeof(SessionRecognizer).Assembly,
-        "Orisumi.Observer.SessionUnderstanding.schemas.json");
-
     internal async Task RunOnceAsync(CancellationToken token)
     {
-        await data.UseAsync(Definitions, SchemaId, new { programVersion, model = "openai/" + modelName }, token);
+        await data.UseAsync([], [], ObserverDescription.Local(programVersion, "openai/" + modelName), token);
         if (!model.IsConfigured) { diagnostic("OPENAI_API_KEY 未配置，本轮不理解会话。"); return; }
         var sessions = await repository.SessionsAsync(token);
         for (var index = 0; index < sessions.Length; index++)
@@ -34,7 +30,7 @@ internal sealed class SessionRecognizer(DataClient data, SessionRepository repos
                 var input = new { sessionId = session.Id, product = session.Product,
                     workingDirectory = SessionRecord.Fields(messages[0]).GetProperty("workingDirectory").GetString(),
                     messages = messages.Select(v => new { at = SessionRecord.Time(v), text = SessionRecord.Text(v) }),
-                    nearby = nearby.Select(s => new { entityId = s.Id, product = s.Product, name = s.Name,
+                    nearby = nearby.Select(s => new { thingId = s.Id, product = s.Product, name = s.Name,
                         firstMessage = s.Messages.Length > 0 ? SessionRecord.Text(s.Messages[0]) : null }), denials };
                 var decision = await model.UnderstandAsync(input, token);
                 if (string.IsNullOrWhiteSpace(decision.Name) || decision.Name.EnumerateRunes().Count() > 16 || decision.Relations is null
@@ -42,16 +38,16 @@ internal sealed class SessionRecognizer(DataClient data, SessionRepository repos
                     throw new InvalidDataException("模型回答的名字或会话关系无效。");
                 // A denied title leaves this session pending; do not accept it as a successful pass.
                 if (denials.Any(d => d.Kind == "name" && d.Content.GetProperty("name").GetString() == decision.Name)) continue;
-                var inputs = messages.Select(v => v.GetProperty("versionId").GetGuid())
-                    .Concat(nearby.Where(s => s.NameVersionId.HasValue).Select(s => s.NameVersionId!.Value))
-                    .Concat(nearby.Where(s => s.Messages.Length > 0).Select(s => s.Messages[0].GetProperty("versionId").GetGuid()))
-                    .Concat(denials.SelectMany(d => new[] { d.ReviewVersionId, d.TargetVersionId })).Distinct().ToArray();
+                var inputs = messages.Select(v => v.GetProperty("observationId").GetGuid())
+                    .Concat(nearby.Where(s => s.NameObservationId.HasValue).Select(s => s.NameObservationId!.Value))
+                    .Concat(nearby.Where(s => s.Messages.Length > 0).Select(s => s.Messages[0].GetProperty("observationId").GetGuid()))
+                    .Concat(denials.SelectMany(d => new[] { d.ReviewObservationId, d.TargetObservationId })).Distinct().ToArray();
                 var writes = new List<WriteItem> { new(CommonSchemas.Name, new { thingId = session.Id, name = decision.Name }, "inferred", Inputs: inputs) };
                 writes.AddRange(decision.Relations.DistinctBy(r => (r.ObjectId, r.Predicate)).Where(r => !denials.Any(d => d.Kind == "relation"
                     && d.Content.GetProperty("objectId").GetGuid() == r.ObjectId && d.Content.GetProperty("predicate").GetString() == r.Predicate))
                     .Select(r => new WriteItem(CommonSchemas.Relation, new { subjectId = session.Id, objectId = r.ObjectId, predicate = r.Predicate, text = r.Text }, "inferred", Inputs: inputs)));
                 var results = await data.WriteAllAsync(writes, token);
-                sessions[index] = session with { Name = decision.Name, NameVersionId = results[0].Version!.Value.GetProperty("versionId").GetGuid() };
+                sessions[index] = session with { Name = decision.Name, NameObservationId = results[0].Observation!.Value.GetProperty("observationId").GetGuid() };
             }
             catch (Exception e) when (e is HttpRequestException or WriteRejectedException or JsonException or InvalidDataException
                 || e is OperationCanceledException && !token.IsCancellationRequested)

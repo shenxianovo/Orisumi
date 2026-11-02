@@ -16,4 +16,7 @@
     <ProjectReference Include="../../Core/Orisumi.Core/Orisumi.Core.csproj" />
     <InternalsVisibleTo Include="Orisumi.Integration.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="thing-types.json" LogicalName="Orisumi.Observers.AssistantSessions.thing-types.json" />
+  </ItemGroup>
 </Project>

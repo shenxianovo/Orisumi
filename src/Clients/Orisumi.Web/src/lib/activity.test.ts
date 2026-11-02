@@ -7,8 +7,8 @@ import { MINUTE, SECOND } from "./time";
 const now = Date.parse("2026-10-25T06:00:00.000Z");
 const at = (offset: number) => new Date(now + offset).toISOString();
 
-const foreground = observerIdentity("fg", "前台状态 Observer", "foreground-state-observers");
-const identity = observerIdentity("id", "应用识别 Observer", "application-identity-observers");
+const foreground = observerIdentity("fg", "前台状态 Observer", "foreground-state");
+const identity = observerIdentity("id", "应用识别 Observer", "application-identity");
 const known: Record<string, ObserverIdentity> = { fg: foreground, id: identity };
 
 function input(overrides: Partial<ActivityInput> = {}): ActivityInput {
@@ -31,7 +31,7 @@ describe("observerRows", () => {
     ]);
   });
 
-  it("写有事实时间的 Observer 按事实时间画，结束未知的时段画到现在；同一实体的不同版本算一个 Observer", () => {
+  it("写有事实时间的 Observer 按事实时间画，结束未知的时段画到现在；同一事物的不同版本算一个 Observer", () => {
     const rows = observerRows(
       input({
         timed: [

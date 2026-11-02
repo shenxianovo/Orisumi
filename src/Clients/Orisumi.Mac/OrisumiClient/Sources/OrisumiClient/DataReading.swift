@@ -78,7 +78,8 @@ extension RuntimeModel: DataReading {
         guard let response = response as? HTTPURLResponse else { throw RuntimeError.invalidResponse }
         guard (200...299).contains(response.statusCode) else {
             let problem = try? JSONDecoder().decode(Problem.self, from: data)
-            throw RuntimeError.remote(code: "unavailable", message: problem?.detail ?? problem?.title ?? "HTTP \(response.statusCode)")
+            throw RuntimeError.remote(code: response.statusCode == 404 ? "not_found" : "unavailable",
+                                      message: problem?.detail ?? problem?.title ?? "HTTP \(response.statusCode)")
         }
         return data
     }

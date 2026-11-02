@@ -1,7 +1,7 @@
 import type { FieldDefinition, Thing } from "@/api/types";
 import { interactionTitle, type InteractionContent } from "./conversations";
 
-// 实体在界面上的名字。事物用后端取得的名字，没有名字时写识别依据的值的第一行。
+// 记录在界面上的名字。事物用后端取得的名字，没有名字时写识别依据的值的第一行。
 // Observation 默认取第一个不是引用的文字字段；自己没有这样的字段时，按 Schema 的 resourceName 在这里登记取法。
 
 /** 事物的名字：后端按当前理解取得的名字，没有时写识别依据的值的第一行，再没有时写类型名。 */

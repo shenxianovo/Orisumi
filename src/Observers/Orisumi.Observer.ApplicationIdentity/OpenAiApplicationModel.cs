@@ -12,11 +12,11 @@ internal sealed class OpenAiApplicationModel(HttpClient http, string? apiKey, st
     public async Task<IdentificationDecision> IdentifyAsync(IdentificationInput input, CancellationToken token)
     {
         var denied = input.Denied.Select(d => d.ProductId).ToHashSet();
-        var candidates = input.Products.Where(p => !denied.Contains(p.EntityId)).ToArray();
+        var candidates = input.Products.Where(p => !denied.Contains(p.ThingId)).ToArray();
         // Leave room for new/unknown in the 255-choice catalogue.
         if (candidates.Length > 253) candidates = candidates.OrderBy(p => input.Names.Length == 0 ? int.MaxValue
-            : input.Names.Min(n => Distance(n, p.Name ?? ""))).ThenBy(p => p.EntityId).Take(253).ToArray();
-        var choices = candidates.Select(p => new { value = p.EntityId.ToString("D"), description = p.Name ?? p.EntityId.ToString("D") })
+            : input.Names.Min(n => Distance(n, p.Name ?? ""))).ThenBy(p => p.ThingId).Take(253).ToArray();
+        var choices = candidates.Select(p => new { value = p.ThingId.ToString("D"), description = p.Name ?? p.ThingId.ToString("D") })
             .Concat([new { value = "new", description = "目录中没有，是新的产品" }, new { value = "unknown", description = "无法判断" }]).ToArray();
         var evidence = JsonSerializer.Serialize(input with { Products = candidates }, IdentityData.Json);
         var result = await SendAsync("decisions", new {

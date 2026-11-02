@@ -11,6 +11,22 @@ namespace Orisumi.Integration.Tests;
 public sealed class AssistantReadingTests
 {
     [Test, Property("caseId", "assistant-session-reading")]
+    public async Task ResumedCodexMetadataDoesNotCollideWithTheOriginalContext()
+    {
+        using var fixture = new AssistantTestFixture();
+        fixture.Write("codex/sessions/rollout-original.jsonl", Meta());
+        await fixture.Collector.PollAsync();
+        var resumed = System.Text.Json.Nodes.JsonNode.Parse(Meta())!;
+        resumed["ordinal"] = 136;
+        resumed["timestamp"] = "2026-10-30T11:00:00Z";
+        resumed["payload"]!["history_base"] = new System.Text.Json.Nodes.JsonObject
+        { ["thread_id"] = "codex-main", ["end_ordinal_exclusive"] = 136, ["end_byte_offset"] = 1156097 };
+        fixture.Write("codex/sessions/rollout-resumed.jsonl", Encoding.UTF8.GetBytes(resumed.ToJsonString()));
+        await fixture.Collector.PollAsync();
+        await Assert.That(fixture.Diagnostics).IsEmpty();
+    }
+
+    [Test, Property("caseId", "assistant-session-reading")]
     public async Task PartialUtf8WaitsForNewlineAndInvalidCompleteRowsDoNotBlockFollowingRows()
     {
         using var fixture = new AssistantTestFixture();
@@ -61,13 +77,13 @@ public sealed class AssistantReadingTests
         using var fixture = new AssistantTestFixture();
         var path = fixture.Write("codex/sessions/rollout-main.jsonl", Meta(), Item("UserMessage", "user", Fields("""{"content":[{"type":"text","text":"hello"}]}""")));
         await fixture.Collector.PollAsync();
-        var original = fixture.Interactions().Select(value => value.VersionId).ToArray();
+        var original = fixture.Interactions().Select(value => value.ObservationId).ToArray();
         var archive = Path.Combine(fixture.Codex, "archived_sessions", "rollout-main.jsonl.zst");
         Directory.CreateDirectory(Path.GetDirectoryName(archive)!);
         using (var compressor = new Compressor()) await File.WriteAllBytesAsync(archive, compressor.Wrap(await File.ReadAllBytesAsync(path)).ToArray());
         File.Delete(path);
         await fixture.Collector.PollAsync();
-        await Assert.That(fixture.Interactions().Select(value => value.VersionId).SequenceEqual(original)).IsTrue();
+        await Assert.That(fixture.Interactions().Select(value => value.ObservationId).SequenceEqual(original)).IsTrue();
         await Assert.That(Directory.GetFiles(Path.Combine(fixture.StateDirectory, "archives")).Length).IsEqualTo(0);
         fixture.Restart();
         await fixture.Collector.PollAsync();
@@ -103,6 +119,31 @@ public sealed class AssistantReadingTests
         await fixture.Collector.PollAsync();
         await Assert.That(fixture.Interactions().Count).IsEqualTo(1);
         await Assert.That(fixture.State.Read<FileProgress>(AssistantState.Key("file", path))!.Offset).IsEqualTo(new FileInfo(path).Length);
+    }
+
+    [Test, Property("caseId", "assistant-session-reading")]
+    public async Task IdleSubagentFileSubmitsNothingUntilItsMetadataChanges()
+    {
+        using var fixture = new AssistantTestFixture();
+        var path = fixture.Write("claude/projects/project/parent/subagents/agent-child.jsonl", ClaudeMessage("child-input", "task", sessionId: "parent"));
+        var metadata = Path.ChangeExtension(path, ".meta.json");
+        await File.WriteAllTextAsync(metadata, """{"description":"first","agentType":"reader","toolUseId":"spawn"}""");
+        await fixture.Collector.PollAsync();
+        // Every submission fails while offline, so a diagnostic here means the poll tried to write.
+        fixture.Offline = true;
+        await fixture.Collector.PollAsync();
+        await Assert.That(fixture.Diagnostics).IsEmpty();
+        await File.WriteAllTextAsync(metadata, """{"description":"second","agentType":"writer","toolUseId":"respawn"}""");
+        await fixture.Collector.PollAsync();
+        await Assert.That(fixture.Diagnostics.Count).IsEqualTo(1);
+        fixture.Offline = false;
+        await fixture.Collector.PollAsync();
+        await Assert.That(fixture.Diagnostics.Count).IsEqualTo(1);
+        await Assert.That(fixture.Titles().Select(Content).Any(value => value.Text("name") == "second")).IsTrue();
+        await Assert.That(fixture.Subagents().Select(Content).Any(value => value.Text("agentName") == "writer" && value.Text("spawnCallId") == "respawn")).IsTrue();
+        fixture.Offline = true;
+        await fixture.Collector.PollAsync();
+        await Assert.That(fixture.Diagnostics.Count).IsEqualTo(1);
     }
 
     [Test, Property("caseId", "assistant-raw-entries")]

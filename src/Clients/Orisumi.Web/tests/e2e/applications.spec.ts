@@ -7,45 +7,42 @@ const ref = { type: "reference", target: "thing", description: "", required: tru
 
 function seed() {
   const backend = new Backend();
-  const foreground = backend.schema("foreground-state-observers", "前台状态 Observer", "observation");
-  const recognizer = backend.schema("application-identity-observers", "应用识别 Observer", "observation");
   const installs = backend.schema("local-applications", "本机应用", "thing");
   const clues = backend.schema("application-identifiers", "应用线索", "thing");
   const products = backend.schema("application-products", "应用产品", "thing");
   backend.schema("devices", "设备", "thing");
-  backend.schema("names", "名字", "observation");
   const memberships = backend.schema("application-memberships", "线索归属", "observation", {
-    identifierId: ref,
-    productId: ref,
+    identifierId: { ...ref, role: "about" },
+    productId: { ...ref, role: "about" },
   });
   const descriptions = backend.schema("local-application-descriptions", "本机应用描述", "observation", {
-    localApplicationId: ref,
+    localApplicationId: { ...ref, role: "about" },
     identifierIds: { type: "array", items: ref, description: "", required: true, nullable: false },
   });
-  const capture = backend.program(foreground, { platform: "macos" });
-  const identity = backend.program(recognizer, { model: "openai/test" });
+  const capture = backend.program("前台状态 Observer", "foreground-state", { platform: "macos" });
+  const identity = backend.program("应用识别 Observer", "application-identity", { model: "openai/test" });
 
-  const clue = (value: string) => backend.thing(clues.entityId, { scope: null, scheme: "macos.bundle-id", value });
+  const clue = (value: string) => backend.thing(clues.schemaId, { scope: null, scheme: "macos.bundle-id", value });
   const qq = clue("com.tencent.qq");
   const lark = clue("com.electron.lark");
-  const installOf = (identifier: { entityId: string }, value: string, path: string) => {
-    const install = backend.thing(installs.entityId, { scope: "device", scheme: "macos.installation", value });
+  const installOf = (identifier: { thingId: string }, value: string, path: string) => {
+    const install = backend.thing(installs.schemaId, { scope: "device", scheme: "macos.installation", value });
     backend.observe(descriptions, capture.thing, {
-      localApplicationId: install.entityId,
+      localApplicationId: install.thingId,
       deviceId: uuid(),
-      identifierIds: [identifier.entityId],
+      identifierIds: [identifier.thingId],
       executablePath: path,
     });
     return install;
   };
   const install = installOf(qq, "com.tencent.qq\n/Applications/QQ.app", "/Applications/QQ.app/Contents/MacOS/QQ");
   installOf(lark, "com.electron.lark\n/Applications/Lark.app", "/Applications/Lark.app/Contents/MacOS/Lark");
-  const product = backend.thing(products.entityId, null, "QQ");
+  const product = backend.thing(products.schemaId, null, "QQ");
   const membership = backend.observe(
     memberships,
     identity.thing,
-    { identifierId: qq.entityId, productId: product.entityId },
-    { formation: "inferred", observerVersionId: identity.description.versionId },
+    { identifierId: qq.thingId, productId: product.thingId },
+    { formation: "inferred", observerDescriptionId: identity.description.observationId },
   );
   return { backend, install, product, membership };
 }
@@ -70,7 +67,7 @@ test("按名字筛选事物", async ({ page }) => {
 test("本机应用的档案连到产品，线上的归属是推断", async ({ page }) => {
   const { backend, install } = seed();
   await backend.serve(page);
-  await page.goto(`/things/${install.entityId}`);
+  await page.goto(`/things/${install.thingId}`);
   await expect(page.getByRole("heading", { name: "QQ", exact: true })).toBeVisible();
   const related = page.locator("section", { has: page.getByRole("heading", { name: "和它有关的" }) });
   await expect(related.getByRole("link", { name: /应用产品/ })).toBeVisible();
@@ -87,16 +84,27 @@ test("否定一条线索归属后，线索回到未归属，可以撤回", async
   await row.getByRole("button", { name: "否定" }).click();
   await row.getByLabel("否定的说明").fill("不是这个产品");
   await row.getByRole("button", { name: "否定" }).last().click();
-  await expect(row.getByText("已否定")).toBeVisible();
+  const denied = page.getByRole("region", { name: "刚否定的" });
+  await expect(denied.getByText("已否定")).toBeVisible();
 
   await page.goto("/things");
   await expect(
     page.getByRole("region", { name: "应用" }).getByRole("link", { name: /com\.tencent\.qq/ }),
   ).toBeVisible();
 
-  await page.goto("/understanding");
+  await page.goBack();
   await page.getByRole("button", { name: /^全部/ }).click();
-  await row.getByRole("button", { name: "撤回" }).click();
+  await expect(page.getByRole("listitem").filter({ hasText: "com.tencent.qq" })).toHaveCount(0);
+});
+
+test("否定后马上可以撤回，判断回到默认视图", async ({ page }) => {
+  await seed().backend.serve(page);
+  await page.goto("/understanding");
+  const row = page.getByRole("listitem").filter({ hasText: "com.tencent.qq" });
+  await row.getByRole("button", { name: "否定" }).click();
+  await row.getByRole("button", { name: "否定" }).last().click();
+  await page.getByRole("region", { name: "刚否定的" }).getByRole("button", { name: "撤回" }).click();
+  await expect(page.getByRole("region", { name: "刚否定的" })).toHaveCount(0);
   await expect(row.getByRole("button", { name: "确认" })).toBeVisible();
 });
 
@@ -115,7 +123,7 @@ test("打开理解页面后，侧栏不再写新判断的数量", async ({ page 
 test("在档案里写一个名字，它成为事物的名字", async ({ page }) => {
   const { backend, install } = seed();
   await backend.serve(page);
-  await page.goto(`/things/${install.entityId}`);
+  await page.goto(`/things/${install.thingId}`);
   await page.getByRole("button", { name: "写一个名字" }).click();
   await page.getByLabel("名字", { exact: true }).fill("我的 QQ");
   await page.getByLabel("名字", { exact: true }).press("Enter");

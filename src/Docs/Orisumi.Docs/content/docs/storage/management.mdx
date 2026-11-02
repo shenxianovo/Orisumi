@@ -35,7 +35,7 @@ description: "Observer 管理登记的两张表：每个托管方一行的 obser
 
 | 列 | 类型 | 含义 |
 | --- | --- | --- |
-| `entity_id` | `uuid` | 程序实例的 EntityId，主键 `pk_observer_instances` |
+| `thing_id` | `uuid` | 程序实例的 `thingId`，主键 `pk_observer_instances` |
 | `host_id` | `uuid` | 所属的托管方，外键 `fk_observer_instances_observer_hosts_host_id` |
 | `package_id` | `text` | 这个实例所用的安装包 |
 | `name` | `text` | 显示的名称 |
@@ -52,7 +52,7 @@ description: "Observer 管理登记的两张表：每个托管方一行的 obser
 | `ux_observer_instances_host_id_package_id` | `(host_id, package_id)`，只含 `removed = false` 的行 | 一个托管方上一个安装包最多一个未删除的实例 |
 | `ix_observer_instances_package_id` | `package_id`，只含 `removed = false` 的行 | 首次登记每个部署只能有一个实例的安装包时，检查已有的实例 |
 
-- `entity_id` 没有指向 `entities` 的外键：程序实例先登记，之后才第一次写入，而 `entities` 是投影。
+- `thing_id` 没有指向 `things` 的外键：程序实例先登记，之后才第一次写入。
 - 已删除的行保留。
 - `status` 的结构见 [Hosting · 状态报告](../hosting/management.mdx#status)，后端只检查它是一个 JSON 对象。
 
@@ -68,13 +68,13 @@ description: "Observer 管理登记的两张表：每个托管方一行的 obser
 
 ## 第一次写入的检查 [#first-version]
 
-`observer` 带 `entityId` 而这个事物还不存在时，后端在同一个事务中检查它：在 `observer_instances` 中没有行，这次写入被拒绝，结果是 `400`；有 `removed = true` 的行，按 [HISTORY-7](../core/rules/history.mdx#history-7) 拒绝；带托管方凭证时，`host_id` 还要是这个托管方。这样，在第一次写入之前就被删除的程序实例，它的 EntityId 也不能再使用。已写入过的实例是一个事物，由 `things` 记下删除，见 [Versions · things](./versions.mdx#things)。
+`observer` 带 `thingId` 而这个事物还不存在时，后端在同一个事务中检查它：在 `observer_instances` 中没有行，这次写入被拒绝，结果是 `400`；有 `removed = true` 的行，按 [HISTORY-7](../core/rules/history.mdx#history-7) 拒绝；带托管方凭证时，`host_id` 还要是这个托管方。这样，在第一次写入之前就被删除的程序实例，它的 `thingId` 也不能再使用。已写入过的实例是一个事物，由 `things` 记下删除，见 [Observations · things](./observations.mdx#things)。
 
 ## 删除实例 [#removal]
 
-删除实例和删除一个受管理的程序实例的 Core 实体，执行同一个事务：
+删除实例和删除一个受管理的程序实例这个事物，执行同一个事务：
 
 1. 把 `observer_instances` 中的行标记为 `removed = true`，`revision` 加 1。
-2. 实例已经保存过版本时，按 [Versions · 删除](./versions.mdx#deletion) 删除它的实体。
+2. 这个事物已经存在时，按 [Observations · 删除](./observations.mdx#deletion) 删除它。
 
-两步都在写入和删除共用的 advisory lock 之下，所以没有写入能在检查之后、标记之前保存这个 EntityId 的版本，见 [Overview · 事务](./index.mdx#transactions)。
+两步都在写入和删除共用的 advisory lock 之下，所以没有写入能在检查之后、标记之前以这个 `thingId` 保存，见 [Overview · 事务](./index.mdx#transactions)。

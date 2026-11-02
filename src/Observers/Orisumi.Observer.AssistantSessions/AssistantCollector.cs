@@ -144,9 +144,14 @@ internal sealed class AssistantCollector(DataClient data, AssistantState state, 
         var batch = new AssistantBatch(data.Device?.Ref);
         if (file.Location is { ParentId: not null } subagent && context.Session is { } existing)
         {
-            context.Session = existing with { Title = subagent.Title ?? existing.Title, AgentName = subagent.AgentName ?? existing.AgentName,
+            var current = existing with { Title = subagent.Title ?? existing.Title, AgentName = subagent.AgentName ?? existing.AgentName,
                 SpawnCallId = subagent.SpawnCallId ?? existing.SpawnCallId };
-            batch.Session(context.Session);
+            // The file checkpoint holds what was last accepted, so idle polls submit nothing and a failed write is retried.
+            if (current != existing)
+            {
+                context.Session = current;
+                batch.Session(current);
+            }
         }
         return batch;
     }

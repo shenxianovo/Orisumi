@@ -1,6 +1,6 @@
 using Orisumi.Application.Management;
 using Orisumi.Infrastructure.Database;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,8 +19,8 @@ public static class DependencyInjection
             options.UseNpgsql(provider.GetRequiredService<NpgsqlDataSource>()));
 
         services.TryAddSingleton(TimeProvider.System);
-        services.AddScoped<IEntityStore, PostgresEntityStore>();
-        services.AddScoped<EntityService>();
+        services.AddScoped<IDataStore, PostgresDataStore>();
+        services.AddScoped<DataService>();
         services.AddScoped<WriteService>();
         services.AddScoped<ContentService>();
         services.AddSingleton<IManagementStore, PostgresManagementStore>();

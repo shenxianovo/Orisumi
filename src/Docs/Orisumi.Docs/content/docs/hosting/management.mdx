@@ -12,10 +12,10 @@ description: "托管方怎样接入后端、保存和同步程序实例的配置
 | 身份 | 谁分配 | 用途 |
 | --- | --- | --- |
 | `hostId` | 后端，配对时 | 一个托管方，也就是一个 Runtime 的数据目录 |
-| 程序实例的 EntityId | Runtime，创建实例时 | 程序实例在 Core 和管理登记中的身份，见 [OBSERVER-4](../core/model/observer.mdx#observer-4)。启动、停止、设置、重试和删除实例按它寻址 |
+| 程序实例的 `thingId` | Runtime，创建实例时 | 程序实例在 Core 和管理登记中的身份，见 [OBSERVER-4](../core/model/observer.mdx#observer-4)。启动、停止、设置、重试和删除实例按它寻址 |
 | 安装包的 `id` | 发布方 | 安装、更新和卸载按它寻址，见 [Packages · 清单](./packages.mdx#manifest) |
 
-一个托管方上一个安装包最多一个未删除的实例，所以同一个安装包在 Mac 和服务器上各有一个实例。删除实例后再安装，安装包相同，EntityId 和实例目录是新的。
+一个托管方上一个安装包最多一个未删除的实例，所以同一个安装包在 Mac 和服务器上各有一个实例。删除实例后再安装，安装包相同，`thingId` 和实例目录是新的。
 
 ## 接入 [#pairing]
 
@@ -55,7 +55,7 @@ Runtime 调用 `POST /runtime/pair`，把得到的 `hostId`、凭证和 API 地�
 
 Runtime 为每个实例按顺序同步，同一时刻只有一个请求：
 
-1. 实例还没有登记时，用 `PUT /runtime/instances/{entityId}` 登记，带着生效的配置和它已经包含的最大序号。
+1. 实例还没有登记时，用 `PUT /runtime/instances/{thingId}` 登记，带着生效的配置和它已经包含的最大序号。
 2. 依次发送待同步的修改，一次一项，等到响应后再发下一项。响应丢失或请求失败时，用同一个序号和同样的内容重发。
 3. 每个响应都带着后端当前的配置、`revision` 和 `lastLocalSequence`。Runtime 移除序号不大于 `lastLocalSequence` 的待同步修改；`revision` 比已有的大时，替换后端的配置。然后重新算出生效的配置，变化时执行它。
 
@@ -82,7 +82,7 @@ Runtime 通过[长轮询](../api/management.mdx#poll)收到其他客户端的修
 
 ## 状态报告 [#status]
 
-Runtime 用 `PUT /runtime/instances/{entityId}/status` 报告每个实例的状态，后端把收到的时刻记为 `reportedAt`：
+Runtime 用 `PUT /runtime/instances/{thingId}/status` 报告每个实例的状态，后端把收到的时刻记为 `reportedAt`：
 
 | 字段 | 含义 |
 | --- | --- |
@@ -119,7 +119,7 @@ Runtime 不保存收到的操作。执行中退出时，这个操作不再继续
 
 ## 删除实例 [#removal]
 
-管理入口删除一个实例，或者删除它的 Core 实体时，后端在一个事务中把实例登记标记为已删除，并删除它的实体，见 [API · 删除实例](../api/management.mdx#removal)。Runtime 在长轮询或同步的响应中看到 `removed` 为 `true`，或者登记返回 `instance_removed` 时：
+管理入口删除一个实例，或者删除这个事物时，后端在一个事务中把实例登记标记为已删除，并删除这个事物，见 [API · 删除实例](../api/management.mdx#removal)。Runtime 在长轮询或同步的响应中看到 `removed` 为 `true`，或者登记返回 `instance_removed` 时：
 
 1. 停止这个实例的进程，在安装登记中标记它已删除，丢弃它待同步的修改。
 2. 之后不再启动它。
@@ -128,7 +128,7 @@ Runtime 不保存收到的操作。执行中退出时，这个操作不再继续
 
 离线的 Runtime 在下次连接时执行这些步骤，在那之前程序实例可能仍在运行。
 
-再次安装这个包时，Runtime 新建一个程序实例：它得到新的 EntityId 和实例目录，旧实例目录保留。
+再次安装这个包时，Runtime 新建一个程序实例：它得到新的 `thingId` 和实例目录，旧实例目录保留。
 
 ## 移除托管方 [#revocation]
 

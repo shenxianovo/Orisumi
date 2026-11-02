@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Orisumi.Application.Entities;
+using Orisumi.Application.Data;
 using Orisumi.Core;
 
 namespace Orisumi.Api.Narrative;
@@ -25,26 +25,22 @@ internal sealed record NarrativeRequest([property: JsonRequired] DateTimeOffset 
 internal sealed record NarrativeEpisode(DateTimeOffset StartAt, DateTimeOffset EndAt, string Title, string Summary,
     Guid[] SessionIds, Guid[] LocalApplicationIds);
 internal sealed record NarrativeLine(string Start, string End, string Title, string Summary, Guid[] SessionIds, Guid[] LocalApplicationIds);
-internal sealed record NarrativeEvidence(object Input, VersionId[] Inputs, EntityVersion[] Previous,
-    HashSet<Guid> Confirmed, HashSet<Guid> Sessions, HashSet<Guid> Applications, bool Empty);
+internal sealed record NarrativeEvidence(object Input, Guid[] Inputs, Observation[] Previous, HashSet<Guid> Sessions, HashSet<Guid> Applications, bool Empty);
 
 internal static class NarrativeData
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    internal static readonly EntityId ObserverSchema = new(Guid.Parse("019e1bbb-ec00-7000-8000-000000000017"));
-    internal static readonly EntityId EpisodeSchema = new(Guid.Parse("019e1bbb-ec00-7000-8000-000000000018"));
-    internal static readonly EntityReference Observer = new(null, BuiltInSchemas.Program, new(null, "orisumi.narrative", "deployment"));
-    internal static JsonElement Fields(EntityVersion version) => ((Observation)version.Content).Fields;
+    internal static readonly Guid EpisodeSchema = Guid.Parse("019e1bbb-ec00-7000-8000-000000000018");
+    internal static readonly ThingReference Observer = new(null, BuiltInSchemas.Program, new(null, "orisumi.narrative", "deployment"));
+    internal static JsonElement Fields(Observation observation) => observation.Content;
     internal static readonly SchemaDeclaration[] Schemas = [
-        new(ObserverSchema, new("叙事 Observer", "描述叙事 Observer 的程序版本和调用的模型。", "narrative-observers",
-            JsonSerializer.SerializeToElement(new { programVersion = Text("程序版本"), model = Text("供应商和模型型号") }), "observation", false)),
         new(EpisodeSchema, new("一件事", "一天中的一段时间在做什么，由模型读当天的记录写出。", "episodes",
             JsonSerializer.SerializeToElement(new { title = Text("这件事的标题"), summary = Text("做了什么、得出了什么"),
-                sessionIds = References("涉及的会话"), localApplicationIds = References("涉及的本机应用") }), "observation", true))
+                sessionIds = References("涉及的会话"), localApplicationIds = References("涉及的本机应用") })))
     ];
-    private static object Text(string description) => new { type = "string", description, required = true, nullable = false };
+    private static object Text(string description) => new { type = "string", description, required = true, nullable = false, searchable = true };
     private static object References(string description) => new { type = "array", description, required = true, nullable = false,
-        items = new { type = "reference", target = "thing", description, nullable = false } };
+        items = new { type = "reference", target = "thing", role = "mention", description, nullable = false } };
 
     internal static NarrativeEpisode? Parse(string json, NarrativeRequest request, NarrativeEvidence evidence, HashSet<Guid> used)
     {

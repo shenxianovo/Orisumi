@@ -4,40 +4,40 @@ import { useQuery } from "@tanstack/react-query";
 import { useSource } from "@/api/source";
 import { readAllThings } from "@/api/client";
 import {
-  isEntitySchema,
+  handleOf,
   isInputSet,
   isObservation,
+  isSchemaRevision,
   isThing,
-  type EntitySchema,
   type FieldDefinition,
+  type InputSet,
   type Item,
-  type ObservationVersion,
+  type Observation,
+  type Schema,
   type Thing,
-  type Version,
 } from "@/api/types";
-import { Blueprint } from "@/components/entity/Content";
+import { Blueprint } from "@/components/record/Content";
 import { Mono } from "@/components/ui";
-import { useEntityVersions, useReferrers, useVersion } from "@/hooks/queries";
+import { useInputSet, useReferrers, useSchemaRevision } from "@/hooks/queries";
 import { productGroup, useCatalog } from "@/hooks/useApplications";
 import { useDay } from "@/hooks/useDay";
-import { type EntityInfo } from "@/hooks/useEntityInfo";
+import { type ItemInfo } from "@/hooks/useItemInfo";
 import { useNow } from "@/hooks/useNow";
-import { useObservers } from "@/hooks/useObservers";
+import { useObservationStatus } from "@/hooks/useStatus";
 import { useTypes } from "@/hooks/useTypes";
 import { LOCAL_APPLICATIONS, PRODUCTS } from "@/lib/applications";
-import { FORMATION_NAMES } from "@/lib/common";
+import { FORMATION_NAMES, OBSERVER_DESCRIPTIONS } from "@/lib/common";
 import { groupThings, summarize, type Segment } from "@/lib/day";
 import { outgoingReferences } from "@/lib/references";
 import { differences } from "@/lib/roles";
 import { ago, clock, dayRange, dayTitle, duration, parseTime } from "@/lib/time";
 import { thingTitle } from "@/lib/titles";
-import { CATEGORY_NAMES } from "@/lib/versions";
 import { cn } from "@/lib/utils";
-import { Reviews } from "../entity/Reviews";
+import { Reviews } from "../record/Reviews";
 import { Token } from "../token/Token";
 import { Membership, ProductSections } from "./application";
 
-export function PanelBody({ info }: { info: EntityInfo }) {
+export function PanelBody({ info }: { info: ItemInfo }) {
   const { item } = info;
   return (
     <div className="panel-body grid gap-6">
@@ -45,7 +45,7 @@ export function PanelBody({ info }: { info: EntityInfo }) {
       {isObservation(item) && <ObservationBody info={info} observation={item} />}
       {isThing(item) && info.role === "source" && <SourceBody thing={item} />}
       {info.role === "definition" && <DefinitionBody info={info} />}
-      {isInputSet(item) && <EvidenceBody version={item} />}
+      {isInputSet(item) && <EvidenceBody inputSet={item} />}
       <Raw item={item} role={info.role} />
     </div>
   );
@@ -77,7 +77,7 @@ function useDateKey(): string {
 
 // —— 事物 ——
 
-function ThingBody({ info, thing }: { info: EntityInfo; thing: Thing }) {
+function ThingBody({ info, thing }: { info: ItemInfo; thing: Thing }) {
   const key = useDateKey();
   const day = useDay(key);
   const catalog = useCatalog();
@@ -95,14 +95,14 @@ function ThingBody({ info, thing }: { info: EntityInfo; thing: Thing }) {
     () => (day.data ? summarize(experiences, day.range.start, day.range.end) : null),
     [day.data, experiences, day.range.start, day.range.end],
   );
-  const row = summary?.things.find((r) => r.key === thing.entityId);
+  const row = summary?.things.find((r) => r.key === thing.thingId);
   const seenBy = useMemo(
     () => [
       ...new Set(
-        experiences.filter((e) => e.things.some((t) => t.thing.entityId === thing.entityId)).map((e) => e.observerId),
+        experiences.filter((e) => e.things.some((t) => t.thing.thingId === thing.thingId)).map((e) => e.observerId),
       ),
     ],
-    [experiences, thing.entityId],
+    [experiences, thing.thingId],
   );
 
   return (
@@ -148,7 +148,7 @@ function ThingBody({ info, thing }: { info: EntityInfo; thing: Thing }) {
       ) : (
         <>
           {resourceName === LOCAL_APPLICATIONS && <Membership install={thing} />}
-          <Names entityId={thing.entityId} />
+          <Names thing={thing} />
           <Siblings info={info} />
         </>
       )}
@@ -226,16 +226,15 @@ export function DayStrip({
 }
 
 /** 提到它的 Observation 里读到的名字，例如 Name 和前台时段的 name；以及引用它的各种类型。 */
-function Names({ entityId }: { entityId: string }) {
-  const referrers = useReferrers(entityId);
+function Names({ thing }: { thing: Thing }) {
+  const referrers = useReferrers(thing);
   const pages = referrers.data?.pages ?? [];
   const all = pages.flatMap((page) => page.referrers);
   const names = new Map<string, number>();
-  const types = new Map<string, { version: Version; count: number }>();
-  for (const { version } of all) {
-    const key = isObservation(version) ? version.schemaVersionId : version.category;
-    types.set(key, { version, count: (types.get(key)?.count ?? 0) + 1 });
-    const content = (version.content ?? {}) as Record<string, unknown>;
+  const types = new Map<string, number>();
+  for (const { observation } of all) {
+    types.set(observation.schemaRevisionId, (types.get(observation.schemaRevisionId) ?? 0) + 1);
+    const content = (observation.content ?? {}) as Record<string, unknown>;
     const name = typeof content.name === "string" ? content.name : null;
     if (name) names.set(name, (names.get(name) ?? 0) + 1);
   }
@@ -262,12 +261,12 @@ function Names({ entityId }: { entityId: string }) {
       )}
       <Section title="被引用">
         {all.length === 0 ? (
-          <Empty>没有其他实体引用它</Empty>
+          <Empty>没有其他记录引用它</Empty>
         ) : (
           <ul className="grid gap-1">
-            {[...types.entries()].map(([key, { version, count }]) => (
-              <li key={key} className="flex items-center gap-2 text-[13px]">
-                <TypeName version={version} />
+            {[...types.entries()].map(([revision, count]) => (
+              <li key={revision} className="flex items-center gap-2 text-[13px]">
+                <TypeName schemaRevisionId={revision} />
                 <span className="flex-1" />
                 <span className="text-fg-3 text-xs tabular-nums">
                   {count}
@@ -282,14 +281,13 @@ function Names({ entityId }: { entityId: string }) {
   );
 }
 
-function TypeName({ version }: { version: Version }) {
-  const schema = useVersion(isObservation(version) ? version.schemaVersionId : null);
-  if (!isObservation(version)) return <span>{CATEGORY_NAMES[version.category]}</span>;
-  return <span>{schema.data && isEntitySchema(schema.data) ? schema.data.content.displayName : "…"}</span>;
+function TypeName({ schemaRevisionId }: { schemaRevisionId: string }) {
+  const schema = useSchemaRevision(schemaRevisionId);
+  return <span>{schema.data?.content.displayName ?? "…"}</span>;
 }
 
 /** 同名的其他事物，例如同一个 bundle id 的另一个安装。并排列出，写出它们识别依据里不同的那一段。 */
-function Siblings({ info }: { info: EntityInfo }) {
+function Siblings({ info }: { info: ItemInfo }) {
   const source = useSource();
   const resourceName = info.schema?.content.resourceName;
   const list = useQuery({
@@ -307,9 +305,9 @@ function Siblings({ info }: { info: EntityInfo }) {
     <Section title={`同名的${info.typeName}`} aside={`${group.length} 个`}>
       <ul className="grid gap-0.5">
         {group.map((thing, i) => (
-          <li key={thing.entityId} className="flex items-center">
+          <li key={thing.thingId} className="flex items-center">
             <Token item={thing} size="sm" detail={details[i]} />
-            {thing.entityId === info.entityId && <span className="text-fg-3 ml-1 text-xs">· 这个</span>}
+            {thing.thingId === info.id && <span className="text-fg-3 ml-1 text-xs">· 这个</span>}
           </li>
         ))}
       </ul>
@@ -320,14 +318,17 @@ function Siblings({ info }: { info: EntityInfo }) {
 // —— 经历和陈述 ——
 
 /** Observation 的固定成员，内容里的“关于”不列它们。 */
-const MEMBERS = new Set(["observerId", "observerVersionId", "inputSetVersionId"]);
+const MEMBERS = new Set(["observerId", "speakerId", "observerDescriptionId"]);
 
-function ObservationBody({ info, observation }: { info: EntityInfo; observation: ObservationVersion }) {
+function ObservationBody({ info, observation }: { info: ItemInfo; observation: Observation }) {
   const fields = info.schema?.content.fields;
   const now = useNow(1000);
   const start = parseTime(observation.startAt);
   const end = parseTime(observation.endAt);
-  const references = outgoingReferences(observation, fields).filter((reference) => !MEMBERS.has(reference.path));
+  const references = outgoingReferences(observation, fields).filter(
+    (reference) => !MEMBERS.has(reference.path) && !reference.path.startsWith("replaces["),
+  );
+  const status = useObservationStatus(observation);
 
   return (
     <>
@@ -350,7 +351,7 @@ function ObservationBody({ info, observation }: { info: EntityInfo; observation:
               reference.target === "thing" ? (
                 <Token key={reference.path} thingId={reference.id} />
               ) : (
-                <Token key={reference.path} versionId={reference.id} />
+                <Token key={reference.path} observationId={reference.id} />
               ),
             )}
           </div>
@@ -367,53 +368,67 @@ function ObservationBody({ info, observation }: { info: EntityInfo; observation:
             保存
           </span>
         </div>
-        <Versions entityId={observation.entityId} />
+        {observation.speakerId && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[13px]">
+            <span className="text-fg-3 text-xs">说话人</span>
+            <Token thingId={observation.speakerId} size="sm" />
+          </div>
+        )}
+        <Replacements observation={observation} replaced={status.replaced} />
       </Section>
-      {observation.inputSetVersionId && (
-        <Section title="依据">
-          <Token versionId={observation.inputSetVersionId} />
-          <Members versionId={observation.inputSetVersionId} />
+      {observation.inputSetId && (
+        <Section title="依据" aside={status.basisDenied ? "依据已被否定" : undefined}>
+          <Members inputSetId={observation.inputSetId} />
         </Section>
       )}
       <Reviews observation={observation} />
-      <ReferrerTokens entityId={observation.entityId} title="对它的陈述" />
+      <ReferrerTokens item={observation} title="对它的陈述" />
     </>
   );
 }
 
-function Versions({ entityId }: { entityId: string }) {
-  const chain = useEntityVersions(entityId);
-  if (!chain.data || chain.data.length < 2) return null;
+/** 它替换了哪些说法，以及它是否已被替换。 */
+function Replacements({ observation, replaced }: { observation: Observation; replaced: boolean }) {
+  if (!observation.replaces.length && !replaced) return null;
   return (
-    <p className="text-fg-3 mt-1 text-xs">
-      更新过 {chain.data.length - 1} 次，共 {chain.data.length} 个版本
-    </p>
+    <div className="text-fg-3 mt-1 grid gap-1 text-xs">
+      {replaced && <p>已被新的说法替换</p>}
+      {observation.replaces.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span>替换了</span>
+          {observation.replaces.map((id) => (
+            <Token key={id} observationId={id} size="sm" />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-function Members({ versionId }: { versionId: string }) {
-  const set = useVersion(versionId);
-  if (!set.data || !isInputSet(set.data)) return null;
+function Members({ inputSetId }: { inputSetId: string }) {
+  const set = useInputSet(inputSetId);
+  if (set.isError) return <Empty>不可读取</Empty>;
+  if (!set.data) return null;
   return (
-    <ul className="border-line mt-1.5 ml-2 grid gap-0.5 border-l pl-2.5">
-      {set.data.content.members.map((member) => (
+    <ul className="border-line ml-2 grid gap-0.5 border-l pl-2.5">
+      {set.data.members.map((member) => (
         <li key={member}>
-          <Token versionId={member} size="sm" />
+          <Token observationId={member} size="sm" />
         </li>
       ))}
     </ul>
   );
 }
 
-function ReferrerTokens({ entityId, title }: { entityId: string; title: string }) {
-  const referrers = useReferrers(entityId);
+function ReferrerTokens({ item, title }: { item: Observation; title: string }) {
+  const referrers = useReferrers(item);
   const all = referrers.data?.pages.flatMap((p) => p.referrers) ?? [];
   if (!all.length) return null;
   return (
     <Section title={title} aside={`${all.length}${referrers.hasNextPage ? "+" : ""}`}>
       <div className="flex flex-wrap gap-1">
-        {all.slice(0, 12).map(({ version }) => (
-          <Token key={version.versionId} item={version} size="sm" />
+        {all.slice(0, 12).map(({ observation }) => (
+          <Token key={observation.observationId} item={observation} size="sm" />
         ))}
       </div>
     </Section>
@@ -426,10 +441,9 @@ function SourceBody({ thing }: { thing: Thing }) {
   const key = useDateKey();
   const day = useDay(key);
   const now = useNow(5000);
-  const observers = useObservers();
-  const description = observers.data?.get(thing.entityId)?.description ?? null;
-  const written = (day.data?.experiences ?? []).filter((e) => e.observerId === thing.entityId);
-  const points = (day.data?.points ?? []).find((p) => p.key === thing.entityId);
+  const description = useDescription(thing.thingId);
+  const written = (day.data?.experiences ?? []).filter((e) => e.observerId === thing.thingId);
+  const points = (day.data?.points ?? []).find((p) => p.key === thing.thingId);
   const latest = Math.max(...written.map((e) => e.writtenAt), ...(points?.times ?? []), 0);
   return (
     <>
@@ -468,18 +482,30 @@ function SourceBody({ thing }: { thing: Thing }) {
   );
 }
 
-function DescriptionFields({ description }: { description: ObservationVersion }) {
-  const schema = useVersion(description.schemaVersionId);
-  const fields = schema.data && isEntitySchema(schema.data) ? schema.data.content.fields : undefined;
-  return <Fields content={description.content} schema={null} fields={fields} />;
+/** 这个 Observer 自己的描述：默认视图中它写下的最新一份。 */
+function useDescription(observerId: string) {
+  const source = useSource();
+  const query = useQuery({
+    queryKey: ["observer-description", observerId],
+    queryFn: async () =>
+      (await source.listObservations({ observerId, resourceName: OBSERVER_DESCRIPTIONS, order: "desc", limit: 1 }))
+        .observations[0] ?? null,
+    staleTime: 60_000,
+  });
+  return query.data ?? null;
+}
+
+function DescriptionFields({ description }: { description: Observation }) {
+  const schema = useSchemaRevision(description.schemaRevisionId);
+  return <Fields content={description.content} schema={null} fields={schema.data?.content.fields} />;
 }
 
 // —— 定义和依据 ——
 
-function DefinitionBody({ info }: { info: EntityInfo }) {
+function DefinitionBody({ info }: { info: ItemInfo }) {
   const types = useTypes();
-  if (!isEntitySchema(info.item)) return null;
-  const schema: EntitySchema = info.item.content;
+  if (!isSchemaRevision(info.item)) return null;
+  const schema: Schema = info.item.content;
   const edges = types.data?.edges ?? [];
   const name = (key: string) => types.data?.nodes.find((n) => n.key === key)?.name ?? key;
   const out = edges.filter((e) => e.from === schema.resourceName);
@@ -507,24 +533,21 @@ function DefinitionBody({ info }: { info: EntityInfo }) {
         </Section>
       )}
       <Link
-        to="/entities"
+        to="/records"
         search={{ type: schema.resourceName }}
         className="text-fg-2 hover:text-fg text-[13px] underline-offset-4 hover:underline"
       >
-        查看这个类型的实体 →
+        查看这个类型的记录 →
       </Link>
     </>
   );
 }
 
-function EvidenceBody({ version }: { version: Version }) {
+function EvidenceBody({ inputSet }: { inputSet: InputSet }) {
   return (
-    <>
-      <Section title="输入">
-        <Members versionId={version.versionId} />
-      </Section>
-      <ReferrerTokens entityId={version.entityId} title="用到它的 Observation" />
-    </>
+    <Section title="输入">
+      <Members inputSetId={inputSet.inputSetId} />
+    </Section>
   );
 }
 
@@ -542,7 +565,7 @@ export function Fields({
   limit,
 }: {
   content: unknown;
-  schema: Version<EntitySchema> | null;
+  schema: { content: Schema } | null;
   fields?: Record<string, FieldDefinition> | undefined;
   skipReferences?: boolean;
   /** 已经写在别处的字段，例如作为名字的那个。 */
@@ -598,7 +621,11 @@ function FieldValue({
 }) {
   if (value === null) return <span className="text-fg-3">null</span>;
   if (definition?.type === "reference" && typeof value === "string")
-    return definition.target === "thing" ? <Token thingId={value} size="sm" /> : <Token versionId={value} size="sm" />;
+    return definition.target === "thing" ? (
+      <Token thingId={value} size="sm" />
+    ) : (
+      <Token observationId={value} size="sm" />
+    );
   if (Array.isArray(value)) {
     if (!value.length) return <span className="text-fg-3">空</span>;
     const shown = compact ? value.slice(0, COMPACT_ITEMS) : value;
@@ -642,33 +669,29 @@ function FieldValue({
   return <span className={cn("break-words", compact && "line-clamp-2")}>{String(value)}</span>;
 }
 
-/** 面板底部默认收起：ID、原始内容和进入实体页的入口。 */
-function Raw({ item, role }: { item: Item; role: EntityInfo["role"] }) {
-  const versionId = isThing(item) ? null : item.versionId;
+/** 面板底部默认收起：ID、原始内容和进入 Observation 页的入口。 */
+function Raw({ item, role }: { item: Item; role: ItemInfo["role"] }) {
+  const id = handleOf(item);
   return (
     <details className="group">
       <summary className="text-fg-3 hover:text-fg cursor-pointer text-xs select-none">ID 和原始数据</summary>
-      <dl className="text-fg-2 mt-2 grid gap-1 text-xs">
-        <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-2">
-          <dt className="text-fg-3">EntityId</dt>
-          <dd className="font-mono break-all">{item.entityId}</dd>
-        </div>
-        {versionId && (
-          <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-2">
-            <dt className="text-fg-3">VersionId</dt>
-            <dd className="font-mono break-all">{versionId}</dd>
-          </div>
-        )}
-      </dl>
+      <p className="text-fg-2 mt-2 font-mono text-xs break-all">{id}</p>
       <pre className="bg-panel mt-2 overflow-x-auto rounded-lg p-3 font-mono text-[11px] leading-relaxed">
         {JSON.stringify(item, null, 2)}
       </pre>
       <p className="text-fg-3 mt-2 flex gap-3 text-xs">
-        <Link to="/entities/$entityId" params={{ entityId: item.entityId }} className="hover:text-fg">
-          实体页 →
-        </Link>
-        {role !== "definition" && (
-          <Link to="/entities" search={{ root: item.entityId }} className="hover:text-fg">
+        {isObservation(item) && (
+          <Link to="/observations/$observationId" params={{ observationId: id }} className="hover:text-fg">
+            Observation 页 →
+          </Link>
+        )}
+        {isThing(item) && (
+          <Link to="/things/$thingId" params={{ thingId: id }} className="hover:text-fg">
+            档案 →
+          </Link>
+        )}
+        {role !== "definition" && role !== "evidence" && (
+          <Link to="/records" search={{ root: id }} className="hover:text-fg">
             从这里织 →
           </Link>
         )}

@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 
-// 两件跨页面的状态：悬停中的实体（同一实体的记号一起亮起），以及右侧堆叠的面板（写在 URL 的 stack 里）。
+// 两件跨页面的状态：悬停中的记录（同一记录的记号一起亮起），以及右侧堆叠的面板（写在 URL 的 stack 里）。
 
 interface Highlight {
   active: string | null;
-  set: (entityId: string | null) => void;
+  set: (id: string | null) => void;
 }
 
 const HighlightContext = createContext<Highlight>({ active: null, set: () => undefined });
@@ -35,7 +35,7 @@ export function parseStack(value: unknown): string[] {
   return typeof value === "string" && value ? value.split(",").filter(Boolean) : [];
 }
 
-/** 面板栈：从第 depth 层的记号打开一个实体时，丢掉它后面的面板，再把这个实体放到最后。 */
+/** 面板栈：从第 depth 层的记号打开一项记录时，丢掉它后面的面板，再把它放到最后。 */
 export function useStack() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { stack?: string };
@@ -55,9 +55,9 @@ export function useStack() {
   );
 
   const open = useCallback(
-    (entityId: string, depth: number) => {
-      if (ids[depth + 1] === entityId && ids.length === depth + 2) return;
-      write([...ids.slice(0, depth + 1), entityId]);
+    (id: string, depth: number) => {
+      if (ids[depth + 1] === id && ids.length === depth + 2) return;
+      write([...ids.slice(0, depth + 1), id]);
     },
     [ids, write],
   );

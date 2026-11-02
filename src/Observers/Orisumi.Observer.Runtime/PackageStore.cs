@@ -32,7 +32,7 @@ internal sealed record InstalledObserver(string PackageId, string Name, string V
     }
 }
 internal sealed record LocalChange(long Sequence, bool? Enabled, JsonElement? Settings);
-internal sealed record InstanceConfiguration(Guid EntityId, bool Enabled, JsonElement Settings, long Revision, long LastLocalSequence, bool Removed);
+internal sealed record InstanceConfiguration(Guid ThingId, bool Enabled, JsonElement Settings, long Revision, long LastLocalSequence, bool Removed);
 
 internal sealed partial class PackageStore : IDisposable
 {
@@ -217,7 +217,7 @@ internal sealed partial class PackageStore : IDisposable
             ?? _observers.Values.LastOrDefault(item => item.PackageId == manifest.Id);
         var observer = existing is { Removed: false }
             ? existing with { Name = manifest.Name, Version = manifest.Version, Installed = true, Scope = manifest.Scope }
-            : new(manifest.Id, manifest.Name, manifest.Version, EntityId.New().Value, true, enabled, JsonSerializer.SerializeToElement(new { }), manifest.Scope);
+            : new(manifest.Id, manifest.Name, manifest.Version, Guid.CreateVersion7(), true, enabled, JsonSerializer.SerializeToElement(new { }), manifest.Scope);
         if (!updating) observer = observer.Change(enabled: enabled);
         Save(observer);
         return observer;

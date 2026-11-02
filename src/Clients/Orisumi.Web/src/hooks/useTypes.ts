@@ -1,19 +1,26 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { isUnreadable, readAllPages, type OrisumiSource } from "@/api/client";
+import { isUnreadable, readAllSchemaRevisions, type OrisumiSource } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isEntitySchema, isObservation, type EntitySchema, type Item, type Thing, type Version } from "@/api/types";
+import type { Item, Observation, Schema, SchemaRevision, Thing } from "@/api/types";
 import { outgoingReferences } from "@/lib/references";
 import type { Role } from "@/lib/roles";
 
-/** 类型图的一个点：一个业务类型，或者 InputSet。 */
+/** 一种类型：事物类型或 Observation 类型。content 取最新的修订，事物类型没有字段。 */
+export interface TypeEntry {
+  schemaId: string;
+  thingType: boolean;
+  content: Schema;
+}
+
+/** 类型图的一个点：一种类型，或者 InputSet。 */
 export interface TypeNode {
   key: string;
   name: string;
   role: Role;
-  schema: Version<EntitySchema> | null;
+  type: TypeEntry | null;
 }
 
-/** 一种类型的实体引用另一种类型，label 是引用所在的字段。 */
+/** 一种类型的记录引用另一种类型，label 是引用所在的字段。 */
 export interface TypeEdge {
   from: string;
   to: string;
@@ -23,19 +30,36 @@ export interface TypeEdge {
 export interface TypeIndex {
   nodes: TypeNode[];
   edges: TypeEdge[];
-  byResourceName: ReadonlyMap<string, Version<EntitySchema>>;
-  /** 每个 EntitySchema 的当前版本，键是 SchemaId。事物按它找到自己的类型。 */
-  bySchemaId: ReadonlyMap<string, Version<EntitySchema>>;
+  byResourceName: ReadonlyMap<string, TypeEntry>;
+  /** 键是 SchemaId。事物按它找到自己的类型。 */
+  bySchemaId: ReadonlyMap<string, TypeEntry>;
 }
 
-/** 版本不会改变：经过查询缓存读取，和 useVersion 共用结果。 */
-export function readVersion(client: QueryClient, source: OrisumiSource, versionId: string): Promise<Version | null> {
+/** Observation 不会改变：经过查询缓存读取，和 useObservation 共用结果。 */
+export function readObservation(
+  client: QueryClient,
+  source: OrisumiSource,
+  observationId: string,
+): Promise<Observation | null> {
   return client
-    .fetchQuery({ queryKey: ["version", versionId], queryFn: () => source.getVersion(versionId), staleTime: Infinity })
+    .fetchQuery({
+      queryKey: ["observation", observationId],
+      queryFn: () => source.getObservation(observationId),
+      staleTime: Infinity,
+    })
     .catch((error: unknown) => {
       if (isUnreadable(error)) return null;
       throw error;
     });
+}
+
+/** 修订不会改变，经过查询缓存读取。 */
+export function readSchemaRevision(client: QueryClient, source: OrisumiSource, schemaRevisionId: string) {
+  return client.fetchQuery({
+    queryKey: ["schema-revision", schemaRevisionId],
+    queryFn: () => source.getSchemaRevision(schemaRevisionId),
+    staleTime: Infinity,
+  });
 }
 
 /** 事物的名字随当前理解变化，缓存 30 秒。 */
@@ -45,32 +69,39 @@ export const THING_STALE = 30_000;
 export async function readThings(
   client: QueryClient,
   source: OrisumiSource,
-  entityIds: readonly string[],
+  thingIds: readonly string[],
 ): Promise<Map<string, Thing | null>> {
   const found = new Map<string, Thing | null>();
   const missing: string[] = [];
-  for (const entityId of new Set(entityIds)) {
-    const state = client.getQueryState<Thing | null>(["thing", entityId]);
-    if (state?.status === "success" && Date.now() - state.dataUpdatedAt < THING_STALE) found.set(entityId, state.data!);
-    else missing.push(entityId);
+  for (const thingId of new Set(thingIds)) {
+    const state = client.getQueryState<Thing | null>(["thing", thingId]);
+    if (state?.status === "success" && Date.now() - state.dataUpdatedAt < THING_STALE) found.set(thingId, state.data!);
+    else missing.push(thingId);
   }
   for (let i = 0; i < missing.length; i += 256) {
     for (const result of (await source.readThings(missing.slice(i, i + 256))).results) {
       const thing = result.thing ?? null;
-      client.setQueryData(["thing", result.entityId], thing);
-      found.set(result.entityId, thing);
+      client.setQueryData(["thing", result.thingId], thing);
+      found.set(result.thingId, thing);
     }
   }
   return found;
 }
 
-export async function readThing(client: QueryClient, source: OrisumiSource, entityId: string): Promise<Thing | null> {
-  return (await readThings(client, source, [entityId])).get(entityId) ?? null;
+export async function readThing(client: QueryClient, source: OrisumiSource, thingId: string): Promise<Thing | null> {
+  return (await readThings(client, source, [thingId])).get(thingId) ?? null;
 }
 
-/** 按把手读取：先当作事物的 EntityId，读不到再当作 VersionId。 */
+/** 按把手读取：先当作事物，再当作 Observation，最后当作 InputSet。 */
 export async function readItem(client: QueryClient, source: OrisumiSource, handle: string): Promise<Item | null> {
-  return (await readThing(client, source, handle)) ?? (await readVersion(client, source, handle));
+  const found = (await readThing(client, source, handle)) ?? (await readObservation(client, source, handle));
+  if (found) return found;
+  return client
+    .fetchQuery({ queryKey: ["input-set", handle], queryFn: () => source.getInputSet(handle), staleTime: Infinity })
+    .catch((error: unknown) => {
+      if (isUnreadable(error)) return null;
+      throw error;
+    });
 }
 
 /** 同时最多 limit 个请求。 */
@@ -87,76 +118,81 @@ export async function pool<T, R>(items: readonly T[], limit: number, run: (item:
   return results;
 }
 
-/** 实体所用的 EntitySchema：事物用它的类型的当前版本，Observation 用它所用的那一版。 */
+/** Observation 所用的那一条修订。 */
 export async function schemaOf(
   client: QueryClient,
   source: OrisumiSource,
-  index: TypeIndex,
-  item: Item,
-): Promise<Version<EntitySchema> | null> {
-  if (item.category === "thing") return index.bySchemaId.get(item.schemaId) ?? null;
-  if (!isObservation(item)) return null;
-  const schema = await readVersion(client, source, item.schemaVersionId);
-  return schema && isEntitySchema(schema) ? schema : null;
+  observation: Observation,
+): Promise<SchemaRevision | null> {
+  return readSchemaRevision(client, source, observation.schemaRevisionId).catch((error: unknown) => {
+    if (isUnreadable(error)) return null;
+    throw error;
+  });
 }
 
 /** 类型的角色：程序实例是来源；Observation 的类型看样本有没有事实时间。 */
-function typeRole(schema: EntitySchema, timed: boolean): Role {
-  if (schema.kind === "thing") return schema.resourceName === "program-instances" ? "source" : "thing";
+function typeRole(type: TypeEntry, timed: boolean): Role {
+  if (type.thingType) return type.content.resourceName === "program-instances" ? "source" : "thing";
   return timed ? "experience" : "statement";
 }
 
 /**
- * 全部 EntitySchema，以及类型图：每种 Observation 的类型取一份样本，读出它引用的类型，
+ * 全部类型，以及类型图：每种 Observation 的类型取一份样本，读出它引用的类型，
  * 由此知道类型之间经由哪个字段引用，以及这种类型的陈述有没有事实时间。
  */
 async function buildIndex(client: QueryClient, source: OrisumiSource): Promise<TypeIndex> {
-  const schemas = (await readAllPages((after) =>
-    source.listEntities({ category: "entity_schema", limit: 1000, ...(after ? { after } : {}) }),
-  )) as Version<EntitySchema>[];
-  const byResourceName = new Map(schemas.map((s) => [s.content.resourceName, s]));
-  const bySchemaId = new Map(schemas.map((s) => [s.entityId, s]));
-  const index: TypeIndex = { byResourceName, bySchemaId, nodes: [], edges: [] };
+  const [revisions, { thingTypes }] = await Promise.all([
+    readAllSchemaRevisions((after) => source.listSchemaRevisions({ limit: 1000, ...(after ? { after } : {}) })),
+    source.listThingTypes(),
+  ]);
+  const entries = new Map<string, TypeEntry>();
+  // 修订按 id 升序，同一种类型留下最新的一条。
+  for (const revision of revisions)
+    entries.set(revision.schemaId, { schemaId: revision.schemaId, thingType: false, content: revision.content });
+  for (const { schemaId, displayName, description, resourceName } of thingTypes)
+    entries.set(schemaId, {
+      schemaId,
+      thingType: true,
+      content: { displayName, description, resourceName, fields: {} },
+    });
+  const types = [...entries.values()];
+  const byResourceName = new Map(types.map((type) => [type.content.resourceName, type]));
   const timed = new Set<string>();
   const edges = new Map<string, TypeEdge>();
   const edge = (from: string, to: string, label: string) => edges.set(`${from}>${to}>${label}`, { from, to, label });
 
-  async function typeOf(target: "thing" | "version", id: string): Promise<string | null> {
+  async function typeOf(target: "thing" | "observation", id: string): Promise<string | null> {
     if (target === "thing") {
       const thing = await readThing(client, source, id);
-      return thing ? (bySchemaId.get(thing.schemaId)?.content.resourceName ?? null) : null;
+      return thing ? (entries.get(thing.schemaId)?.content.resourceName ?? null) : null;
     }
-    const version = await readVersion(client, source, id);
-    if (!version) return null;
-    if (!isObservation(version)) return version.category;
-    return (await schemaOf(client, source, index, version))?.content.resourceName ?? null;
+    const observation = await readObservation(client, source, id);
+    if (!observation) return null;
+    return (await schemaOf(client, source, observation))?.content.resourceName ?? null;
   }
 
   await pool(
-    schemas.filter((schema) => schema.content.kind === "observation"),
+    types.filter((type) => !type.thingType),
     6,
-    async (schema) => {
-      const resourceName = schema.content.resourceName;
-      const sample = (await source.listObservations({ resourceName, order: "desc", limit: 1 })).versions[0];
-      if (!sample || !isObservation(sample)) return;
+    async (type) => {
+      const resourceName = type.content.resourceName;
+      const sample = (await source.listObservations({ resourceName, order: "desc", limit: 1 })).observations[0];
+      if (!sample) return;
       if (sample.startAt || sample.endAt) timed.add(resourceName);
-      for (const reference of outgoingReferences(sample, schema.content.fields)) {
+      for (const reference of outgoingReferences(sample, type.content.fields)) {
         const target = await typeOf(reference.target, reference.id);
-        if (target && target !== "entity_schema") edge(resourceName, target, reference.path.replace(/\[\d+\]/g, "[]"));
+        if (target) edge(resourceName, target, reference.path.replace(/\[\d+\]/g, "[]"));
       }
     },
   );
 
-  const nodes: TypeNode[] = [
-    { key: "input_set", name: "InputSet", role: "evidence", schema: null },
-    ...schemas.map((schema) => ({
-      key: schema.content.resourceName,
-      name: schema.content.displayName,
-      role: typeRole(schema.content, timed.has(schema.content.resourceName)),
-      schema,
-    })),
-  ];
-  return { nodes, edges: [...edges.values()], byResourceName, bySchemaId };
+  const nodes: TypeNode[] = types.map((type) => ({
+    key: type.content.resourceName,
+    name: type.content.displayName,
+    role: typeRole(type, timed.has(type.content.resourceName)),
+    type,
+  }));
+  return { nodes, edges: [...edges.values()], byResourceName, bySchemaId: entries };
 }
 
 export function useTypes() {

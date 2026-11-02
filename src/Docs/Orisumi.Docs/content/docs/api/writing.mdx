@@ -1,9 +1,9 @@
 ---
 title: "Writing"
-description: "写入的 HTTP 接口：一次写入说出一份 Observation 的完整内容，后端认出对象、创建事物、形成版本；以及文件和删除"
+description: "写入的 HTTP 接口：一次写入说出一份 Observation 的完整内容，后端认出对象、创建事物、保存新的说法；以及文件和删除"
 ---
 
-写入只有一个接口：[`POST /writes`](/api/write)。业务代码说出一份 Observation 的完整内容、形成方式、可选的识别依据、事实时间和实际输入，后端认出对象，创建提到的事物，形成版本。能发 HTTP 就能写 Observer，[SDK](./sdk.mdx) 只是方便。
+写入只有一个接口：[`POST /writes`](/api/write)。业务代码说出一份 Observation 的完整内容、形成方式、可选的识别依据、事实时间和实际输入，后端认出对象，创建提到的事物，保存这份 Observation。能发 HTTP 就能写 Observer，[SDK](./sdk.mdx) 只是方便。
 
 ## 例子 [#example]
 
@@ -11,7 +11,7 @@ description: "写入的 HTTP 接口：一次写入说出一份 Observation 的�
 
 ```json title="POST /writes"
 {
-  "observer": { "entityId": "0196f3a2-7c1e-7d40-9b1a-2f6c8e4d5a01" },
+  "observer": { "thingId": "0196f3a2-7c1e-7d40-9b1a-2f6c8e4d5a01" },
   "writes": [
     {
       "schemaId": "019e1bbb-ec00-7000-8000-000000000001",
@@ -42,7 +42,7 @@ description: "写入的 HTTP 接口：一次写入说出一份 Observation 的�
 }
 ```
 
-后端按识别依据认出 VS Code 这个本机应用，第一次读到时创建它，然后形成这一段的首版。负责的是前台状态 Observer，版本引用它当时的描述。
+后端按识别依据认出 VS Code 这个本机应用，第一次读到时创建它，然后保存这一段。负责的是前台状态 Observer，这份 Observation 引用它当时的描述。
 
 ## 一次写入 [#write]
 
@@ -50,24 +50,26 @@ description: "写入的 HTTP 接口：一次写入说出一份 Observation 的�
 | --- | --- |
 | `schemaId` | 业务类型，这个 Observer 已经[声明](#types) |
 | `formation` | [形成方式](../core/model/observation.mdx#formation) |
-| `key` | 可选。认出这份 Observation 的[识别依据](#recognition) |
-| `content` | 完整的业务字段，见 [VERSION-1](../core/model/version.mdx#version-1) |
+| `key` | 可选。认出这条说法的[识别依据](#recognition) |
+| `content` | 完整的业务字段，见 [OBSERVATION-14](../core/model/observation.mdx#observation-14) |
 | `time` | 可选。事实时间，省略时边界都未知 |
-| `inputs` | 可选。处理实际用到的已保存版本 |
+| `speakerId` | 可选。说这句话的事物，写法和事物的[引用](#references)相同，见 [OBSERVATION-20](../core/model/observation.mdx#observation-20) |
+| `replaces` | 可选。显式声明被替换的 `observationId` |
+| `inputs` | 可选。处理实际用到的已保存的 Observation |
+| `runId` | 可选。这次写入属于哪一次工作，见[输入](#inputs) |
 
 | 情况 | 结果 |
 | --- | --- |
-| 没有 `key` | 新建 Observation。一次温度读数就是这样 |
-| `key` 还没有对应的 Observation | 新建，登记这份依据 |
-| 同一个 Observer，内容、时间和输入都与当前版本相同 | 什么都不做 |
-| 同一个 Observer，有变化 | 形成新版本 |
-| 类型声明 `immutable`，描述版本相同而内容不同 | 拒绝，`rule` 为 `SCHEMA-18` |
-| 另一个 Observer，内容相同 | 什么都不做 |
-| 另一个 Observer，内容不同 | 拒绝，`rule` 为 `OBSERVATION-10` |
+| 没有 `key` | 保存新的 Observation。一次温度读数就是这样 |
+| `key` 还没有对应的 Observation | 保存新的 Observation，登记这份依据 |
+| 内容、时间和输入都与这个依据最新的一条相同 | 什么都不做 |
+| 有不同 | 保存新的 Observation，`replaces` 自动指向这个依据最新的一条 |
+| `key`，或者以 `about`、`part` 提到的事物命中[墓碑](#deletion) | 跳过这次写入 |
+| 以 `mention` 提到的事物命中墓碑 | 照常保存，引用指向被删除的事物 |
 
-内容是否相同按[内容相同](./versions.mdx#sameness)判断，另一个 Observer 写入时只比较业务字段，所以新旧程序用不同的 Schema 版本也不会被拒绝。写入方给出的是它读到的完整状态，后端把它接在当前版本之后，见 [VERSION-6](../core/model/version.mdx#version-6)。怎样选择 `key` 和内容的范围，见 [IDENTITY-5](../core/rules/identity.mdx#identity-5)。
+内容是否相同按[内容相同](#sameness)判断，所以新旧程序用不同的 SchemaRevision 也不算变化。写入方给出的是它读到的完整状态，见 [OBSERVATION-19](../core/model/observation.mdx#observation-19)。显式声明的 `replaces` 和自动填写的合在一起。怎样选择 `key` 和内容的范围，见 [IDENTITY-5](../core/rules/identity.mdx#identity-5)。
 
-所以重读同一份日志什么都不发生。进行中的事实也是这样写的：
+所以重读同一份日志什么都不发生。修好解析器后重读，变了的那些条保存新的 Observation，替换旧的。进行中的事实也可以这样写：
 
 ```text
 一开始就确定 key，开始、确认和结束时各写入一次：
@@ -76,7 +78,20 @@ time = [14:00, 14:10]
 time = [14:00, 16:00]
 ```
 
-每次写入形成一个新版本，内容不变，见 [TIME-4](../core/rules/time.mdx#time-4)。结束后写入一次是这种写法的特例。
+每次写入保存一份新的 Observation，替换上一份，见 [TIME-4](../core/rules/time.mdx#time-4)。
+
+## 内容相同 [#sameness]
+
+后端处理写入和[业务类型的声明](#types)时，判断内容与已保存的数据是否相同。比较按 JSON 的值进行：
+
+- 对象的键的顺序不影响比较。
+- `reference` 字段按保存的值比较：事物比较 `thingId`，Observation 比较 `observationId`。所以设备改名不影响引用设备的内容；引用一条陈述时，目标被替换后，再次写入就是一次变化。
+- 数字按数学值比较，`1`、`1.0` 和 `1e0` 相同。
+- 字符串逐个字符比较，不做 Unicode 规范化。
+- 数组按顺序比较。InputSet 的 `members` 无序，见 [INPUTSET-4](../core/model/input-set.mdx#inputset-4)。
+- 省略的字段与值为 `null` 的字段不同，见 [SCHEMA-13](../core/model/schema.mdx#schema-13)。
+- `binary` 值按描述的三个成员比较。摘要确定了字节，所以描述相同，文件就相同，见 [BINARY-2](../core/model/binary.mdx#binary-2)。
+- Observation 的时间先换算为 UTC、截断到整微秒，再比较。所以 `2026-10-06T14:00:00+08:00` 与 `2026-10-06T06:00:00Z` 相同。
 
 ## 认出对象 [#recognition]
 
@@ -88,15 +103,17 @@ time = [14:00, 16:00]
 | `scheme` | 标识方案，决定怎样解释 `value`，例如 `macos.installation` |
 | `value` | 标识的值，后端原样比较 |
 
-一份依据最多对应一个实体，见 [IDENTITY-7](../core/rules/identity.mdx#identity-7)。三个值的 UTF-8 字节数之和最多 2048。不同设备上路径相同的应用，`scope` 不同，所以是不同的事物。用户删除实体后，依据随它删除，之后的写入形成一个新实体。
+一份事物的依据最多对应一个事物，一份 Observation 的依据对应一条替换链，见 [IDENTITY-7](../core/rules/identity.mdx#identity-7)。三个值的 UTF-8 字节数之和最多 2048。不同设备上路径相同的应用，`scope` 不同，所以是不同的事物。
 
-每个 Observer 要各写一份时，把它的 EntityId 放进 `scope`，见 [IDENTITY-8](../core/rules/identity.mdx#identity-8)。没有自然标识的类型不用识别依据，每次写入都新建。
+每个 Observer 要各写一份时，把它的 `thingId` 放进 `scope`，见 [IDENTITY-8](../core/rules/identity.mdx#identity-8)。没有自然标识的类型不用识别依据，每次写入都是新的一份。
 
 ## 输入 [#inputs]
 
-`inputs` 写 VersionId，见 [EVIDENCE-1](../core/rules/evidence.mdx#evidence-1)。省略或为 `[]` 时不形成 InputSet，后端不从引用推算输入。
+`inputs` 写 `observationId`，见 [EVIDENCE-1](../core/rules/evidence.mdx#evidence-1)。省略或为 `[]` 时不形成 InputSet，后端不从引用推算输入。
 
 一个请求中成员相同的 `inputs` 共用一个 InputSet，成员的顺序不影响比较，见 [INPUTSET-5](../core/model/input-set.mdx#inputset-5)。例如一次模型调用得到十份推断，后端形成一个 InputSet 和十份 Observation。
+
+Agent 不用自己列输入：写入带 [`runId`](./reading.mdx#runs) 时，InputSet 取这次工作的读取记录，见 [EVIDENCE-9](../core/rules/evidence.mdx#evidence-9)。`inputs` 和 `runId` 只能给一个，都给时返回 `400`。
 
 ## 引用 [#references]
 
@@ -104,41 +121,47 @@ time = [14:00, 16:00]
 
 | 字段的 `target` | 写法 | 指向 |
 | --- | --- | --- |
-| `thing` | 字符串 EntityId | 这个事物 |
+| `thing` | 字符串 `thingId` | 这个事物 |
 | `thing` | `{ "schemaId": "…", "key": { … } }` | 这份识别依据对应的事物，不存在时创建，见 [THING-2](../core/model/thing.mdx#thing-2) |
-| `version` | 字符串 VersionId | 这个确定的版本 |
-| `version` | `{ "entityId": "…" }` | 这个实体此刻的当前版本 |
-| `version` | `{ "schemaId": "…", "key": { … } }` | 这份识别依据对应的实体此刻的当前版本 |
+| `observation` | 字符串 `observationId` | 这份 Observation |
+| `observation` | `{ "schemaId": "…", "key": { … } }` | 这份识别依据此刻最新的一条 |
 
-读回时事物是 EntityId，版本是 VersionId，见 [ENTITY-4](../core/model/entity.mdx#entity-4)。
+读回时都是 id，见 [REFERENCE-1](../core/rules/references.mdx#reference-1)。
 
-提到事物不用先写入，它们随这次写入一起保存。引用版本时，目标要先保存：同一个 Observer 的写入按顺序处理，所以前面的写入能被后面的引用。版本解析不到时，可空的字段写入 `null`，其他字段让这次写入被拒绝，见 [ENTITY-6](../core/model/entity.mdx#entity-6)。例如工具结果对应的调用不在日志中，`toolCallVersionId` 就是 `null`。
+提到事物不用先写入，它们随这次写入一起保存。引用 Observation 时，目标要先保存：同一个 Observer 的写入按顺序处理，所以前面的写入能被后面的引用。目标解析不到时，可空的字段写入 `null`，其他字段让这次写入被拒绝，见 [REFERENCE-3](../core/rules/references.mdx#reference-3)。例如工具结果对应的调用不在日志中，`toolCallId` 就是 `null`。
 
 ## 业务类型 [#types]
 
-程序启动时，在请求的 `schemas` 中声明它用的业务类型：
+程序启动时，在请求中声明它用的业务类型：`thingTypes` 声明事物类型，`schemas` 声明 Observation 类型。
 
 ```json title="POST /writes"
 {
-  "observer": { "entityId": "0196f3a2-7c1e-7d40-9b1a-2f6c8e4d5a01" },
+  "observer": { "thingId": "0196f3a2-7c1e-7d40-9b1a-2f6c8e4d5a01" },
+  "thingTypes": [
+    {
+      "schemaId": "019e1bbb-ec00-7000-8000-000000000002",
+      "displayName": "本机应用",
+      "description": "表示某台设备上的一个应用安装。",
+      "resourceName": "local-applications"
+    }
+  ],
   "schemas": [
-    { "schemaId": "019e1bbb-ec00-7000-8000-000000000002", "content": { "displayName": "本机应用", "kind": "thing", "…": "…" } }
+    { "schemaId": "019e1bbb-ec00-7000-8000-000000000001", "content": { "displayName": "前台应用时段", "…": "…" } }
   ],
   "writes": []
 }
 ```
 
-后端先处理 `schemas`，再处理 `writes`：
+后端先处理声明，再处理 `writes`。事物类型再次声明、内容不同时，保存最后一次的内容，见 [SCHEMA-17](../core/model/schema.mdx#schema-17)。Schema 这样处理：
 
 | 情况 | 结果 |
 | --- | --- |
-| EntitySchema 还没有版本 | 形成首版 |
-| 版本链中已有内容相同的 Schema 版本 | 使用那一版，版本链不变 |
-| 版本链中没有相同的内容 | 在当前版本之后形成新版本 |
+| 已有内容相同的 SchemaRevision | 使用那一条，不增加修订 |
+| 没有相同的内容 | 保存一条新的 SchemaRevision |
 
-这个 Observer 之后的写入用这一版，直到它声明另一版。所以两台设备上运行着新旧两个版本的前台状态 Observer 时，各自用自己那一版，Schema 不会在两台设备之间来回改写，见 [ENTITY-3](../core/model/entity.mdx#entity-3)。
+这个 Observer 之后的写入用这一条，直到它声明另一条。所以两台设备上运行着新旧两个版本的前台状态 Observer 时，各自用自己那一条，见 [SCHEMA-1](../core/model/schema.mdx#schema-1)。
 
-[公共类型](../core/rules/understanding.mdx#common-types)由后端内置，不用声明。`schemaId` 是业务类型的常量，由编写它的人生成，UUIDv7 不会重复；共用一种业务类型的程序用同一个 `schemaId` 和同一份内容，见[业务类型的声明](./sdk.mdx#definitions)。
+[内建类型](../core/index.mdx#semantics)和[公共类型](../core/model/common-types.mdx)由后端内置，不用声明。`schemaId` 是业务类型的常量，由编写它的人生成，UUIDv7 不会重复；共用一种业务类型的程序用同一个 `schemaId` 和同一份内容，见[业务类型的声明](./sdk.mdx#definitions)。
 
 ## 负责的 Observer [#observer]
 
@@ -146,23 +169,26 @@ time = [14:00, 16:00]
 
 | 写法 | 用于 |
 | --- | --- |
-| `{ "entityId": "…" }` | 受托管的程序实例，EntityId 在运行上下文中 |
+| `{ "thingId": "…" }` | 受托管的程序实例，`thingId` 在运行上下文中 |
 | `{ "schemaId": "…", "key": { … } }` | 直接运行的脚本和 Agent，类型是程序实例，用识别依据认出自己；用户本人，类型是人 |
 
 程序启动时在请求的 `description` 中写下自己的描述：
 
 ```json
 {
-  "observer": { "entityId": "0196f3a2-7c1e-7d40-9b1a-2f6c8e4d5a01" },
+  "observer": { "thingId": "0196f3a2-7c1e-7d40-9b1a-2f6c8e4d5a01" },
   "description": {
-    "schemaId": "019e1bbb-ec00-7000-8000-000000000003",
-    "content": { "platform": "macos", "hostName": "Mac", "programVersion": "0.1.0" }
+    "platform": "macos",
+    "hostName": "Mac",
+    "programVersion": "0.1.0",
+    "model": null,
+    "decisionModel": null
   },
   "writes": []
 }
 ```
 
-描述是这个 Observer 自己的一份 Observation，见 [OBSERVER-9](../core/model/observer.mdx#observer-9)。内容不变时什么都不做，程序升级或模型变化时形成新版本，之后的写入引用新版本。没有写过描述的 Observer 也能写入，`observerVersionId` 为 `null`。受托管实例的 EntityId 由托管方预留，第一次使用时创建为程序实例这种事物，见 [ENTITY-2](../core/model/entity.mdx#entity-2)。
+描述是这个 Observer 自己的一份 [Observer 描述](../core/model/common-types.mdx#observer-descriptions)，见 [OBSERVER-9](../core/model/observer.mdx#observer-9)。内容不变时什么都不做，程序升级或模型变化时保存新的一份并替换旧的，之后的写入引用新的一份。没有写过描述的 Observer 也能写入，`observerDescriptionId` 为 `null`。受托管实例的 `thingId` 由托管方预留，第一次使用时创建为程序实例这种事物，见 [THING-6](../core/model/thing.mdx#thing-6)。
 
 每个 Observer 一条写入流，后端按收到的顺序处理。
 
@@ -173,16 +199,18 @@ time = [14:00, 16:00]
 | `observer` | 负责的 [Observer](#observer) |
 | `description` | 可选。这个 Observer 的[描述](#observer) |
 | `sequence` | 可选。这条写入流中请求的序号，由[本地转发](../hosting/runtime.mdx#forwarding)填写。后端保存最后处理的序号，序号不大于它的请求已经处理过，返回 `200`，`duplicate` 为 `true`，什么都不做 |
-| `schemas` | 可选。声明的[业务类型](#types) |
+| `thingTypes` | 可选。声明的[事物类型](#types) |
+| `schemas` | 可选。声明的 [Schema](#types) |
 | `writes` | 这个请求的写入，按顺序处理，可以为空 |
 
-一次写入是一个整体，见 [VERSION-13](../core/model/version.mdx#version-13)。一次写入被拒绝时，同一个请求中的其他写入照常处理。响应按顺序列出每次写入的结果：
+一次写入是一个整体，见 [OBSERVATION-17](../core/model/observation.mdx#observation-17)。一次写入被拒绝时，同一个请求中的其他写入照常处理。响应按顺序列出每次写入的结果：
 
 ```json
 {
   "results": [
-    { "version": { "entityId": "…", "versionId": "…" }, "changed": false },
-    { "version": { "entityId": "…", "versionId": "…" }, "changed": true },
+    { "observation": { "observationId": "…" }, "changed": false },
+    { "observation": { "observationId": "…" }, "changed": true },
+    { "skipped": true, "changed": false },
     { "error": { "status": 409, "rule": "BINARY-3", "detail": "…" } }
   ]
 }
@@ -190,14 +218,16 @@ time = [14:00, 16:00]
 
 | 字段 | 含义 |
 | --- | --- |
-| `version` | 这次写入之后这份 Observation 的实际当前版本，完整内容见 [Versions](./versions.mdx) |
-| `changed` | 这次写入是否形成了新版本 |
+| `observation` | 这次保存的一份，内容相同时是这个依据最新的一条，完整内容见 [Reading · 表示](./reading.mdx#representation) |
+| `changed` | 这次写入是否保存了新的 Observation |
+| `replaced` | 这次写入替换的 `observationId`，没有替换时为空数组。写入方能据此发现意外的替换，例如两个来源对象用了同一份依据 |
+| `skipped` | 这次写入命中墓碑被跳过，见 [HISTORY-11](../core/rules/history.mdx#history-11) |
 | `error` | 这次写入被拒绝的原因，字段含义见 [Errors](./errors.mdx#format) |
 
 | 结果 | 响应 |
 | --- | --- |
 | 请求已处理，包括其中有写入被拒绝 | `200` |
-| 请求体不符合契约，例如 JSON 无效、缺少成员或 `observer` 的识别依据过长，或者 `schemas` 被拒绝 | `400` 或 `409`，整个请求都不处理 |
+| 请求体不符合契约，例如 JSON 无效、缺少成员或 `observer` 的识别依据过长，或者声明被拒绝 | `400` 或 `409`，整个请求都不处理 |
 | `observer` 不是这个托管方的程序实例 | `403`，`code` 为 `host_mismatch` |
 | `observer` 已删除 | `409`，`rule` 为 `HISTORY-7`，整个请求都不处理 |
 
@@ -216,17 +246,17 @@ time = [14:00, 16:00]
 
 ## 校验 [#validation]
 
-后端先检查请求的结构，再按顺序处理 `schemas`、`description` 和每次写入。业务字段由这个 Observer 声明的 Schema 版本解释。
+后端先检查请求的结构，再按顺序处理 `thingTypes`、`schemas`、`description` 和每次写入。业务字段由这个 Observer 声明的 SchemaRevision 解释。
 
 | 阶段 | 检查 | 失败时 |
 | --- | --- | --- |
 | 请求结构 | JSON、成员和基础值类型，以及 `observer` 的归属 | `400` 或 `403`，整个请求都不处理 |
-| 声明 | `schemas` 中每一版的内容 | `400` 或 `409`，整个请求都不处理 |
-| 每次写入 | 业务类型是否已声明、Schema 字段定义的必写项与组合、形成方式、作者和 `immutable`、引用目标、二进制内容、事实边界、识别依据的长度、存储支持的字符串与数值范围 | 这次写入被拒绝，其他写入照常处理 |
+| 声明 | `thingTypes` 和 `schemas` 中每一项的内容 | `400` 或 `409`，整个请求都不处理 |
+| 每次写入 | 业务类型是否已声明、Schema 字段定义的必写项与组合、形成方式、`replaces` 的类型、内建类型的语义、引用目标、二进制内容、事实边界、识别依据的长度、存储支持的字符串与数值范围 | 这次写入被拒绝，其他写入照常处理 |
 
 例如 `startAt` 晚于 `endAt`，这次写入按 [OBSERVATION-6](../core/model/observation.mdx#observation-6) 被拒绝，请求中的其他写入照常保存。
 
-`binary` 值的成员不符合 [BINARY-1](../core/model/binary.mdx#binary-1)，或 `size` 与已上传的字节数不同时，结果是 `400`；内容尚未上传时结果是 `409`，`rule` 为 `BINARY-3`。字符串与数值的存储范围见 [Storage · 内容的表示](../storage/versions.mdx#content)。
+`binary` 值的成员不符合 [BINARY-1](../core/model/binary.mdx#binary-1)，或 `size` 与已上传的字节数不同时，结果是 `400`；内容尚未上传时结果是 `409`，`rule` 为 `BINARY-3`。字符串与数值的存储范围见 [Storage · 内容的表示](../storage/observations.mdx#content)。
 
 ## 文件 [#contents]
 
@@ -239,21 +269,37 @@ time = [14:00, 16:00]
 | 字节的摘要与路径不同 | `400`，`rule` 为 `BINARY-1` |
 | 超过 8 MiB | `413` |
 
-同样的字节再次上传也返回 `204`。本地转发同样接受这个请求，按顺序先上传，再交出引用它的写入。上传超过 24 小时、仍没有版本使用的内容会被移除，见 [Storage · 暂存](../storage/contents.mdx#staging)。
+同样的字节再次上传也返回 `204`。本地转发同样接受这个请求，按顺序先上传，再交出引用它的写入。上传超过 24 小时、仍没有 Observation 使用的内容会被移除，见 [Storage · 暂存](../storage/contents.mdx#staging)。
 
 ## 删除 [#deletion]
 
-第二天，用户在 Web 控制台删掉 16:00 之后的浏览器时段。[`DELETE /entities/{entityId}`](/api/deleteEntity) 移除一个实体的全部版本和它的识别依据，返回 `204`，见 [HISTORY-6](../core/rules/history.mdx#history-6)。判断错了时用[否定](../core/rules/understanding.mdx#understanding-5)，删除只用于用户要抹掉的数据。
+第二天，用户在 Web 控制台删掉 16:00 之后的浏览器时段。判断错了时用[否定](../core/model/review.mdx)，删除只用于用户要抹掉的数据。
+
+| 接口 | 移除什么 |
+| --- | --- |
+| [`DELETE /observations/{observationId}`](/api/deleteObservation) | 这份 Observation，连同被它替换的说法，见 [HISTORY-6](../core/rules/history.mdx#history-6) |
+| [`DELETE /things/{thingId}`](/api/deleteThing) | 这个事物，以及以 `about` 和 `part` 引用它的 Observation，见 [HISTORY-10](../core/rules/history.mdx#history-10) |
+| [`DELETE /schemas/{schemaId}`](/api/deleteSchema) | 一个 Schema 的全部修订，或一个事物类型 |
+
+删除 Observation 和事物时，响应列出这次移除了什么，以及依据被删除内容的 Observation：
+
+```json
+{
+  "deleted": ["019e1bbb-ec00-7000-8000-000000000102", "019e1bbb-ec00-7000-8000-000000000101"],
+  "dependents": ["019e1bbb-ec00-7000-8000-000000000301"]
+}
+```
 
 | 情况 | 结果 |
 | --- | --- |
-| 实体已经删除 | `204` |
-| EntityId 从未出现过 | `404` |
-| 还有数据使用这个 EntitySchema | `409`，`rule` 为 `HISTORY-9` |
+| 已删除 | `200`，带上面的结果；删除类型时 `204` |
+| 之前已经删除 | `200`，两个数组为空；删除类型时 `204` |
+| 身份从未出现过 | `404` |
+| 还有数据使用这个类型 | `409`，`rule` 为 `HISTORY-9` |
 | 托管方凭证 | `403`，`code` 为 `management_only` |
 
-已有的引用保留，目标不可读取，见 [HISTORY-8](../core/rules/history.mdx#history-8)。之后的引用不能指向它：引用版本时，字段可空就写入 `null`，否则这次写入被拒绝，见 [ENTITY-6](../core/model/entity.mdx#entity-6)。
+已有的引用保留，目标不可读取，见 [HISTORY-8](../core/rules/history.mdx#history-8)。之后以 `about`、`part` 引用它的写入被跳过，以 `mention` 引用它的照常保存，见 [HISTORY-11](../core/rules/history.mdx#history-11)。
 
-删除后实体不再接受新版本，见 [HISTORY-7](../core/rules/history.mdx#history-7)；读取它返回 `410`。业务代码之后读到同一个来源对象时，写入按新对象创建。
+读取已删除的目标返回 `410`。业务代码之后读到同一个来源对象时，写入命中墓碑被跳过，见 [HISTORY-11](../core/rules/history.mdx#history-11)。模型读过这些内容后写下的文字可能带着残留，用[搜索](./reading.mdx#search)找出可能的位置，见 [HISTORY-12](../core/rules/history.mdx#history-12)。
 
-实体是一个已登记的程序实例时，删除它同时删除实例，见 [Management · 删除实例](./management.mdx#removal)。
+事物是一个已登记的程序实例时，删除它同时删除实例，见 [Management · 删除实例](./management.mdx#removal)。

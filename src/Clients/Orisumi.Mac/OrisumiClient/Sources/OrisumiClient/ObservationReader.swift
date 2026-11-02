@@ -14,7 +14,7 @@ func readAll<Content: Decodable & Sendable>(_ query: ReadQuery, from reader: Dat
     var items: [RuntimeObservation<Content>] = []
     repeat {
         let page = try await reader.read(query, as: Content.self)
-        items += page.versions
+        items += page.observations
         query.cursor = page.next
     } while query.cursor != nil
     return items
@@ -28,12 +28,21 @@ public final class ForegroundReader {
     public init() {}
 
     public func today(instanceId: UUID, day: DateInterval, from reader: DataReading) async throws -> Snapshot<Period> {
-        let observations = try await readAll(ReadQuery(instanceId: instanceId, during: day, resourceName: Self.resourceName),
+        let observations: [RuntimeObservation<PeriodContent>]
+        do {
+            observations = try await readAll(ReadQuery(instanceId: instanceId, during: day, resourceName: Self.resourceName),
                                              from: reader, as: PeriodContent.self)
-        let items = observations.compactMap { item -> Period? in
-            guard let startAt = item.startAt, let endAt = item.endAt else { return nil }
-            return Period(id: item.entityId, name: item.content.name, applicationId: item.content.localApplicationId,
-                          icon: item.content.icon?.digest, startAt: startAt, endAt: endAt)
+        } catch let RuntimeError.remote(code, _) where code == "not_found" {
+            // The Observer declares the type on its first write; until then there is nothing to read.
+            return Snapshot(items: [])
+        }
+        let items = observations.flatMap { item -> [Period] in
+            guard let startAt = item.startAt, let endAt = item.endAt else { return [] }
+            return Today.remaining(from: startAt, to: endAt, denied: item.deniedRanges ?? []).enumerated().map { part, range in
+                Period(observationId: item.observationId, part: part, name: item.content.name,
+                       applicationId: item.content.localApplicationId, icon: item.content.icon?.digest,
+                       startAt: range.start, endAt: range.end)
+            }
         }
         return Snapshot(items: items)
     }
@@ -67,8 +76,8 @@ public final class RecentReader {
         let interval = DateInterval(start: now.addingTimeInterval(-Double(days) * 86_400), end: now)
         let page = try await reader.read(ReadQuery(instanceId: instanceId, during: interval, limit: limit, descending: true),
                                          as: JSONValue.self)
-        let items = page.versions.map { item in
-            RecentObservation(id: item.entityId, startAt: item.startAt, endAt: item.endAt, content: item.content)
+        let items = page.observations.map { item in
+            RecentObservation(id: item.observationId, startAt: item.startAt, endAt: item.endAt, content: item.content)
         }
         return Snapshot(items: items)
     }

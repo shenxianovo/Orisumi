@@ -1,67 +1,52 @@
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { readAllThings, type OrisumiSource } from "@/api/client";
+import { useQuery } from "@tanstack/react-query";
+import { readAllThings } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isEntitySchema, isObservation, type ObservationVersion, type Thing } from "@/api/types";
-import { isUser, PROGRAM_SCHEMA } from "@/lib/common";
+import type { Thing } from "@/api/types";
+import { useInstances } from "@/hooks/useManagement";
+import type { Instance } from "@/api/management";
+import { isUser } from "@/lib/common";
 import { observerIdentity, type ObserverIdentity } from "@/lib/observers";
-import { pool, readVersion } from "./useTypes";
+import { thingTitle } from "@/lib/titles";
 
 export const OBSERVERS_INTERVAL = 60_000;
 
-/** 一个 Observer：程序实例或用户本人，以及程序实例最新的描述。 */
+/** 一个 Observer：程序实例或用户本人，名称取实例登记的名称。 */
 export interface ObserverInfo {
   thing: Thing;
-  description: ObservationVersion | null;
   identity: ObserverIdentity;
 }
 
-/**
- * 程序实例的描述：它最近写下的 Observation 引用的那一版描述。还只写过描述时，那份 Observation 就是描述。
- * 人没有描述。
- */
-async function descriptionOf(client: QueryClient, source: OrisumiSource, thing: Thing) {
-  if (thing.schemaId !== PROGRAM_SCHEMA) return null;
-  const latest = (await source.listReferrers(thing.entityId, { path: "/observerId", order: "desc", limit: 1 }))
-    .referrers[0]?.version;
-  if (!latest || !isObservation(latest)) return null;
-  if (!latest.observerVersionId) return latest;
-  const description = await readVersion(client, source, latest.observerVersionId);
-  return description && isObservation(description) ? description : null;
-}
-
-export async function describeObserver(
-  client: QueryClient,
-  source: OrisumiSource,
-  thing: Thing,
-): Promise<ObserverInfo> {
-  const description = await descriptionOf(client, source, thing);
-  const schema = description ? await readVersion(client, source, description.schemaVersionId) : null;
-  const type = schema && isEntitySchema(schema) ? schema.content : null;
+export function describeObserver(thing: Thing, instance: Instance | undefined): ObserverInfo {
   return {
     thing,
-    description,
     identity: isUser(thing)
-      ? observerIdentity(thing.entityId, thing.name ?? "用户本人", "people")
-      : observerIdentity(thing.entityId, type?.displayName ?? null, type?.resourceName ?? null),
+      ? observerIdentity(thing.thingId, thing.name ?? "用户本人", "people")
+      : observerIdentity(thing.thingId, instance?.name ?? thingTitle(thing, "Observer"), instance?.packageId ?? null),
   };
 }
 
-/** 全部 Observer：每个程序实例和用户本人。键是 EntityId。 */
+/** 全部 Observer：每个程序实例和用户本人。键是 thingId。 */
 export function useObservers() {
   const source = useSource();
-  const client = useQueryClient();
+  const instances = useInstances();
+  // 实例的状态每几秒刷新，名字和安装包变了才重读。
+  const names = (instances.data ?? []).map(({ thingId, name, packageId }) => [thingId, name, packageId].join(":"));
   return useQuery({
-    queryKey: ["observers"],
+    queryKey: ["observers", names.join()],
     queryFn: async () => {
       const [programs, people] = await Promise.all(
         ["program-instances", "people"].map((resourceName) =>
           readAllThings((after) => source.listThings({ resourceName, limit: 1000, ...(after ? { after } : {}) })),
         ),
       );
-      const things = [...programs!, ...people!.filter(isUser)];
-      const infos = await pool(things, 6, (thing) => describeObserver(client, source, thing));
-      return new Map(infos.map((info) => [info.thing.entityId, info]));
+      const registered = new Map((instances.data ?? []).map((instance) => [instance.thingId, instance]));
+      const infos = [...programs!, ...people!.filter(isUser)].map((thing) =>
+        describeObserver(thing, registered.get(thing.thingId)),
+      );
+      return new Map(infos.map((info) => [info.thing.thingId, info]));
     },
+    enabled: !instances.isPending,
+    placeholderData: (previous) => previous,
     refetchInterval: OBSERVERS_INTERVAL,
   });
 }

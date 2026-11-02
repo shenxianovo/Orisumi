@@ -107,9 +107,9 @@ Codex 先写 `Reasoning` 的 `item_completed`，接着写 `id` 相同、带 `enc
 
 ### 重读 [#rereading]
 
-一次交互是一份 Observation，内容形成后不再变化，这种类型声明 `immutable`，见 [SCHEMA-18](../../core/model/schema.mdx#schema-18)。再次读到一条来源数据时，识别依据和内容都相同，所以什么都不发生。修复解析错误的新版本程序重读时，形成原来这份的新版本。
+再次读到一条来源数据时，识别依据和内容都相同，所以什么都不发生。修复解析错误后重读时，内容不同，新的一份替换原来的，见 [OBSERVATION-19](../../core/model/observation.mdx#observation-19)。
 
-读取进度丢失后从头重读时，实时读到的记录按历史处理，`timeZone` 变为 `null`，这份 Observation 形成新版本，内容不变，见[事实时间](./index.mdx#fact-time)。
+读取进度丢失后从头重读时，实时读到的记录按历史处理，`timeZone` 变为 `null`，新的一份替换原来的，业务字段不变，见[事实时间](./index.mdx#fact-time)。
 
 ## 引用 [#references]
 
@@ -117,7 +117,21 @@ Codex 先写 `Reasoning` 的 `item_completed`，接着写 `id` 相同、带 `enc
 | --- | --- |
 | `sessionId` | 交互所在的[会话](./assistant-session.mdx) |
 | `deviceId` | 交互发生的[设备](../device-state/device.mdx) |
-| `toolCallVersionId` | 工具结果对应的调用，写调用的识别依据。调用不在已读到的数据中时为 `null`，见 [API · 引用](../../api/writing.mdx#references) |
+| `toolCallId` | 工具结果对应的调用，写调用的识别依据。调用不在已读到的数据中时为 `null`，见 [API · 引用](../../api/writing.mdx#references) |
+
+### 说话人 [#speaker]
+
+助手的话被采回时，负责的 Observer 是助手会话 Observer，说话的是模型，见 [OBSERVATION-20](../../core/model/observation.mdx#observation-20)：
+
+| 交互 | `speakerId` |
+| --- | --- |
+| `actor` 为 `user` 的 `message` | 用户本人，见 [User Statements · 用户本人的身份](../user/index.mdx#identity) |
+| `actor` 为 `assistant` 的 `message` 和 `reasoning` | 这个模型，类型是[模型](../../core/model/common-types.mdx#thing-types) |
+| 其余 | `null` |
+
+模型的识别依据：`scope` 为 `null`，`scheme` 为 `orisumi.model`，`value` 是字段 `model` 的值。`model` 为 `null` 时，`speakerId` 也是 `null`。
+
+### 其他关系 [#other-relations]
 
 交互之间的其他关系保存为来源标识：`sourceParentId` 是 Claude Code 的 `parentUuid`，`sourceTurnId` 是一轮的标识，`sourceMessageId` 是一次 API 响应的标识。读取方在同一会话中按这些标识重建顺序和分支。
 
@@ -139,7 +153,7 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
 
 来源给出的文字是空字符串时，片段照样保留，`text` 也是空字符串。例如 Claude Code 的 `thinking` block 可以只有签名、文字为空，它形成一个空的 `text` 片段和一个 `opaque` 片段。
 
-对话文字、推理文字、推理摘要和工具调用的参数同时写进片段的 `text`，读取方直接读到；工具输出、上下文、图片和不可读的内容只在原始记录中，`text` 为 `null`，读取方按位置从原始记录中取出。所以大段的工具输出和重复注入的指令只保存一份。
+对话文字、推理文字、推理摘要和工具调用的参数同时写进片段的 `text`，读取方直接读到；工具输出、上下文、图片和不可读的内容只在原始记录中，`text` 为 `null`，读取方按位置从原始记录中取出。所以大段的工具输出和重复注入的指令只保存一份。搜索读 `parts[].text`，所以工具输出和注入的上下文不参与搜索。
 
 来源只给出文件路径的图片，例如 Codex 的 `local_image`，读取时文件还在，字节写进片段的 `file`；文件已不存在时，`file` 为 `null`，路径仍在原始记录中。
 
@@ -155,7 +169,7 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
 
 一行形成多次交互时，例如 Codex 的工具调用和结果，它们的原始记录是同一份字节，后端按摘要只保存一份，见 [BINARY-2](../../core/model/binary.mdx#binary-2)。原始记录保留来源的全部字段，包括本页没有提取的字段，以后可以重新解释。
 
-删除一次交互时，只有它用到的原始记录随之删除，见 [HISTORY-6](../../core/rules/history.mdx#history-6)。
+删除一次交互时，只有它用到的原始记录随之删除，见 [BINARY-4](../../core/model/binary.mdx#binary-4)。
 
 ## 事实时间 [#fact-time]
 
@@ -169,9 +183,9 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
 
 在已核实的版本中，Claude Code 在一个 block 完成时写入这一行，所以助手回复和推理只知道完成的时刻，开始未知。Codex 记下每一项开始和完成的毫秒时间。
 
-`timeZone` 的取值见 [Assistant Sessions · 事实时间](./index.mdx#fact-time)。`inputSetVersionId` 为 `null`：交互直接读取来源日志形成，见 [EVIDENCE-1](../../core/rules/evidence.mdx#evidence-1)。
+`timeZone` 的取值见 [Assistant Sessions · 事实时间](./index.mdx#fact-time)。`inputSetId` 为 `null`：交互直接读取来源日志形成，见 [EVIDENCE-1](../../core/rules/evidence.mdx#evidence-1)。
 
-## EntitySchema [#schema]
+## Schema [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -179,13 +193,11 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
 | 显示名称 | 助手交互 |
 | 说明 | 表示 Claude Code 或 Codex 会话中的一次交互：一条消息、一次工具调用、一次工具结果、一段推理或一份交给模型的上下文。来源中的每次交互对应一份 Observation。内容按来源顺序列为片段，原始记录以二进制内容保存。事实时间取自来源记下的时刻：输入、调用、结果和上下文是时间点，助手的回复和推理在来源给出开始时间时是时段，否则只有结束边界。 |
 | 资源名 | `assistant-interactions` |
-| `kind` | `observation` |
-| `immutable` | `true` |
 
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
-| `sessionId` | `reference`，目标为事物 | 是 | 否 | 交互所在的助手会话 |
-| `deviceId` | `reference`，目标为事物 | 是 | 是 | 交互发生的设备；不知道时为 `null` |
+| `sessionId` | `reference`，目标为事物，`role` 为 `part` | 是 | 否 | 交互所在的助手会话 |
+| `deviceId` | `reference`，目标为事物，`role` 为 `mention` | 是 | 是 | 交互发生的设备；不知道时为 `null` |
 | `kind` | `string` | 是 | 否 | 交互的种类：`message`、`tool-call`、`tool-result`、`reasoning` 或 `context` |
 | `actor` | `string` | 是 | 是 | 发出方：`user`、`assistant`、`tool`、`application` 或 `agent`；来源结构不足以判断时为 `null` |
 | `sourceRole` | `string` | 是 | 是 | 来源记录中的协议角色，原样保存，例如 `user`、`assistant`、`developer`；记录没有角色时为 `null` |
@@ -197,7 +209,7 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
 | `sourceParentId` | `string` | 是 | 是 | 来源记下的上一条记录：Claude Code 的 `parentUuid`；没有时为 `null` |
 | `sourceMessageId` | `string` | 是 | 是 | 一次 API 响应的标识，同一响应的各个 block 相同：Claude Code 的 `message.id`；没有时为 `null` |
 | `callId` | `string` | 是 | 是 | 工具调用的标识，调用和结果相同：Claude Code 的 `tool_use` `id` 和 `tool_use_id`，Codex 的 item `id`；其他交互为 `null` |
-| `toolCallVersionId` | `reference`，目标为版本 | 是 | 是 | 工具结果对应的调用交互；其他交互，或调用不在已读到的记录中时为 `null` |
+| `toolCallId` | `reference`，目标为 Observation | 是 | 是 | 工具结果对应的调用交互；其他交互，或调用不在已读到的记录中时为 `null` |
 | `toolName` | `string` | 是 | 是 | 工具名称：Claude Code 的 `name`，Codex `McpToolCall` 的 `tool`；来源只用记录种类表示工具时为 `null`，种类见 `sourceKind` |
 | `toolServer` | `string` | 是 | 是 | 提供工具的 MCP 服务器：Codex `McpToolCall` 的 `server`；没有时为 `null` |
 | `isError` | `boolean` | 是 | 是 | 工具结果是否为来源报告的失败：Claude Code 的 `is_error`，Codex 的 `status` 为 `failed`；其他交互为 `null` |
@@ -208,7 +220,7 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
 | `parts` | `array` | 是 | 否 | 内容片段，按来源中的顺序排列；没有内容时为空数组 |
 | `parts[]` | `object` | 不适用 | 否 | 一个内容片段及它在原始记录中的位置 |
 | `parts[].type` | `string` | 是 | 否 | 片段的种类：`text`、`summary`、`json`、`image` 或 `opaque` |
-| `parts[].text` | `string` | 是 | 是 | 片段的文字。对话文字、推理文字、推理摘要写原文，工具调用的参数写 JSON 文本；工具输出、上下文、图片和不可读的内容只在原始记录中，为 `null` |
+| `parts[].text` | `string`，`searchable` | 是 | 是 | 片段的文字。对话文字、推理文字、推理摘要写原文，工具调用的参数写 JSON 文本；工具输出、上下文、图片和不可读的内容只在原始记录中，为 `null` |
 | `parts[].entryIndex` | `integer` | 是 | 否 | 片段所在的原始记录在 `sourceEntries` 中的序号，从 0 开始 |
 | `parts[].pointer` | `string` | 是 | 否 | 片段在那一行 JSON 中的位置，写成 RFC 6901 的 JSON Pointer |
 | `parts[].mediaType` | `string` | 是 | 是 | 图片的媒体类型，取自来源；其他片段为 `null` |
@@ -235,7 +247,7 @@ Claude Code 允许回到之前的某句话重新提问，这时同一会话中�
   "sourceParentId": null,
   "sourceMessageId": null,
   "callId": null,
-  "toolCallVersionId": null,
+  "toolCallId": null,
   "toolName": null,
   "toolServer": null,
   "isError": null,
@@ -288,7 +300,7 @@ Codex 执行 `pnpm test` 后的结果。输出只在原始记录中，调用和�
   "sourceParentId": null,
   "sourceMessageId": null,
   "callId": "exec-593d7997-76e7-4d76-8a94-c1d1fa52dfae",
-  "toolCallVersionId": "019e2c41-7a10-7000-8000-0000000002c4",
+  "toolCallId": "019e2c41-7a10-7000-8000-0000000002c4",
   "toolName": null,
   "toolServer": null,
   "isError": false,

@@ -3,7 +3,7 @@ title: "Foreground Window Title"
 description: "依附于前台应用时段的窗口标题时段"
 ---
 
-窗口标题时段表达“在这一段前台应用活动中，焦点窗口的标题是 T”，由前台状态 Observer 形成。它通过 `foregroundApplicationPeriodVersionId` 引用所属的[前台应用时段](./foreground-application-period.mdx)，再沿它找到本机应用，所以它自己不再提到本机应用，窗口也没有单独的身份。
+窗口标题时段表达“在这一段前台应用活动中，焦点窗口的标题是 T”，由前台状态 Observer 形成。它通过 `foregroundApplicationPeriodId` 引用所属的[前台应用时段](./foreground-application-period.mdx)，再沿它找到本机应用，所以它自己不再提到本机应用，窗口也没有单独的身份。
 
 <ObserverStructure node="TITLE_CONTENT" />
 
@@ -22,7 +22,7 @@ description: "依附于前台应用时段的窗口标题时段"
 
 ## 身份 [#identity]
 
-标题时段通过 `foregroundApplicationPeriodVersionId` 归属一整段前台应用活动，应用时段延长后，标题的引用仍指向当时的版本，读取方按实体归集，见 [ENTITY-7](../../core/model/entity.mdx#entity-7)。标题比应用时段先结束时，业务代码先写入时段的开始边界，标题引用它，应用时段在结束时补全。
+标题时段通过 `foregroundApplicationPeriodId` 归属一整段前台应用活动。应用时段结束时才写入，所以前台状态 Observer 在它之后写入这一段的标题时段，标题引用这份 Observation，见 [REFERENCE-3](../../core/rules/references.mdx#reference-3)。
 
 标题时段自己的身份，以及标题变化后是否沿用，尚未确定。
 
@@ -30,13 +30,13 @@ description: "依附于前台应用时段的窗口标题时段"
 
 | 字段 | 目标 |
 | --- | --- |
-| `foregroundApplicationPeriodVersionId` | 所属的 [Foreground Application Period](./foreground-application-period.mdx)，经由它关联到本机应用 |
+| `foregroundApplicationPeriodId` | 所属的 [Foreground Application Period](./foreground-application-period.mdx)，经由它关联到本机应用 |
 
 ## 事实时间 [#fact-time]
 
-标题时段是时段型的 Observation，表示方式见 [Observation · 事实时间](../../core/model/observation.mdx#fact-time)。它有自己的时间线，范围落在所属的应用时段之内。在同一个应用时段中连续确认到相同的标题时，保留原来的开始边界，结束边界延长到最近一次确认。
+标题时段是时段型的 Observation，表示方式见 [Observation · 事实时间](../../core/model/observation.mdx#fact-time)。它有自己的时间线，范围落在所属的应用时段之内。在同一个应用时段中连续确认到相同的标题时，保留原来的开始边界，结束边界在内存中延长到最近一次确认。
 
-## EntitySchema [#schema]
+## Schema [#schema]
 
 | 项目 | 值 |
 | --- | --- |
@@ -47,7 +47,7 @@ description: "依附于前台应用时段的窗口标题时段"
 
 | 字段 | 类型 | 必填 | 可空 | description |
 | --- | --- | --- | --- | --- |
-| `foregroundApplicationPeriodVersionId` | `reference`，目标为版本 | 待定 | 待定 | 所属的前台应用时段 |
+| `foregroundApplicationPeriodId` | `reference`，目标为 Observation | 待定 | 待定 | 所属的前台应用时段 |
 | `title` | `string` | 待定 | 待定 | 窗口标题的原文；读到空标题时为 `""` |
 
 标题按原文保存。从标题中解析文件、项目或网页，是另一个 Observer 的陈述，由它形成自己的观测。
@@ -56,7 +56,7 @@ description: "依附于前台应用时段的窗口标题时段"
 
 ```json
 {
-  "foregroundApplicationPeriodVersionId": "01a12e31-9050-7000-8000-000000000120",
+  "foregroundApplicationPeriodId": "01a12e31-9050-7000-8000-000000000120",
   "title": "index.mdx — Orisumi — Visual Studio Code"
 }
 ```

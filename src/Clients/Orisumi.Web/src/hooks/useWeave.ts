@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { OrisumiSource } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isInputSet, isObservation, isThing, type Item, type ObservationVersion, type Referrer } from "@/api/types";
-import { RELATIONS, REVIEWS, type RelationContent } from "@/lib/common";
+import { handleOf, isObservation, isThing, type Item, type Observation, type Referrer } from "@/api/types";
+import { RELATIONS, REVIEWS, SAME_AS, type RelationContent, type SameAsContent } from "@/lib/common";
 import { outgoingReferences, referenceLabel, type OutgoingReference } from "@/lib/references";
 import { roleOf } from "@/lib/roles";
 import { parseTime } from "@/lib/time";
@@ -16,6 +16,7 @@ import {
   nextFromBundle,
   payloadKey,
   plan,
+  REPLACE,
   REVEAL,
   reveal,
   SOURCE,
@@ -28,8 +29,8 @@ import {
   type Side,
   type Weave,
 } from "@/lib/weave";
-import { describeItem } from "./useEntityInfo";
-import { pool, readThing, readVersion, schemaOf, useTypes, type TypeIndex } from "./useTypes";
+import { describeItem } from "./useItemInfo";
+import { pool, readItem, readThing, readObservation, schemaOf, useTypes, type TypeIndex } from "./useTypes";
 
 interface Context {
   client: QueryClient;
@@ -37,16 +38,20 @@ interface Context {
   index: TypeIndex;
 }
 
-/** 引用一个实体的全部版本和引用位置。几十秒内重复展开时用缓存。 */
-function readReferrers({ client, source }: Context, entityId: string): Promise<Referrer[]> {
+/** 引用一项记录的全部 Observation 和引用位置。几十秒内重复展开时用缓存。 */
+function readReferrers({ client, source }: Context, item: Item): Promise<Referrer[]> {
+  const id = handleOf(item);
   return client.fetchQuery({
-    queryKey: ["entity", entityId, "referrers", "every"],
+    queryKey: ["referrers", id, "every"],
     staleTime: 30_000,
     queryFn: async () => {
       const found: Referrer[] = [];
       let after: string | undefined;
       do {
-        const page = await source.listReferrers(entityId, { limit: 1000, ...(after ? { after } : {}) });
+        const query = { view: "all" as const, limit: 1000, ...(after ? { after } : {}) };
+        const page = await (isThing(item)
+          ? source.listThingReferrers(id, query)
+          : source.listObservationReferrers(id, query));
         found.push(...page.referrers);
         after = page.next ?? undefined;
       } while (after);
@@ -59,39 +64,48 @@ const read = (
   { client, source }: Context,
   reference: Pick<OutgoingReference, "target" | "id">,
 ): Promise<Item | null> =>
-  reference.target === "thing" ? readThing(client, source, reference.id) : readVersion(client, source, reference.id);
+  reference.target === "thing"
+    ? readThing(client, source, reference.id)
+    : readObservation(client, source, reference.id);
 
-const readId = (context: Context, versionId: string | null) =>
-  versionId ? readVersion(context.client, context.source, versionId) : Promise.resolve(null);
+const readInputSet = ({ client, source }: Context, inputSetId: string | null) =>
+  inputSetId
+    ? client.fetchQuery({
+        queryKey: ["input-set", inputSetId],
+        queryFn: () => source.getInputSet(inputSetId),
+        staleTime: Infinity,
+      })
+    : Promise.resolve(null);
 
-/** 实体的类型名和 resourceName。 */
+/** 记录的类型名和 resourceName。 */
 async function typeOf(context: Context, item: Item) {
-  const schema = await schemaOf(context.client, context.source, context.index, item);
+  const schema = isObservation(item)
+    ? await schemaOf(context.client, context.source, item)
+    : isThing(item)
+      ? (context.index.bySchemaId.get(item.schemaId) ?? null)
+      : null;
   return { typeName: describeItem(item, schema).typeName, resourceName: schema?.content.resourceName ?? null };
 }
 
 /** Observation 按事实时间，其余按保存时间；事物没有时间。只用来排序。 */
 function timeOf(item: Item): number {
-  if (isThing(item)) return 0;
-  const recorded = parseTime(item.recordedAt) ?? 0;
-  if (!isObservation(item)) return recorded;
-  return parseTime(item.startAt) ?? parseTime(item.endAt) ?? recorded;
+  if (!isObservation(item)) return 0;
+  return parseTime(item.startAt) ?? parseTime(item.endAt) ?? parseTime(item.recordedAt) ?? 0;
 }
 
-/** 一个实体在织图里画成什么：事物和经历是节点，陈述是结并带着它的 InputSet。InputSet 和定义不单独成节点。 */
+/** 一项记录在织图里画成什么：事物和经历是节点，陈述是结并带着它的 InputSet。InputSet 和定义不单独成节点。 */
 async function resolve(context: Context, item: Item): Promise<Payload | null> {
-  if (isThing(item)) return { kind: "entity", item };
+  if (isThing(item)) return { kind: "record", item };
   if (!isObservation(item)) return null;
-  if (roleOf(item) === "experience") return { kind: "entity", item };
-  const inputSet = await readId(context, item.inputSetVersionId);
-  return { kind: "knot", observation: item, inputSet: inputSet && isInputSet(inputSet) ? inputSet : null };
+  if (roleOf(item) === "experience") return { kind: "record", item };
+  return { kind: "knot", observation: item, inputSet: await readInputSet(context, item.inputSetId) };
 }
 
 /**
  * 一个节点的邻居，还没解析成节点。
- * - 事物：引用它的 Observation（左）；它写下的 Observation（右）；Relation 另一头的事物，线上写 predicate。
- * - 经历和结：记下它的 Observer（左，结的 Observer 由 toggleSource 长出）；输入（左）；业务字段引用的实体（右）；
- *   引用它的 Observation（左）；以它为输入的 Observation（右）。
+ * - 事物：引用它的 Observation（左）；它写下的 Observation（右）；Relation 和 Same-As 另一头的事物。
+ * - 经历和结：记下它的 Observer（左，结的 Observer 由 toggleSource 长出）；输入（左）；业务字段引用的记录（右）；
+ *   引用它的 Observation（左）；以它为输入的 Observation（右）；被它替换的（左）和替换它的（右）。
  */
 async function neighborsOf(context: Context, node: ItemNode) {
   const candidates: Omit<Neighbor, "typeName" | "time">[] = [];
@@ -101,59 +115,58 @@ async function neighborsOf(context: Context, node: ItemNode) {
     else unreadable += 1;
   };
 
-  async function incoming(entityId: string) {
-    for (const { version, references } of await readReferrers(context, entityId)) {
+  async function incoming(item: Item) {
+    const id = handleOf(item);
+    for (const { observation, references } of await readReferrers(context, item)) {
       const paths = references.map((location) => location.path);
-      if (isInputSet(version)) {
-        // 以它为输入的 InputSet，再找到用这个 InputSet 的 Observation。
-        for (const user of await readReferrers(context, version.entityId))
-          if (isObservation(user.version)) add(user.version, "right", INPUT);
-      } else if (isObservation(version)) {
-        if (paths.includes("/observerId")) add(version, "right", SOURCE);
-        else if ((await typeOf(context, version)).resourceName === RELATIONS) {
-          const relation = version.content as unknown as RelationContent;
-          const subject = relation.subjectId === entityId;
-          const other = await readThing(
-            context.client,
-            context.source,
-            subject ? relation.objectId : relation.subjectId,
-          );
-          add(other, subject ? "right" : "left", relation.predicate, version.entityId);
-        } else if ((await typeOf(context, version)).resourceName === REVIEWS) add(version, "left", "复核");
-        else add(version, "left", paths.map(referenceLabel).join("、"));
-      }
+      const { resourceName } = await typeOf(context, observation);
+      if (paths.includes("/observerId")) add(observation, "right", SOURCE);
+      else if (paths.includes("/inputSetId")) add(observation, "right", INPUT);
+      else if (paths.some((path) => path.startsWith("/replaces/"))) add(observation, "right", REPLACE);
+      else if (resourceName === RELATIONS) {
+        const relation = observation.content as unknown as RelationContent;
+        const subject = relation.subjectId === id;
+        const other = await readThing(context.client, context.source, subject ? relation.objectId : relation.subjectId);
+        add(other, subject ? "right" : "left", relation.predicate, observation.observationId);
+      } else if (resourceName === SAME_AS) {
+        const { leftId, rightId } = observation.content as unknown as SameAsContent;
+        const other = await readThing(context.client, context.source, leftId === id ? rightId : leftId);
+        add(other, "right", "同一", observation.observationId);
+      } else if (resourceName === REVIEWS) add(observation, "left", "复核");
+      else add(observation, "left", paths.map(referenceLabel).join("、"));
     }
   }
 
-  async function about(observation: ObservationVersion, withObserver: boolean) {
-    const schema = await schemaOf(context.client, context.source, context.index, observation);
+  async function about(observation: Observation, withObserver: boolean) {
+    const schema = await schemaOf(context.client, context.source, observation);
     for (const reference of outgoingReferences(observation, schema?.content.fields)) {
-      if (reference.path === "observerVersionId" || reference.path === "inputSetVersionId") continue;
+      if (reference.path === "observerDescriptionId") continue;
       if (reference.path === "observerId") {
         if (withObserver) add(await read(context, reference), "left", SOURCE);
         continue;
       }
-      add(await read(context, reference), "right", referenceLabel(reference.path));
+      if (reference.path.startsWith("replaces[")) add(await read(context, reference), "left", REPLACE);
+      else add(await read(context, reference), "right", referenceLabel(reference.path));
     }
-    const inputSet = await readId(context, observation.inputSetVersionId);
-    if (inputSet && isInputSet(inputSet)) {
-      const members = await pool(inputSet.content.members, 8, (id) => readId(context, id));
+    const inputSet = await readInputSet(context, observation.inputSetId);
+    if (inputSet) {
+      const members = await pool(inputSet.members, 8, (id) => readObservation(context.client, context.source, id));
       members.forEach((member) => add(member, "left", INPUT));
     }
-    await incoming(observation.entityId);
+    await incoming(observation);
   }
 
   const { payload } = node;
   if (payload.kind === "knot") await about(payload.observation, false);
   else if (isObservation(payload.item)) await about(payload.item, true);
-  else await incoming(payload.item.entityId);
+  else await incoming(payload.item);
 
   const typed = await pool(candidates, 8, (candidate) => typeOf(context, candidate.item));
-  const neighbors: Neighbor[] = [];
-  candidates.forEach((candidate, i) => {
-    if (roleOf(candidate.item) === "definition") return;
-    neighbors.push({ ...candidate, typeName: typed[i]!.typeName, time: timeOf(candidate.item) });
-  });
+  const neighbors: Neighbor[] = candidates.map((candidate, i) => ({
+    ...candidate,
+    typeName: typed[i]!.typeName,
+    time: timeOf(candidate.item),
+  }));
   return { neighbors, unreadable };
 }
 
@@ -206,16 +219,17 @@ export function useWeave(rootId: string) {
     const ctx: Context = { client, source, index: types.data };
     let cancelled = false;
     (async () => {
-      const payload = await resolve(ctx, await source.getEntity(rootId));
+      const item = await readItem(client, source, rootId);
       if (cancelled) return;
+      const payload = item ? await resolve(ctx, item) : null;
       if (!payload) {
-        setError("InputSet 和定义跟着用到它们的观测出现，换一个实体作起点");
+        setError(item ? "InputSet 跟着用到它的陈述出现，换一项记录作起点" : "读不到这份记录");
         return;
       }
       const weave = start(payload);
       setWeave(weave);
       setFresh(new Set(weave.nodes.map((node) => node.key)));
-      setMessage("点一个节点，从两边长出和它有关的实体；再点一次收起");
+      setMessage("点一个节点，从两边长出和它有关的记录；再点一次收起");
     })().catch((failure: unknown) => {
       if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
     });
@@ -255,7 +269,7 @@ export function useWeave(rootId: string) {
         const bundled = bundles.reduce((sum, bundle) => sum + bundle.members.length, 0);
         setMessage(
           [
-            grown || bundled ? `长出 ${grown} 个` : "没有更多相关的实体",
+            grown || bundled ? `长出 ${grown} 个` : "没有更多相关的记录",
             bundled ? `另有 ${bundled} 个收在线束里` : "",
             unreadable ? `${unreadable} 个引用的目标读不到` : "",
           ]

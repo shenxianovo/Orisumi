@@ -1,4 +1,4 @@
-// Observer 的类别只用于控制台的布局和配色。键是 Observer 的 Schema resourceName。
+// Observer 的类别只用于控制台的布局和配色。键是程序实例的安装包，或者资源名 people。
 
 export type CategoryKey = "desktop" | "web" | "body" | "inference" | "you" | "other";
 
@@ -18,29 +18,29 @@ export const CATEGORIES: readonly CategoryInfo[] = [
 ];
 
 /** 接入新的 Observer 时在这里加一行。 */
-const BY_RESOURCE_NAME: Record<string, CategoryKey> = {
-  "foreground-state-observers": "desktop",
-  "assistant-sessions-observers": "desktop",
-  "application-identity-observers": "inference",
-  "narrative-observers": "inference",
-  "session-understanding-observers": "inference",
+const BY_SOURCE: Record<string, CategoryKey> = {
+  "foreground-state": "desktop",
+  "assistant-sessions": "desktop",
+  "application-identity": "inference",
+  narrative: "inference",
+  "session-understanding": "inference",
   people: "you",
 };
 
-export function categoryOf(resourceName: string | null | undefined): CategoryKey {
-  return (resourceName && BY_RESOURCE_NAME[resourceName]) || "other";
+export function categoryOf(source: string | null | undefined): CategoryKey {
+  return (source && BY_SOURCE[source]) || "other";
 }
 
 export function categoryInfo(key: CategoryKey): CategoryInfo {
   return CATEGORIES.find((c) => c.key === key) ?? CATEGORIES[CATEGORIES.length - 1]!;
 }
 
-/** 图鉴和实体页给每个 Schema 一个颜色：登记过类别的用类别色，其余按 resourceName 从一组柔和的颜色里稳定地取一个。 */
+/** 给每种类型一个颜色：登记过类别的用类别色，其余按 resourceName 从一组柔和的颜色里稳定地取一个。 */
 const TINTS = ["#3f9a8a", "#5f86a8", "#c0904a", "#c4707f", "#7f9a52", "#4c93b4", "#c27052", "#8a8f6a"];
 
 export function tintOf(resourceName: string | null | undefined): string {
-  const category = categoryOf(resourceName);
-  if (category !== "other") return categoryInfo(category).color;
+  const group = categoryOf(resourceName);
+  if (group !== "other") return categoryInfo(group).color;
   if (!resourceName) return CATEGORIES[CATEGORIES.length - 1]!.color;
   let hash = 0;
   for (const char of resourceName) hash = (hash * 31 + char.charCodeAt(0)) | 0;

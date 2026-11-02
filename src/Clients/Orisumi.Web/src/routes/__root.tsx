@@ -3,7 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { Message } from "@/components/ui";
 
 interface RootSearch {
-  /** 右侧堆叠的面板，逗号分隔的 EntityId。 */
+  /** 右侧堆叠的面板，逗号分隔的 thingId。 */
   stack?: string | undefined;
 }
 

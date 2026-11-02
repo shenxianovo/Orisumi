@@ -18,7 +18,7 @@ public sealed class PostgresManagementStore(NpgsqlDataSource source, TimeProvide
         var row = await db.Set<StoredHost>().SingleOrDefaultAsync(row => row.CredentialHash == hash, token)
             ?? throw new ManagementException(401, "credential_invalid", "Unknown host credential.");
         RequireActive(row);
-        var now = VersionTime.Normalize(clock.GetUtcNow());
+        var now = ObservationTime.Normalize(clock.GetUtcNow());
         if (row.LastSeenAt is null || now - row.LastSeenAt >= TimeSpan.FromMinutes(1)) row.LastSeenAt = now;
         return Host(row);
     }, token);
@@ -47,7 +47,7 @@ public sealed class PostgresManagementStore(NpgsqlDataSource source, TimeProvide
     }, token);
 
     public Task<IReadOnlyList<ObserverInstance>> InstancesAsync(Guid? host, CancellationToken token) => ExecuteAsync<IReadOnlyList<ObserverInstance>>(async db =>
-        (await db.Set<StoredInstance>().Where(row => host == null || row.HostId == host).OrderBy(row => row.EntityId).ToListAsync(token)).Select(Instance).ToArray(), token);
+        (await db.Set<StoredInstance>().Where(row => host == null || row.HostId == host).OrderBy(row => row.ThingId).ToListAsync(token)).Select(Instance).ToArray(), token);
 
     public Task<ObserverInstance> InstanceAsync(Guid id, CancellationToken token) => ExecuteAsync(async db =>
         Instance(await FindInstance(db, id, null, token)), token);
@@ -55,7 +55,7 @@ public sealed class PostgresManagementStore(NpgsqlDataSource source, TimeProvide
     public Task<IReadOnlyList<InstanceConfig>> ConfigurationsAsync(Guid host, CancellationToken token) => ExecuteAsync<IReadOnlyList<InstanceConfig>>(async db =>
     {
         RequireActive(await FindHost(db, host, token));
-        return (await db.Set<StoredInstance>().Where(row => row.HostId == host).OrderBy(row => row.EntityId).ToListAsync(token)).Select(Config).ToArray();
+        return (await db.Set<StoredInstance>().Where(row => row.HostId == host).OrderBy(row => row.ThingId).ToListAsync(token)).Select(Config).ToArray();
     }, token);
 
     public Task<InstanceConfig> RegisterAsync(Guid host, Guid id, InstanceRegistration registration, CancellationToken token) => ExecuteAsync(async db =>
@@ -68,14 +68,14 @@ public sealed class PostgresManagementStore(NpgsqlDataSource source, TimeProvide
             RequirePresent(row);
             return Config(row);
         }
-        if (await db.Set<DeletedVersion>().AnyAsync(row => row.EntityId == id, token))
+        if (await db.Set<StoredThing>().AnyAsync(row => row.ThingId == id && row.Deleted, token))
             throw new ManagementException(410, "instance_removed", "This identity was deleted.");
         var sameKey = db.Set<StoredInstance>().Where(row => !row.Removed && row.PackageId == registration.PackageId);
         if (await sameKey.AnyAsync(row => row.HostId == host, token))
             throw new ManagementException(409, "package_taken", "This host already has an instance for this package.");
         if (registration.Scope == "deployment" && await sameKey.AnyAsync(token))
             throw new ManagementException(409, "deployment_singleton", "This deployment already has an instance for this package.");
-        row = new StoredInstance { EntityId = id, HostId = host, PackageId = registration.PackageId, Name = registration.Name,
+        row = new StoredInstance { ThingId = id, HostId = host, PackageId = registration.PackageId, Name = registration.Name,
             Enabled = registration.Enabled, Settings = registration.Settings.GetRawText(), Revision = 1, LastLocalSequence = registration.LocalSequence };
         db.Add(row);
         return Config(row);
@@ -104,7 +104,7 @@ public sealed class PostgresManagementStore(NpgsqlDataSource source, TimeProvide
         RequireActive(await FindHost(db, host, token));
         var row = await FindInstance(db, id, host, token);
         row.Status = status.GetRawText();
-        row.ReportedAt = VersionTime.Normalize(clock.GetUtcNow());
+        row.ReportedAt = ObservationTime.Normalize(clock.GetUtcNow());
         return true;
     }, token);
 
@@ -141,7 +141,7 @@ public sealed class PostgresManagementStore(NpgsqlDataSource source, TimeProvide
     }
     private static ObserverHost Host(StoredHost row) => new(row.HostId, row.Name, row.Kind, row.Revoked, row.LastSeenAt);
     private static JsonElement Json(string value) => JsonSerializer.Deserialize<JsonElement>(value);
-    private static InstanceConfig Config(StoredInstance row) => new(row.EntityId, row.PackageId, row.Enabled, Json(row.Settings), row.Revision, row.LastLocalSequence, row.Removed);
-    private static ObserverInstance Instance(StoredInstance row) => new(row.EntityId, row.HostId, row.PackageId, row.Name,
+    private static InstanceConfig Config(StoredInstance row) => new(row.ThingId, row.PackageId, row.Enabled, Json(row.Settings), row.Revision, row.LastLocalSequence, row.Removed);
+    private static ObserverInstance Instance(StoredInstance row) => new(row.ThingId, row.HostId, row.PackageId, row.Name,
         row.Enabled, Json(row.Settings), row.Revision, row.Removed, row.Status is null ? null : Json(row.Status), row.ReportedAt);
 }

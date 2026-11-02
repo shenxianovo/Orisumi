@@ -21,7 +21,7 @@ export function HostCard({
   instances: Instance[];
   now: number;
   selected: string | undefined;
-  onSelect: (entityId: string) => void;
+  onSelect: (thingId: string) => void;
   onInstall: () => void;
   onPair: () => void;
 }) {
@@ -145,11 +145,11 @@ export function HostCard({
         <ul aria-label={`${host.name} 的 Observer`} className="px-2 pb-2">
           {current.map((instance) => (
             <InstanceRow
-              key={instance.entityId}
+              key={instance.thingId}
               host={host}
               instance={instance}
-              selected={selected === instance.entityId}
-              onSelect={() => onSelect(instance.entityId)}
+              selected={selected === instance.thingId}
+              onSelect={() => onSelect(instance.thingId)}
             />
           ))}
         </ul>
@@ -163,7 +163,7 @@ export function HostCard({
           <summary className="hover:text-fg-2 cursor-pointer">已删除 {removed.length} 个实例</summary>
           <ul className="mt-1 space-y-1 pb-1">
             {removed.map((instance) => (
-              <li key={instance.entityId} className="flex justify-between gap-3">
+              <li key={instance.thingId} className="flex justify-between gap-3">
                 <span>{instance.name}</span>
                 <span>{instance.status?.state === "stopped" ? "已停止" : "等待设备停止"}</span>
               </li>
@@ -217,7 +217,7 @@ function InstanceRow({
           checked={instance.enabled}
           disabled={host.revoked || manage.isPending}
           onChange={(enabled) =>
-            manage.mutate({ path: `/observer-instances/${instance.entityId}`, method: "PATCH", body: { enabled } })
+            manage.mutate({ path: `/observer-instances/${instance.thingId}`, method: "PATCH", body: { enabled } })
           }
         />
       </span>

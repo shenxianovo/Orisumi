@@ -9,10 +9,10 @@ SDK 是[写入接口](./writing.mdx)的便利库。写入接口是全部契约�
 
 ```text
 data = connect()
-await data.use(definitions, description = (types.ForegroundStateObserver, selfContent))
+await data.use(definitions, description = selfDescription)
 ```
 
-`connect` 在受托管时从[运行上下文](../hosting/index.mdx#context)读取地址，直接运行时由调用方传入。`data.use` 声明用到的业务类型，写入程序实例自己的描述，见[业务类型](./writing.mdx#types)和[负责的 Observer](./writing.mdx#observer)。它不等后端，所以断网时也能启动。用到设备的程序接着写入 `data.device.write` 这份描述，之后用 `data.device.ref` 提到设备，见 [Hosting · 运行上下文](../hosting/index.mdx#context)。
+`connect` 在受托管时从[运行上下文](../hosting/index.mdx#context)读取地址，直接运行时由调用方传入。`data.use` 声明用到的事物类型和 Schema，写入程序实例自己的描述，见[业务类型](./writing.mdx#types)和[负责的 Observer](./writing.mdx#observer)。它不等后端，所以断网时也能启动。用到设备的程序接着写入 `data.device.write` 这份设备描述，之后用 `data.device.ref` 提到设备，见 [Hosting · 运行上下文](../hosting/index.mdx#context)。
 
 ## 写入 [#write]
 
@@ -54,7 +54,7 @@ await data.writeAll([
 ])
 ```
 
-`thing` 提到一个事物，后端认出或创建它；`ref` 和 `entity` 引用一条陈述此刻的版本，见[引用](./writing.mdx#references)。提到事物不用先写入，引用陈述时先写入被引用的。`installationKey` 属于本机应用的业务规则。`writeAll` 把多次写入放进一个请求，每次写入各自保存。
+`thing` 提到一个事物，后端认出或创建它；`ref` 引用一条依据此刻最新的 Observation，见[引用](./writing.mdx#references)。提到事物不用先写入，引用陈述时先写入被引用的。`installationKey` 属于本机应用的业务规则。`writeAll` 把多次写入放进一个请求，每次写入各自保存。`item` 还接受 `speakerId` 和 `replaces`，见[一次写入](./writing.mdx#write)。
 
 助手日志按行写入，重读什么都不发生：
 
@@ -73,29 +73,30 @@ saveProgress(position)
 
 ## 结果 [#results]
 
-需要写入结果时，程序连后端地址：`data.write` 返回实际的版本，见[两个地址](./writing.mdx#endpoints)。模型的判断这样写：
+需要写入结果时，程序连后端地址：`data.write` 返回保存的 Observation，见[两个地址](./writing.mdx#endpoints)。模型的判断这样写：
 
 ```text
 result = await data.direct.write(types.ApplicationMembership,
                                  formation = inferred,
                                  content = { identifierId: clue, productId: product },
-                                 inputs = usedVersions)
-catalog.apply(result.version)
+                                 inputs = usedObservations)
+catalog.apply(result.observation)
 ```
 
-读取用 `data.observations`、`data.version`、`data.versions`、`data.entity`、`data.things`，见 [Reading](./reading.mdx)。读取需要后端可用。
+读取用 `data.observations`、`data.observation`、`data.search`、`data.things`、`data.thing`，见 [Reading](./reading.mdx)。读取默认得到默认视图，需要后端可用。
+
+模型自己决定读什么时，用 `data.run()` 开始[一次工作](./reading.mdx#runs)，之后的读取和写入都带上它，写入不用再列 `inputs`。
 
 ## 文件 [#files]
 
-业务代码用 `file(bytes, mediaType)` 交出字节，SDK 计算摘要和大小，先上传，再把描述写进 `binary` 字段，嵌套的对象和数组中相同。已有描述时可以直接写入。上传发生在写入之前，所以文件已上传不说明版本已保存。
+业务代码用 `file(bytes, mediaType)` 交出字节，SDK 计算摘要和大小，先上传，再把描述写进 `binary` 字段，嵌套的对象和数组中相同。已有描述时可以直接写入。上传发生在写入之前，所以文件已上传不说明 Observation 已保存。
 
 ## 输入 [#inputs]
 
-`inputs` 列出处理实际用到的已保存版本，由业务代码给出，见 [Evidence](../core/rules/evidence.mdx)。
+`inputs` 列出处理实际用到的已保存的 Observation，由业务代码给出，见 [Evidence](../core/rules/evidence.mdx)。
 
-- 读到同一实体的两个版本时，两个都列出。
-- 查询过但没有进入处理的版本不列出。
-- Schema 版本的说明进入了模型的上下文时，列出这个 Schema 版本。
+- 读到同一件事的新旧两份说法时，两份都列出。
+- 查询过但没有进入处理的 Observation 不列出。
 
 ## 分工 [#division]
 
@@ -104,19 +105,19 @@ catalog.apply(result.version)
 | 业务代码 | 对象和观测的粒度、内容、形成方式、识别依据、事实时间、实际输入、写入时机、读取进度 |
 | SDK | 请求编码、文件、运行上下文 |
 | 本地转发 | 留住写入，按顺序交给后端，留住被拒绝的写入 |
-| 后端 | 认出对象，创建事物，ID、版本链、解析引用、InputSet、校验和保存 |
+| 后端 | 认出对象，创建事物，ID、替换、解析引用、InputSet、校验和保存 |
 
 ## 业务类型的声明 [#definitions]
 
-一种业务类型的声明是 SchemaId 和完整的 Schema 内容，随程序发布。各语言使用同一份声明，所以同一种业务类型在每种语言中都是同一个 SchemaId 和同样的内容。
+一种业务类型的声明是 SchemaId 和完整的内容，随程序发布。各语言使用同一份声明，所以同一种业务类型在每种语言中都是同一个 SchemaId 和同样的内容。
 
 识别依据的组成属于业务规则：`scope`、`scheme` 和 `value` 怎样组成，写在业务类型页，并给出输入输出样例。
 
 ## 读取的数据 [#fidelity]
 
-读到的版本保留实际的 Schema 版本、全部字段，以及省略和 `null` 的区别。
+读到的 Observation 保留实际的 SchemaRevision、全部字段，以及省略和 `null` 的区别。
 
-- 强类型只解释程序支持的结构。遇到不认识的结构时，程序保留原始内容，由业务决定怎样处理，不按最新的 Schema 转换。
+- 强类型只解释程序支持的结构。遇到不认识的结构时，程序保留原始内容，由业务决定怎样处理，不按最新的修订转换。
 - 数值、时间和 `null` 按原值保留。API 的整数范围超过很多语言的默认数字类型，SDK 用能保真的表示。
 
 ## 受托管与直接运行 [#modes]

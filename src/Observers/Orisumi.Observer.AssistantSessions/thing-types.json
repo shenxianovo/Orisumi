@@ -1,0 +1,8 @@
+[
+  {
+    "schemaId": "019e1bbb-ec00-7000-8000-000000000008",
+    "displayName": "助手会话",
+    "description": "表示 Claude Code 或 Codex 中的一个会话，包括子 Agent 的会话。产品和来源标识在识别依据中。",
+    "resourceName": "assistant-sessions"
+  }
+]

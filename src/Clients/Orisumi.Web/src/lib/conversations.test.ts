@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ObservationVersion, Thing } from "@/api/types";
+import type { Observation, Thing } from "@/api/types";
 import { observation, thing } from "@/test/fixtures";
 import {
   argumentSummary,
@@ -32,7 +32,7 @@ function interaction(
       endAt: at,
       timeZone: null,
       content: {
-        sessionId: session.entityId,
+        sessionId: session.thingId,
         client: null,
         kind: "message",
         actor: "user",
@@ -41,7 +41,7 @@ function interaction(
         sourceId: at,
         sourceTurnId: null,
         callId: null,
-        toolCallVersionId: null,
+        toolCallId: null,
         toolName: null,
         toolServer: null,
         isError: null,
@@ -53,12 +53,12 @@ function interaction(
         sourceEntries: [],
         ...content,
       },
-    }) as unknown as ObservationVersion<InteractionContent>,
+    }) as unknown as Observation<InteractionContent>,
   );
 }
 
-const index = (...sessions: Thing[]) => new Map(sessions.map((s) => [s.entityId, s]));
-const none: SessionMeta = { parentEntityId: null, agentName: null };
+const index = (...sessions: Thing[]) => new Map(sessions.map((s) => [s.thingId, s]));
+const none: SessionMeta = { parentThingId: null, agentName: null };
 
 describe("groupSessions", () => {
   it("按会话分组，组内按时间排列，最近活动的会话在前", () => {
@@ -74,7 +74,7 @@ describe("groupSessions", () => {
       new Map(),
     );
     expect(groups.map(sessionTitle)).toEqual(["B", "A"]);
-    expect(groups[1]!.interactions.map((i) => i.version.content.kind)).toEqual(["tool-call", "message"]);
+    expect(groups[1]!.interactions.map((i) => i.observation.content.kind)).toEqual(["tool-call", "message"]);
     expect(groups[1]).toMatchObject({ userMessages: 1, toolCalls: 1, workingDirectory: "/x/heartbeat" });
   });
 
@@ -88,7 +88,7 @@ describe("groupSessions", () => {
       index(a),
       new Map(),
     );
-    expect(groups[0]!.interactions.map((i) => i.version.content.actor)).toEqual(["user", "assistant"]);
+    expect(groups[0]!.interactions.map((i) => i.observation.content.actor)).toEqual(["user", "assistant"]);
   });
 
   it("子 Agent 的会话排在父会话后面", () => {
@@ -96,9 +96,9 @@ describe("groupSessions", () => {
     const child = session();
     const other = session("其他");
     const metas = new Map([
-      [parent.entityId, none],
-      [child.entityId, { parentEntityId: parent.entityId, agentName: "web-fetch" }],
-      [other.entityId, none],
+      [parent.thingId, none],
+      [child.thingId, { parentThingId: parent.thingId, agentName: "web-fetch" }],
+      [other.thingId, none],
     ]);
     const groups = groupSessions(
       [
@@ -125,7 +125,7 @@ describe("buildItems", () => {
     kind: "tool-result",
     actor: "tool",
     callId: "c1",
-    toolCallVersionId: call.version.versionId,
+    toolCallId: call.observation.observationId,
   });
   const late = interaction(s, "2026-10-31T01:00:03Z", { kind: "tool-result", actor: "tool", callId: "c2" });
   const orphan = interaction(s, "2026-10-31T01:00:04Z", { kind: "tool-result", actor: "tool", callId: "c9" });

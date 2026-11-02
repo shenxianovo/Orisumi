@@ -13,18 +13,15 @@ const text = { type: "string", description: "", required: true, nullable: true }
 
 function seed() {
   const backend = new Backend();
-  const foreground = backend.schema("foreground-state-observers", "前台状态 Observer", "observation");
-  const assistant = backend.schema("assistant-sessions-observers", "助手会话 Observer", "observation");
-  const narrator = backend.schema("narrative-observers", "叙事 Observer", "observation", { model: text });
   const installs = backend.schema("local-applications", "本机应用", "thing");
   const devices = backend.schema("devices", "设备", "thing");
   const sessions = backend.schema("assistant-sessions", "助手会话", "thing");
   const periods = backend.schema("foreground-application-periods", "前台应用时段", "observation", {
     name: text,
-    localApplicationId: ref,
+    localApplicationId: { ...ref, role: "part" },
   });
   const interactions = backend.schema("assistant-interactions", "助手交互", "observation", {
-    sessionId: ref,
+    sessionId: { ...ref, role: "part" },
     deviceId: ref,
   });
   const episodes = backend.schema("episodes", "一件事", "observation", {
@@ -33,18 +30,18 @@ function seed() {
     sessionIds: refs,
     localApplicationIds: refs,
   });
-  const capture = backend.program(foreground, { platform: "macos" });
-  const agent = backend.program(assistant, { platform: "macos" });
-  const writer = backend.program(narrator, { model: "openai/gpt-6.1-terra" });
+  const capture = backend.program("前台状态 Observer", "foreground-state", { platform: "macos" });
+  const agent = backend.program("助手会话 Observer", "assistant-sessions", { platform: "macos" });
+  const writer = backend.program("叙事 Observer", "narrative", { model: "openai/gpt-6.1-terra" });
 
   const code = backend.thing(
-    installs.entityId,
+    installs.schemaId,
     { scope: "mac", scheme: "macos.installation", value: "com.microsoft.VSCode\n/Applications/Code.app" },
     "Visual Studio Code",
   );
-  const mac = backend.thing(devices.entityId, { scope: null, scheme: "macos.hardware-uuid", value: "J929" });
+  const mac = backend.thing(devices.schemaId, { scope: null, scheme: "macos.hardware-uuid", value: "J929" });
   const session = (id: string, title: string): Thing =>
-    backend.thing(sessions.entityId, { scope: null, scheme: "claude-code.session", value: id }, title);
+    backend.thing(sessions.schemaId, { scope: null, scheme: "claude-code.session", value: id }, title);
   const talked = session("a", "讨论建模");
   const silent = session("b", "子 Agent 的会话");
 
@@ -53,16 +50,20 @@ function seed() {
       interactions,
       agent.thing,
       {
-        sessionId: target.entityId,
-        deviceId: mac.entityId,
+        sessionId: target.thingId,
+        deviceId: mac.thingId,
         kind: "message",
         actor,
         sourceKind: "text",
-        sourceId: `${target.entityId}-${hours}-${minutes}`,
+        sourceId: `${target.thingId}-${hours}-${minutes}`,
         parts: [],
         sourceEntries: [],
       },
-      { startAt: at(hours, minutes), endAt: at(hours, minutes + 1), observerVersionId: agent.description.versionId },
+      {
+        startAt: at(hours, minutes),
+        endAt: at(hours, minutes + 1),
+        observerDescriptionId: agent.description.observationId,
+      },
     );
   interact(talked, 9, 0, "user");
   interact(talked, 9, 1, "assistant");
@@ -70,15 +71,15 @@ function seed() {
   backend.observe(
     periods,
     capture.thing,
-    { name: "Code", localApplicationId: code.entityId },
-    { startAt: at(9, 0), endAt: at(9, 30), observerVersionId: capture.description.versionId },
+    { name: "Code", localApplicationId: code.thingId },
+    { startAt: at(9, 0), endAt: at(9, 30), observerDescriptionId: capture.description.observationId },
   );
 
   const episodeContent = {
     title: "讨论事物模型",
     summary: "你和助手确定了事物只有身份。",
-    sessionIds: [talked.entityId, silent.entityId],
-    localApplicationIds: [code.entityId],
+    sessionIds: [talked.thingId, silent.thingId],
+    localApplicationIds: [code.thingId],
   };
   const streamed = { startAt: at(9, 0), endAt: at(9, 30), ...episodeContent };
   const saveEpisode = () =>
@@ -86,7 +87,7 @@ function seed() {
       formation: "inferred",
       startAt: at(9, 0),
       endAt: at(9, 30),
-      observerVersionId: writer.description.versionId,
+      observerDescriptionId: writer.description.observationId,
     });
   return { backend, streamed, saveEpisode, code, talked, mac };
 }
@@ -124,13 +125,13 @@ test("已经写下的几件事：不再请求，写出模型、用到的应用�
 test("这一天还没有写时请求写，收到 saved 后读取保存下来的", async ({ page }) => {
   const { backend, streamed, saveEpisode } = seed();
   const saved = saveEpisode();
-  backend.versions.splice(backend.versions.indexOf(saved), 1);
+  backend.observations.splice(backend.observations.indexOf(saved), 1);
   backend.narrative = {
     events: [
       { event: "episode", data: streamed },
-      { event: "saved", data: { versionIds: [saved.versionId] } },
+      { event: "saved", data: { observationIds: [saved.observationId] } },
     ],
-    save: () => backend.versions.push(saved),
+    save: () => backend.observations.push(saved),
   };
   await open(backend, page);
   await expect(page.getByRole("heading", { name: "讨论事物模型" })).toBeVisible();
@@ -181,7 +182,7 @@ test("记录之后又有新的保存时写出来，重写取代原来的几件�
   backend.narrative = {
     events: [
       { event: "episode", data: { ...streamed, title: "重新写的一件事" } },
-      { event: "saved", data: { versionIds: [] } },
+      { event: "saved", data: { observationIds: [] } },
     ],
   };
   await page.getByRole("button", { name: "重写" }).click();
@@ -203,10 +204,10 @@ test("点几件事里的应用打开档案，档案里写出来源和经历", as
   await expect(page.getByRole("button", { name: /讨论事物模型/ })).toBeVisible();
 });
 
-test("会话的档案连到它所在的设备", async ({ page }) => {
+test("会话的档案按类型收起它的交互，点开逐条列出", async ({ page }) => {
   const { backend, talked } = seed();
   await backend.serve(page);
-  await page.goto(`/things/${talked.entityId}`);
-  await expect(page.getByRole("link", { name: /J929/ })).toBeVisible();
-  await expect(page.getByText(/在 J929 上/)).toBeVisible();
+  await page.goto(`/things/${talked.thingId}`);
+  await page.getByRole("button", { name: /份助手交互/ }).click();
+  await expect(page.getByText("它的一部分")).toBeVisible();
 });

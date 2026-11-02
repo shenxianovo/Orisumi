@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import {
   Boxes,
@@ -16,14 +16,15 @@ import {
 } from "lucide-react";
 import { isUnreadable } from "@/api/client";
 import { useSource } from "@/api/source";
-import { isThing } from "@/api/types";
+import type { Observation } from "@/api/types";
 import { useCollectionProblems } from "@/hooks/useCollection";
+import { timeLabel, useDescribe } from "@/hooks/useItemInfo";
 import { useNewJudgments } from "@/hooks/useJudgments";
 import { readTheme, saveTheme, type Theme } from "@/lib/preferences";
 import { isUuidv7 } from "@/lib/uuid";
 import { cn } from "@/lib/utils";
 import { Stack } from "./stack/Stack";
-import { HighlightProvider } from "./token/context";
+import { HighlightProvider, useStack } from "./token/context";
 import { Anchored, Dialog, MenuItem, MenuLabel } from "./ui";
 
 export function AppShell() {
@@ -110,7 +111,7 @@ function Sidebar() {
         <NavItem to="/hosts" icon={Server} exact badge={dot && <span className="md:hidden">{dot}</span>}>
           托管
         </NavItem>
-        <NavItem to="/entities" icon={Network}>
+        <NavItem to="/records" icon={Network}>
           原始记录
         </NavItem>
       </nav>
@@ -133,7 +134,7 @@ function NavItem({
   badge,
   children,
 }: {
-  to: "/" | "/things" | "/understanding" | "/observers" | "/hosts" | "/entities";
+  to: "/" | "/things" | "/understanding" | "/observers" | "/hosts" | "/records";
   icon: ComponentType<{ className?: string }>;
   exact?: boolean;
   badge?: ReactNode;
@@ -236,50 +237,49 @@ function Appearance({ className, top = true }: { className?: string; top?: boole
   );
 }
 
-/** 接受 EntityId 和 VersionId：先按 EntityId 读取，读不到再按 VersionId 读取。事物打开档案，版本打开实体页，再调用 onFound。 */
+/**
+ * “查找”：thingId 和 observationId 直接打开，事物打开档案，Observation 打开它的页面。
+ * 其他文字按 GET /search 搜索 searchable 字段，点结果打开面板。
+ */
 export function IdSearch({ onFound }: { onFound: () => void }) {
   const source = useSource();
   const navigate = useNavigate();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Observation[] | null>(null);
+
+  async function open(id: string) {
+    const things = await source.readThings([id]);
+    if (things.results[0]?.status === "found")
+      return navigate({ to: "/things/$thingId", params: { thingId: id } }).then(() => true);
+    const found = await source.getObservation(id).catch((failure: unknown) => {
+      if (isUnreadable(failure)) return null;
+      throw failure;
+    });
+    if (!found) return false;
+    return navigate({ to: "/observations/$observationId", params: { observationId: id } }).then(() => true);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const id = value.trim().toLowerCase();
-    if (!isUuidv7(id)) {
-      setError("不是 UUIDv7");
-      return;
-    }
+    const text = value.trim();
+    if (!text) return;
     setBusy(true);
     setError(null);
+    setResults(null);
     try {
-      try {
-        const entity = await source.getEntity(id);
-        await navigate(
-          isThing(entity)
-            ? { to: "/things/$thingId", params: { thingId: id } }
-            : { to: "/entities/$entityId", params: { entityId: id } },
-        );
-      } catch (error) {
-        if (!isUnreadable(error)) throw error;
-        try {
-          const version = await source.getVersion(id);
-          await navigate({
-            to: "/entities/$entityId",
-            params: { entityId: version.entityId },
-            search: { version: id },
-          });
-        } catch (inner) {
-          if (!isUnreadable(inner)) throw inner;
-          setError("找不到这个 ID");
-          return;
-        }
+      if (isUuidv7(text.toLowerCase())) {
+        if (await open(text.toLowerCase())) {
+          setValue("");
+          onFound();
+        } else setError("找不到这个 ID");
+      } else {
+        const page = await source.search({ q: text, order: "desc", limit: SEARCH_LIMIT });
+        setResults(page.observations);
       }
-      setValue("");
-      onFound();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setBusy(false);
     }
@@ -294,16 +294,17 @@ export function IdSearch({ onFound }: { onFound: () => void }) {
         />
         <input
           autoFocus
-          aria-label="EntityId 或 VersionId"
-          placeholder="EntityId 或 VersionId"
+          aria-label="查找文字或 ID"
+          placeholder="查找文字，或者 thingId、observationId"
           value={value}
           disabled={busy}
           onChange={(event) => {
             setValue(event.target.value);
             setError(null);
+            setResults(null);
           }}
           className={cn(
-            "bg-card text-fg placeholder:text-fg-3 h-10 w-full rounded-lg border pr-3 pl-9 font-mono text-[13px] outline-none",
+            "bg-card text-fg placeholder:text-fg-3 h-10 w-full rounded-lg border pr-3 pl-9 text-[13px] outline-none",
             error ? "border-danger" : "border-line focus:border-line-3",
           )}
         />
@@ -313,6 +314,61 @@ export function IdSearch({ onFound }: { onFound: () => void }) {
           {error}
         </p>
       )}
+      {results && <SearchResults query={value.trim()} results={results} onFound={onFound} />}
     </form>
+  );
+}
+
+const SEARCH_LIMIT = 30;
+
+function SearchResults({ query, results, onFound }: { query: string; results: Observation[]; onFound: () => void }) {
+  const stack = useStack();
+  if (!results.length) return <p className="text-fg-3 mt-3 text-[13px]">没有找到“{query}”</p>;
+  return (
+    <ul aria-label="搜索结果" className="mt-2 max-h-[50vh] overflow-y-auto">
+      {results.map((observation) => (
+        <li key={observation.observationId}>
+          <button
+            type="button"
+            onClick={() => {
+              stack.open(observation.observationId, -1);
+              onFound();
+            }}
+            className="hover:bg-panel w-full cursor-pointer rounded-md px-2 py-1.5 text-left"
+          >
+            <SearchResult observation={observation} query={query} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** 内容里含查找文字的那一段。 */
+export function snippetOf(content: unknown, query: string): string | null {
+  const texts: string[] = [];
+  const walk = (value: unknown) => {
+    if (typeof value === "string") texts.push(value);
+    else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === "object") Object.values(value).forEach(walk);
+  };
+  walk(content);
+  const text = texts.find((item) => item.includes(query));
+  if (!text) return null;
+  const at = text.indexOf(query);
+  return `${at > 30 ? "…" : ""}${text.slice(Math.max(0, at - 30), at + query.length + 80)}`;
+}
+
+/** 一条结果：类型、时间和含查找文字的一段。 */
+function SearchResult({ observation, query }: { observation: Observation; query: string }) {
+  const { info } = useDescribe(observation);
+  const snippet = useMemo(() => snippetOf(observation.content, query), [observation.content, query]);
+  return (
+    <>
+      <span className="text-fg-3 block text-xs">
+        {info?.typeName ?? "…"} · {timeLabel(observation.startAt, observation.endAt)}
+      </span>
+      <span className="line-clamp-2 block text-[13px] break-words">{snippet ?? info?.title}</span>
+    </>
   );
 }

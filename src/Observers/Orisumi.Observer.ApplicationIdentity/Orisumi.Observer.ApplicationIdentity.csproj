@@ -12,4 +12,7 @@
     <ProjectReference Include="../Orisumi.Observer.Sdk/Orisumi.Observer.Sdk.csproj" />
     <InternalsVisibleTo Include="Orisumi.Integration.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="thing-types.json" LogicalName="Orisumi.Observers.ApplicationIdentity.thing-types.json" />
+  </ItemGroup>
 </Project>

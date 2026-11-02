@@ -3,7 +3,7 @@ import { Token } from "@/components/token/Token";
 import { Why } from "@/components/token/Why";
 import { Button } from "@/components/ui";
 import type { NarrativeState } from "@/hooks/useEpisodes";
-import { useVersion } from "@/hooks/queries";
+import { useObservation } from "@/hooks/queries";
 import { groupThings, summarize, type Experience, type ThingGroup } from "@/lib/day";
 import { streamedEpisode, type Episode } from "@/lib/episodes";
 import type { SessionGroup } from "@/lib/conversations";
@@ -24,7 +24,7 @@ function Mentions({
 }) {
   const applications = useMemo(() => {
     const ids = new Set(episode.localApplicationIds);
-    const selected = periods.filter((period) => period.things.some((thing) => ids.has(thing.thing.entityId)));
+    const selected = periods.filter((period) => period.things.some((thing) => ids.has(thing.thing.thingId)));
     return summarize(groupThings(selected, group), episode.start, episode.end).things;
   }, [episode, periods, group]);
   const present = episode.sessionIds.flatMap((id) => sessions.get(id) ?? []);
@@ -37,7 +37,7 @@ function Mentions({
         <Token key={row.key} item={row.thing} size="sm" detail={duration(row.total)} />
       ))}
       {spoken.map((session) => (
-        <Token key={session.entityId} thingId={session.entityId} size="sm" />
+        <Token key={session.thingId} thingId={session.thingId} size="sm" />
       ))}
       {quiet > 0 && <span className="text-fg-3 text-xs">另有 {quiet} 个没有发言的会话</span>}
     </div>
@@ -77,11 +77,11 @@ function EpisodeRow({
         <h3 className="text-[15px] leading-snug font-medium">{episode.title}</h3>
         <p className="text-fg-2 mt-1 text-[13px] leading-relaxed">{episode.summary}</p>
         <Mentions episode={episode} periods={periods} group={group} sessions={sessions} />
-        {episode.version && (
+        {episode.observation && (
           <p className="text-fg-3 mt-1.5 flex items-center gap-2 text-xs">
             <span className="border-infer w-4 border-t border-dashed" aria-hidden="true" />
             叙事 Observer · 推断
-            <Why entityId={episode.version.entityId} />
+            <Why observationId={episode.observation.observationId} />
           </p>
         )}
       </div>
@@ -103,10 +103,10 @@ function Written({
   busy: boolean;
   onRewrite: () => void;
 }) {
-  const first = episodes[0]?.version ?? null;
-  const description = useVersion(first?.observerVersionId);
+  const first = episodes[0]?.observation ?? null;
+  const description = useObservation(first?.observerDescriptionId);
   const model = (description.data?.content as { model?: string } | undefined)?.model;
-  const written = Math.max(...episodes.map((episode) => Date.parse(episode.version?.recordedAt ?? "") || 0));
+  const written = Math.max(...episodes.map((episode) => Date.parse(episode.observation?.recordedAt ?? "") || 0));
   return (
     <p className="text-fg-3 mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
       <span>
