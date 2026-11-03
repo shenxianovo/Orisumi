@@ -1,22 +1,9 @@
 using System.CommandLine;
 using System.Globalization;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Spectre.Console;
 
 namespace Orisumi.Dev;
-
-internal sealed record LanguageDelta(string Language, int Base, int Current, int Delta);
-internal sealed record LineQualityReport(
-    string BaseRevision, int BaseProductionLines, int CurrentProductionLines, int ProductionDelta,
-    int CurrentTestLines, int CurrentToolingLines, int CurrentBuildLines, int CurrentUnclassifiedLines,
-    IReadOnlyList<string> UnclassifiedPaths, IReadOnlyList<LanguageDelta> ProductionLanguages);
-internal sealed record QualityBaseReport(
-    string Requested, string Resolved, bool Usable, string? Reason, IReadOnlyList<string> Suggestions);
-internal sealed record QualityReport(
-    QualityBaseReport Base, string ArtifactDirectory, LineQualityReport? Lines,
-    ComplexityQualityReport? Complexity, DeadCodeReport? DeadCode,
-    bool Completed, IReadOnlyList<string> Failures);
 
 internal sealed class QualityCommand(RepositoryContext repository, IProcessRunner runner, TextWriter output)
 {
@@ -24,103 +11,72 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
     {
         var command = new Command("quality", "Observe structural quality relative to a Git base");
         var baseRef = new Option<string?>("--base") { Description = "Git comparison base; HEAD when the worktree has changes" };
-        var json = new Option<bool>("--json") { Description = "Print the report as JSON" };
+        var json = CommandLine.Json();
         command.Options.Add(baseRef);
         command.Options.Add(json);
-        command.SetAction(async (parse, token) => await RunAsync(new QualityOptions(
-            (await VerificationRequest.ResolveBaseAsync("changed", parse.GetValue(baseRef), runner, token))!, parse.GetValue(json)), token));
+        command.SetAction((parse, token) => RunAsync(parse.GetValue(baseRef), parse.GetValue(json), token));
         return command;
     }
 
-    public Task<int> RunAsync(QualityOptions options, CancellationToken token) =>
-        EvidenceSession.ExecuteAsync(repository, "quality", "observations",
-            ["Structural findings guide review; completing the scans is not a maintainability verdict."],
-            evidence => RunChecksAsync(options, evidence, token), notes: options.Json ? null : output);
-
-    internal async Task<int> RunChecksAsync(QualityOptions options, EvidenceSession evidence, CancellationToken token)
+    private async Task<int> RunAsync(string? baseRef, bool json, CancellationToken token)
     {
-        if (options.Json)
+        var requested = await repository.Git.BaseAsync(baseRef, token);
+        var check = new QualityCheck(repository, runner, requested, await repository.Git.CommitAsync(requested, token));
+        return await Run.ExecuteAsync(repository, "analyze quality", async run =>
         {
-            var analyzed = await AnalyzeAsync(options, evidence, token);
-            await output.WriteLineAsync(JsonSerializer.Serialize(analyzed, JsonOptions.Indented));
-            return analyzed.Completed ? 0 : 1;
-        }
-        var console = Terminal.Create(output);
-        var report = await Terminal.SpinAsync(console, $"Analyzing quality against {Terminal.Esc(options.Base)}",
-            () => AnalyzeAsync(options, evidence, token));
-        Write(console, repository, report);
-        return report.Completed ? 0 : 1;
+            var console = Terminal.Create(output);
+            var outcome = json
+                ? await check.RunAsync(run, token)
+                : await Terminal.SpinAsync(console, $"Analyzing quality against {Terminal.Esc(requested)}", () => check.RunAsync(run, token));
+            var report = (QualityReport)outcome.Report!;
+            if (json) await CommandLine.WriteJsonAsync(output, report);
+            else QualityCheck.Write(console, repository, report, run);
+            return outcome.ExitCode;
+        }, notes: json ? null : output);
     }
+}
 
-    internal async Task<QualityReport> AnalyzeAsync(QualityOptions options, EvidenceSession evidence, CancellationToken token)
+internal sealed partial class QualityCheck(RepositoryContext repository, IProcessRunner runner, string requested, string commit) : ICheck
+{
+    public string Name => "quality";
+
+    public string Description => $"structural analysis against {requested} ({Terminal.ShortRevision(commit)})";
+
+    public async Task<CheckOutcome> RunAsync(Run run, CancellationToken cancellationToken)
     {
-        var source = new GitSourceReader(repository, runner);
-        var baseline = await source.ReadRevisionAsync(options.Base, token);
-        var usability = BaseUsability.Evaluate(options.Base, baseline);
-        var baseReport = new QualityBaseReport(options.Base, baseline.Revision,
-            usability.Usable, usability.Reason, usability.Suggestions);
-        if (!usability.Usable)
-            return await SaveAsync(new(baseReport, evidence.Run.Directory, null, null, null,
-                false, [usability.Reason!]), token);
-
-        var current = await source.ReadWorktreeAsync(token);
-        var complexity = await new ComplexityDetector(repository, runner)
-            .CompareAsync(baseline.Revision, evidence.Run.Directory, evidence.Commands, token);
-        var deadCode = await new DeadCodeDetector(repository, runner).CompareAsync(
-            baseline.Revision, evidence.Run.Directory, evidence.Commands, complexity.BaselineCSharpComplete, complexity.CurrentCSharpComplete, token);
-        var failures = Failures(complexity).Concat(deadCode.Failures()).ToArray();
-        return await SaveAsync(new(baseReport, evidence.Run.Directory, CompareLines(baseline, current),
-            complexity, deadCode, failures.Length == 0, failures), token);
+        var report = await new QualityAnalysis(repository, runner).AnalyzeAsync(requested, commit, run, cancellationToken);
+        return new CheckOutcome(report.Completed ? 0 : 1, Verdict(report), report) { Details = console => WriteFindings(console, report) };
     }
-
-    internal static IReadOnlyList<string> Failures(ComplexityQualityReport complexity) =>
-        complexity.Available ? [] : [complexity.Reason ?? "Complexity analysis did not complete."];
-
-    private static async Task<QualityReport> SaveAsync(QualityReport report, CancellationToken token)
-    {
-        await File.WriteAllTextAsync(Path.Combine(report.ArtifactDirectory, "quality.json"),
-            JsonSerializer.Serialize(report, JsonOptions.Indented), token);
-        return report;
-    }
-
-    internal static int NewFindings(QualityReport report) =>
-        (report.Complexity is { BaselineComplete: true } complexity ? complexity.Regressions : 0)
-        + (report.DeadCode?.NewFindings.Count ?? 0);
 
     internal static string Verdict(QualityReport report) => !report.Completed
         ? Terminal.Verdict(Outcome.Failed, "incomplete")
-        : NewFindings(report) is var found and > 0
+        : report.NewFindings is var found and > 0
             ? Terminal.Verdict(Outcome.Attention, $"{found} new {(found == 1 ? "finding" : "findings")}")
             : Terminal.Verdict(Outcome.Passed, "nothing new");
 
-    internal static void Write(IAnsiConsole console, RepositoryContext repository, QualityReport report)
+    internal static void Write(IAnsiConsole console, RepositoryContext repository, QualityReport report, Run run)
     {
-        var resolved = report.Base.Resolved.Length >= 7 ? report.Base.Resolved[..7] : report.Base.Resolved;
-        Terminal.Heading(console, "Quality", Terminal.Esc($"against {report.Base.Requested} ({resolved})"), Verdict(report));
-        if (report.Lines is { } lines)
+        Terminal.Heading(console, "Quality", Terminal.Esc($"against {report.Base} ({Terminal.ShortRevision(report.Commit)})"), Verdict(report));
+        static string New(int? count) => count switch
         {
-            static string New(int count) => count > 0 ? $"[yellow]{Terminal.Number(count)}[/]" : "0";
-            List<string[]> rows =
-            [
-                ["", "[grey]current[/]", "[grey]new[/]"],
-                ["Production LOC", Terminal.Number(lines.CurrentProductionLines), Terminal.Delta(lines.ProductionDelta)],
-            ];
-            if (report.Complexity is { CurrentComplete: true } complexity)
-            {
-                rows.Add(["Complex functions > 10", Terminal.Number(complexity.CurrentHotspots),
-                    complexity.BaselineComplete ? New(complexity.Regressions) : "[grey]n/a[/]"]);
-                if (complexity.CurrentErosion is { } erosion)
-                    rows.Add(["Complexity burden", erosion.Ratio.ToString("P1", CultureInfo.InvariantCulture),
-                        complexity.ErosionDelta is { } delta
-                            ? (delta * 100).ToString("+0.0;-0.0;±0.0", CultureInfo.InvariantCulture) + "pp" : "[grey]n/a[/]"]);
-            }
-            rows.Add(["Unused code", Terminal.Number(report.DeadCode!.Current.Count), New(report.DeadCode.NewFindings.Count)]);
-            Terminal.Rows(console, rows, 1, 2);
+            null => "[grey]n/a[/]",
+            > 0 => $"[yellow]{Terminal.Number(count.Value)}[/]",
+            _ => "0",
+        };
+        List<string[]> rows = [["", "[grey]current[/]", "[grey]new[/]"]];
+        if (report.ProductionLines is { } lines)
+            rows.Add(["Production LOC", Terminal.Number(lines.Current), Terminal.Delta(lines.Delta)]);
+        if (report.Complexity is { } complexity)
+        {
+            rows.Add([$"Complex functions > {QualityAnalysis.Threshold}", Terminal.Number(complexity.Hotspots.Count), New(complexity.Regressions?.Count)]);
+            rows.Add(["Complexity burden", complexity.Erosion.Ratio.ToString("P1", CultureInfo.InvariantCulture),
+                complexity.ErosionDelta is { } delta ? (delta * 100).ToString("+0.0;-0.0;±0.0", CultureInfo.InvariantCulture) + "pp" : "[grey]n/a[/]"]);
         }
+        if (report.Unused is { } unused) rows.Add(["Unused code", Terminal.Number(unused.Current.Count), New(unused.New?.Count)]);
+        if (rows.Count > 1) Terminal.Rows(console, rows, 1, 2);
         WriteFindings(console, report);
-        foreach (var suggestion in report.Base.Suggestions) Terminal.Hint(console, suggestion);
         console.WriteLine();
-        console.MarkupLine($"  [grey]evidence[/]  {Terminal.Esc(Terminal.Path(repository, Path.Combine(report.ArtifactDirectory, "quality.json")))}");
+        console.MarkupLine($"  [grey]evidence[/]  {Terminal.Esc(Terminal.Path(repository, run.PathOf(RunFiles.Quality)))}");
     }
 
     internal static void WriteFindings(IAnsiConsole console, QualityReport report)
@@ -133,51 +89,27 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
     }
 
     private static IEnumerable<(string Kind, string Text)> NewFindingLines(QualityReport report) =>
-        NewComplexity(report).Concat(NewUnused(report));
-
-    private static IEnumerable<(string, string)> NewComplexity(QualityReport report) =>
-        (report.Complexity is { BaselineComplete: true } complexity ? complexity.RegressionDetails ?? [] : [])
+        (report.Complexity?.Regressions ?? [])
             .Select(regression => ("complex",
                 $"{regression.Current.Path}:{regression.Current.Line} {ShortSymbol(regression.Current.Symbol)} · "
-                + $"{regression.Current.Complexity}" + (regression.BaseComplexity is { } before ? $" (was {before})" : " (new)")));
-
-    private static IEnumerable<(string, string)> NewUnused(QualityReport report) =>
-        (report.DeadCode?.NewFindings ?? []).Select(finding => ("unused", $"{finding.Path}:{finding.Line} {finding.Symbol} · {finding.Rule}"));
+                + $"{regression.Current.Complexity}" + (regression.BaseComplexity is { } before ? $" (was {before})" : " (new)")))
+            .Concat((report.Unused?.New ?? []).Select(finding => ("unused", $"{finding.Path}:{finding.Line} {finding.Symbol} · {finding.Rule}")));
 
     internal static string ShortSymbol(string symbol)
     {
-        var withoutParameters = Regex.Replace(symbol, @"\(.*\)", "");
-        var segments = withoutParameters.Split('/')
-            .Select(segment => Regex.Replace(Regex.Replace(segment, @"^[A-Za-z]+:", ""), @"`\d+", ""))
+        var segments = Parameters().Replace(symbol, "").Split('/')
+            .Select(segment => Arity().Replace(Kind().Replace(segment, ""), ""))
             .Where(segment => segment.Length > 0)
             .ToArray();
         return string.Join('.', segments.TakeLast(2));
     }
 
-    internal static LineQualityReport CompareLines(SourceSnapshot baseline, SourceSnapshot current)
-    {
-        var languages = baseline.ProductionByLanguage.Keys
-            .Union(current.ProductionByLanguage.Keys, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .Select(language =>
-            {
-                var before = baseline.ProductionByLanguage.GetValueOrDefault(language);
-                var after = current.ProductionByLanguage.GetValueOrDefault(language);
-                return new LanguageDelta(language, before, after, after - before);
-            })
-            .ToArray();
-        return new LineQualityReport(
-            baseline.Revision,
-            baseline.ProductionLines,
-            current.ProductionLines,
-            current.ProductionLines - baseline.ProductionLines,
-            current.TestLines,
-            current.ToolingLines,
-            current.BuildLines,
-            current.UnclassifiedLines,
-            current.UnclassifiedPaths,
-            languages);
-    }
-}
+    [GeneratedRegex(@"\(.*\)")]
+    private static partial Regex Parameters();
 
-internal sealed record QualityOptions(string Base, bool Json = false);
+    [GeneratedRegex(@"^[A-Za-z]+:")]
+    private static partial Regex Kind();
+
+    [GeneratedRegex(@"`\d+")]
+    private static partial Regex Arity();
+}

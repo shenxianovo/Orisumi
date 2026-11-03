@@ -17,7 +17,7 @@ internal sealed class CommentLint(RepositoryContext repository, IProcessRunner r
 
     public async Task<IReadOnlyList<CommentFinding>> ScanAsync(CancellationToken cancellationToken)
     {
-        var files = (await ReviewSelection.WorkspaceFilesAsync(runner, cancellationToken))
+        var files = (await repository.Git.FilesAsync(cancellationToken))
             .Where(path => Covers(path) && File.Exists(repository.Path(path)))
             .ToArray();
         var csharp = files.Where(path => path.EndsWith(".cs", StringComparison.Ordinal))
@@ -39,13 +39,13 @@ internal sealed class CommentLint(RepositoryContext repository, IProcessRunner r
     private async Task<IReadOnlyList<CommentFinding>> ScriptCommentsAsync(string[] files, CancellationToken cancellationToken)
     {
         if (files.Length == 0) return [];
-        var tools = new NodeTools(repository);
+        var tools = new NodeTools(repository, runner);
         await tools.EnsureAsync(cancellationToken);
         var list = Path.GetTempFileName();
         try
         {
             await File.WriteAllTextAsync(list, JsonSerializer.Serialize(files), cancellationToken);
-            var result = await runner.CaptureAsync("node", [tools.Script("comments.mjs"), repository.Root, list], null, cancellationToken);
+            var result = await runner.CaptureAsync(new("node", [tools.Script("comments.mjs"), repository.Root, list]), cancellationToken);
             if (result.ExitCode != 0) throw new InvalidOperationException($"Scanning script comments failed: {result.StdErr.Trim()}");
             return JsonSerializer.Deserialize<CommentFinding[]>(result.StdOut, JsonOptions.Indented) ?? [];
         }

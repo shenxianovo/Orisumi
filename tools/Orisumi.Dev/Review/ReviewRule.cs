@@ -31,6 +31,15 @@ internal static class ReviewRules
             .ToArray();
     }
 
+    public static bool Reviewable(string path, IReadOnlyList<ReviewRule> rules) =>
+        !ProjectLayout.IsScratch(path) && rules.Any(rule => rule.Covers(path));
+
+    public static IReadOnlyList<ReviewRule> Changed(IReadOnlyList<ReviewRule> rules, IEnumerable<string> paths)
+    {
+        var ids = paths.Select(IdOf).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        return [.. rules.Where(rule => ids.Contains(rule.Id))];
+    }
+
     public static string? IdOf(string path) =>
         path.StartsWith(Directory, StringComparison.Ordinal) && path.EndsWith(".json", StringComparison.Ordinal)
             ? Path.GetFileNameWithoutExtension(path) : null;

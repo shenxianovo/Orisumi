@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/src/">
+    <File Path="src/Docs/Orisumi.Docs/package.json" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Orisumi.Dev.Tests/Orisumi.Dev.Tests.csproj" />
   </Folder>

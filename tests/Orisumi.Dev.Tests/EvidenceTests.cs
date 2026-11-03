@@ -6,72 +6,49 @@ namespace Orisumi.Dev.Tests;
 public sealed class EvidenceTests
 {
     [Test]
-    public async Task CancelledVerificationPreservesPartialLogAndResults()
+    public async Task ACancelledProcessKeepsItsPartialLogAndTheRunRecordsTheCancellation()
     {
-        var root = Path.Combine(Path.GetTempPath(), "orisumi-evidence-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            var repository = new RepositoryContext(root);
-            var runner = new CancelledRunner();
-            var plan = new VerificationPlan("full", null, [], [new("build", "dotnet", ["build"])]);
-            var code = await EvidenceSession.ExecuteAsync(repository, "verify", "full", [], async evidence =>
-            {
-                try { return await new VerificationCommand(repository, runner, TextWriter.Null).RunPlanAsync(plan, evidence, CancellationToken.None); }
-                catch (OperationCanceledException) { return 130; }
-            });
-            await Assert.That(code).IsEqualTo(130);
-            var run = new RunStore(repository).List().Single();
-            await Assert.That(await File.ReadAllTextAsync(Path.Combine(run.Directory, "build.log"))).IsEqualTo("partial output");
-            using var result = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(run.Directory, "verification.json")));
-            await Assert.That(result.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);
-            using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(run.Directory, "manifest.json")));
-            await Assert.That(manifest.RootElement.GetProperty("status").GetString()).IsEqualTo("cancelled");
-        }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+        using var repository = new TestRepository(withProjects: false);
+        var check = new ProcessCheck("dotnet build", new("dotnet", ["build"]), new FixedRunner(0) { Cancel = true }, repository.Context);
+        await Assert.That(async () => await Run.ExecuteAsync(repository.Context, "verify all", async run => (await check.RunAsync(run, CancellationToken.None)).ExitCode))
+            .Throws<OperationCanceledException>();
+        var run = new RunStore(repository.Context).List().Single();
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(run.Directory, "dotnet-build.log"))).IsEqualTo("partial output");
+        var summary = RunStore.Summarize(run);
+        await Assert.That(summary.ExitCode).IsEqualTo(130);
+        await Assert.That(summary.Title).IsEqualTo("verify all");
     }
 
     [Test]
-    public async Task QualityCancellationStaysCancellation()
+    [Arguments("0,0", 0)]
+    [Arguments("0,7,1", 7)]
+    [Arguments("1,130", 130)]
+    public async Task CancellationOutranksFailuresAndTheFirstFailureOutranksLaterOnes(string exitCodes, int expected)
     {
-        var result = await VerificationCommand.CombineAsync(() => Task.FromResult(0),
-            () => Task.FromException<int>(new OperationCanceledException()), CancellationToken.None);
-        await Assert.That(result.ExitCode).IsEqualTo(130);
-        await Assert.That(result.Verification).IsEqualTo(0);
+        var results = exitCodes.Split(',').Select(code => new CheckRecord("check", int.Parse(code, System.Globalization.CultureInfo.InvariantCulture), null, null)).ToArray();
+        await Assert.That(VerificationCommand.ExitCode(results)).IsEqualTo(expected);
     }
 
     [Test]
     public async Task PruningKeepsTheUnionAndPreviewPreservesFiles()
     {
-        var root = Path.Combine(Path.GetTempPath(), "orisumi-retention-" + Guid.NewGuid().ToString("N"));
-        try
+        using var repository = new TestRepository(withProjects: false);
+        var store = new RunStore(repository.Context);
+        for (var i = 0; i < 18; i++)
         {
-            var repository = new RepositoryContext(root);
-            var store = new RunStore(repository);
-            for (var i = 0; i < 18; i++)
-            {
-                var run = store.Create("verify", $"run-{i}");
-                var age = i < 2 ? TimeSpan.FromHours(i + 1)
-                    : i < 12 ? TimeSpan.FromDays(3) + TimeSpan.FromHours(i)
-                    : TimeSpan.FromDays(6) + TimeSpan.FromHours(i);
-                Directory.SetCreationTimeUtc(run.Directory, DateTime.UtcNow - age);
-                await File.WriteAllTextAsync(Path.Combine(run.Directory, "manifest.json"),
-                    JsonSerializer.Serialize(new { exitCode = i >= 12 ? (i % 2 == 0 ? 1 : 130) : 0 }));
-            }
-            var selected = store.SelectForPruning(RetentionPolicy.Default);
-            await Assert.That(selected.Candidates.Count).IsEqualTo(3);
-            var cli = new DeveloperCli(repository, new CancelledRunner(), TextWriter.Null, TextWriter.Null);
-            await Assert.That(await cli.RunAsync(["runs", "prune"], CancellationToken.None)).IsEqualTo(0);
-            await Assert.That(store.List().Count).IsEqualTo(18);
-            await Assert.That(await cli.RunAsync(["runs", "prune", "--apply"], CancellationToken.None)).IsEqualTo(0);
-            await Assert.That(store.List().Count).IsEqualTo(15);
+            var run = store.Create($"run {i}");
+            var age = i < 2 ? TimeSpan.FromHours(i + 1)
+                : i < 12 ? TimeSpan.FromDays(3) + TimeSpan.FromHours(i)
+                : TimeSpan.FromDays(6) + TimeSpan.FromHours(i);
+            Directory.SetCreationTimeUtc(run.Directory, DateTime.UtcNow - age);
+            await File.WriteAllTextAsync(run.PathOf(RunFiles.Manifest),
+                JsonSerializer.Serialize(new { exitCode = i >= 12 ? (i % 2 == 0 ? 1 : 130) : 0 }));
         }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
-    }
-
-    private sealed class CancelledRunner : IProcessRunner
-    {
-        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken) =>
-            Task.FromException<ProcessResult>(new CapturedProcessCancelledException("partial output", "", cancellationToken));
+        await Assert.That(store.SelectForPruning(RetentionPolicy.Default).Candidates.Count).IsEqualTo(3);
+        var cli = new DeveloperCli(repository.Context, new FixedRunner(0), TextWriter.Null, TextWriter.Null);
+        await Assert.That(await cli.RunAsync(["runs", "prune"], CancellationToken.None)).IsEqualTo(0);
+        await Assert.That(store.List().Count).IsEqualTo(18);
+        await Assert.That(await cli.RunAsync(["runs", "prune", "--apply"], CancellationToken.None)).IsEqualTo(0);
+        await Assert.That(store.List().Count).IsEqualTo(15);
     }
 }

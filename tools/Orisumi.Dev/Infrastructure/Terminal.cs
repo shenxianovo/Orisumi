@@ -124,6 +124,15 @@ internal static class Terminal
         _ => $"{(int)elapsed.TotalHours}h{elapsed.Minutes:00}m",
     };
 
+    public static string ShortRevision(string? value) =>
+        value is { Length: 40 } && value.All(char.IsAsciiHexDigit) ? value[..7] : value ?? "";
+
+    public static string Excerpt(string text)
+    {
+        var line = text.Split('\n')[0].Trim();
+        return line.Length > 60 ? line[..60] + "…" : line;
+    }
+
     public static string Number(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
     public static string Delta(int value) => value switch

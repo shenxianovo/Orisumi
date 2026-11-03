@@ -24,6 +24,18 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 
 `orisumi` 在仓库中的任何目录都可以运行，它通过 Git 找到当前检出目录的根目录。
 
+## 项目清单
+
+根目录的 `Orisumi.slnx` 是仓库唯一的项目清单。C# 项目写成 `<Project>`，Node 项目把它的 `package.json` 写成 `<File>`。项目所在的文件夹决定它的角色：
+
+| 文件夹 | 角色 |
+| --- | --- |
+| `/src/` | 业务代码 |
+| `/tests/` | 测试 |
+| `/tools/` | 开发工具 |
+
+其余信息来自各项目自己的清单：csproj 的 `ProjectReference` 决定测试项目覆盖哪些项目，`package.json` 的 scripts 决定 `verify` 运行哪些脚本，`pnpm-lock.yaml` 决定用 pnpm 还是 npm，knip 读项目目录里的 `knip.json`。验证、质量扫描和行数统计都从这份清单推导。新增项目时把它加进 `Orisumi.slnx`；不属于任何项目的代码文件在 `analyze loc` 里列为未分类。
+
 ## 命令
 
 | 命令 | 作用 |
@@ -73,17 +85,17 @@ orisumi verify [--scope changed|all]
 
 | 范围 | 检查 |
 | --- | --- |
-| `changed` | 根据相对基点的改动选择检查。无法识别的路径触发全部检查 |
-| `all` | lint，构建 .NET 解决方案，运行开发工具测试，检查并构建文档站 |
+| `changed` | 根据相对基点的改动选择检查。项目之外的非 Markdown 文件触发全部检查 |
+| `all` | lint，构建解决方案，运行所有测试项目，运行所有 Node 项目的检查脚本 |
 
-改动路径和检查的对应：
+改动路径按[项目清单](#项目清单)找到所属的项目，再选择检查：
 
 | 改动 | 检查 |
 | --- | --- |
-| `.cs`、`.ts`、`.tsx`、`.mjs` 等源文件 | lint，再加所在目录对应的检查 |
-| `src/Docs/Orisumi.Docs/` | 文档检查、单元测试、类型检查和构建 |
-| `tools/Orisumi.Dev/`、`tests/Orisumi.Dev.Tests/` | .NET 构建和开发工具测试 |
-| 任何 `README.md`、`AGENTS.md`，`.agents/` 下的 Markdown | 文档检查 |
+| `.cs`、`.ts`、`.tsx`、`.mjs` 等源文件 | lint，再加所属项目的检查 |
+| C# 项目里的文件 | 构建解决方案，运行覆盖这个项目的测试项目 |
+| Node 项目里的文件 | 项目 scripts 中的 `docs:check`、`test`、`types:check`、`build`，按这个顺序 |
+| 任何 Markdown | 各项目的 `docs:check` |
 | `.scratch/` | 无 |
 
 改动涉及模型检查规则覆盖的文件或规则本身时，其余检查之后再运行模型检查，见[模型检查](#模型检查)。它的发现不使命令失败；没有设置 key 时跳过并提示设置命令。
@@ -91,7 +103,8 @@ orisumi verify [--scope changed|all]
 - `--base` 指定基点。有未提交的改动时可以省略，默认使用 `HEAD`；没有改动时必须指定。
 - `--quality` 在同一次运行中执行检查，再以同一基点运行质量扫描，两者共用一份运行记录。
 - `--base` 和 `--quality` 只用于 `changed` 范围，与 `--scope all` 一起使用时返回参数错误。
-- 构建失败、测试失败、lint 有发现或扫描未完成时，命令返回失败。质量扫描的发现不使命令失败，供评审参考。
+- 每项检查都运行到底，前面的失败不跳过后面的检查；取消时停止。
+- 构建失败、测试失败、lint 有发现、质量扫描或模型检查未完成时，命令返回失败。质量扫描和模型检查的发现不使命令失败，供评审参考。
 
 ### 计划与 JSON 输出
 
@@ -99,10 +112,10 @@ orisumi verify [--scope changed|all]
 
 | 命令 | stdout |
 | --- | --- |
-| `verify --plan --json` | 计划：范围、`quality`、基点、改动路径和步骤 |
-| `verify --json` | 一个结果对象：`exitCode`、`evidence`、`verification`、`quality`、`review` |
+| `verify --plan --json` | 计划：`scope`、`fallback`、`base`、`changedPaths` 和每项检查的 `name`、`description` |
+| `verify --json` | 验证结果，和证据目录里的 `verification.json` 相同 |
 
-`verify --json` 的 `evidence` 是证据目录，`verification`、`quality` 和 `review` 是这次运行保存的报告，没有生成的报告为 `null`。执行进度写到 stderr，stdout 可以整体解析。取消时同样输出结果，内容是已经完成的部分。
+验证结果有 `evidence`（证据目录）、`scope`、`fallback`、`base`、`changedPaths`、`exitCode` 和 `checks`。`checks` 里每项检查有 `name`、`exitCode`、`log`（进程的输出），lint、质量扫描和模型检查另有 `report`。执行进度写到 stderr，stdout 可以整体解析。取消时同样输出结果，内容是已经完成的部分。
 
 ### 文档检查
 
@@ -173,13 +186,13 @@ orisumi analyze loc
 
 两个命令都可以加 `--json`。`analyze quality` 的基点和 `verify` 相同。
 
-`analyze quality` 扫描业务代码、文档站和开发工具的复杂度和未使用代码，并与基点比较。发现供审查，业务需要的复杂代码可以保留。基点必须能完成分析构建；历史代码无法编译时，命令报告比较未完成并返回失败，当前代码的扫描结果仍然保存。
+`analyze quality` 扫描业务代码和开发工具的复杂度和未使用代码，并与基点比较。两边按当前的项目清单分类，C# 构建一次，同时得到复杂度和未使用的私有成员；TypeScript 和 JavaScript 用 ESLint 量复杂度，Node 项目用 Knip 找未使用的代码。发现供审查，业务需要的复杂代码可以保留。基点必须能完成分析构建；历史代码无法编译时，命令报告比较未完成并返回失败，当前代码的扫描结果仍然保存。
 
 终端列出相对基点新增的发现：新增或变复杂的函数、未使用的代码，以及未完成的扫描。现有的发现只给数量，完整列表在证据目录的 `quality.json`。`verify --quality` 的质量部分写法相同。
 
-`analyze loc` 按模块和语言统计工作区中已跟踪的文件，不计空行和纯注释行。开头的总数只算代码，也就是实现加测试，实现是生产代码和开发工具。文档、构建描述和生成文件（锁文件）单列一行，不进总数。文件先按语言分类，所以测试目录里的 csproj 算构建描述，README 算文档。
+`analyze loc` 按项目和语言统计工作区中已跟踪的文件，不计空行和纯注释行。开头的总数只算代码，也就是实现加测试，实现是业务代码和开发工具。文档、构建描述和生成文件（锁文件）单列一行，不进总数。文件先按语言分类，所以测试项目里的 csproj 算构建描述，README 算文档。
 
-`src/` 下的测试归它所在的模块。`tests/` 下的测试项目按 csproj 的 `ProjectReference` 归属：只引用一个模块的归那个模块，引用多个模块或不引用生产项目的归 `Cross-module`。
+项目里的测试归这个项目。测试项目按 csproj 的 `ProjectReference` 归属：只引用一个非测试项目的归那个项目，引用多个或一个都不引用的归 `Cross-module`。
 
 ## 证据
 
@@ -187,8 +200,8 @@ orisumi analyze loc
 
 | 文件 | 内容 |
 | --- | --- |
-| `manifest.json` | 执行清单 |
-| `verification.json` | 验证结果 |
+| `manifest.json` | 执行清单：启动的命令、开始和结束时间、退出码、执行过的外部命令和产物。运行开始时写入，结束时更新 |
+| `verification.json` | 验证结果，见[计划与 JSON 输出](#计划与-json-输出) |
 | `quality.json` | 质量报告，加 `--quality` 或运行 `analyze quality` 时生成 |
 | `review.json` | 模型检查的报告：发现、校准判错的例子和每段的判断 |
 | `review-calls.jsonl` | 模型检查每次调用的请求、响应和耗时 |
@@ -202,7 +215,7 @@ orisumi runs prune           # 只预览
 orisumi runs prune --apply   # 删除
 ```
 
-`runs list` 每次运行一行：开始的时间（本地时区）、运行的类型、结果、耗时和失败的步骤，由此可以看出哪次运行失败、失败在哪一步。需要证据目录的路径时加 `--json`。
+`runs list` 每次运行一行：开始的时间（本地时区）、启动它的命令、结果、耗时和失败的检查，由此可以看出哪次运行失败、失败在哪一步。需要证据目录的路径时加 `--json`。
 
 每次运行结束时自动清理，保留最近 10 次、最近 5 次没有成功的，以及 2 天内的全部运行。`runs prune` 使用同样的条件。质量扫描的基线工作树缓存在 `.artifacts/quality-baselines/<commit>/`，不参与清理，需要回收空间时移除对应的 Git worktree。
 

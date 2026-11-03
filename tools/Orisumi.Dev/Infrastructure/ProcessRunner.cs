@@ -2,7 +2,25 @@ using System.Diagnostics;
 
 namespace Orisumi.Dev;
 
-internal sealed record ProcessResult(int ExitCode, string StdOut, string StdErr);
+internal sealed record ProcessCommand(
+    string FileName,
+    IReadOnlyList<string> Arguments,
+    string? WorkingDirectory = null,
+    IReadOnlyDictionary<string, string?>? Environment = null)
+{
+    public override string ToString() =>
+        string.Join(' ', [FileName, .. Arguments.Select(argument => argument.Contains(' ', StringComparison.Ordinal) ? $"\"{argument}\"" : argument)]);
+}
+
+internal sealed record ProcessResult(int ExitCode, string StdOut, string StdErr)
+{
+    public string Output => StdOut + StdErr;
+
+    public string LastLine =>
+        (StdErr + Environment.NewLine + StdOut)
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault()?.Trim() ?? "command failed";
+}
 
 internal sealed class CapturedProcessCancelledException(string stdout, string stderr, CancellationToken token)
     : OperationCanceledException("Captured process was cancelled.", token)
@@ -13,32 +31,28 @@ internal sealed class CapturedProcessCancelledException(string stdout, string st
 
 internal interface IProcessRunner
 {
-    async Task<int> StreamAsync(string fileName, IReadOnlyList<string> arguments, TextWriter output, CancellationToken token)
+    async Task<int> StreamAsync(ProcessCommand command, TextWriter output, CancellationToken cancellationToken)
     {
-        var result = await CaptureAsync(fileName, arguments, null, token);
-        await output.WriteAsync(result.StdOut + result.StdErr);
+        var result = await CaptureAsync(command, cancellationToken);
+        await output.WriteAsync(result.Output);
         return result.ExitCode;
     }
 
-    Task<ProcessResult> CaptureAsync(
-        string fileName,
-        IReadOnlyList<string> arguments,
-        IReadOnlyDictionary<string, string?>? environment,
-        CancellationToken cancellationToken);
+    Task<ProcessResult> CaptureAsync(ProcessCommand command, CancellationToken cancellationToken);
 }
 
 internal sealed class ProcessRunner(string workingDirectory) : IProcessRunner
 {
-    public async Task<int> StreamAsync(string fileName, IReadOnlyList<string> arguments, TextWriter output, CancellationToken token)
+    public async Task<int> StreamAsync(ProcessCommand command, TextWriter output, CancellationToken cancellationToken)
     {
-        using var process = Start(workingDirectory, fileName, arguments, null);
+        using var process = Start(command);
         var writer = TextWriter.Synchronized(output);
         async Task CopyAsync(StreamReader reader)
         {
             while (await reader.ReadLineAsync(CancellationToken.None) is { } line) await writer.WriteLineAsync(line);
         }
         var copies = Task.WhenAll(CopyAsync(process.StandardOutput), CopyAsync(process.StandardError));
-        try { await process.WaitForExitAsync(token); }
+        try { await process.WaitForExitAsync(cancellationToken); }
         catch (OperationCanceledException)
         {
             Kill(process);
@@ -49,23 +63,11 @@ internal sealed class ProcessRunner(string workingDirectory) : IProcessRunner
         return process.ExitCode;
     }
 
-    public Task<ProcessResult> CaptureAsync(
-        string fileName,
-        IReadOnlyList<string> arguments,
-        IReadOnlyDictionary<string, string?>? environment,
-        CancellationToken cancellationToken) =>
-        CaptureAsync(workingDirectory, fileName, arguments, cancellationToken, environment);
-
-    internal static async Task<ProcessResult> CaptureAsync(
-        string workingDirectory,
-        string fileName,
-        IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, string?>? environment = null)
+    public async Task<ProcessResult> CaptureAsync(ProcessCommand command, CancellationToken cancellationToken)
     {
-        using var process = Start(workingDirectory, fileName, arguments, environment);
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
+        using var process = Start(command);
+        var stdout = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderr = process.StandardError.ReadToEndAsync(CancellationToken.None);
         try
         {
             await process.WaitForExitAsync(cancellationToken);
@@ -79,31 +81,18 @@ internal sealed class ProcessRunner(string workingDirectory) : IProcessRunner
         return new ProcessResult(process.ExitCode, await stdout, await stderr);
     }
 
-    private static Process Start(
-        string workingDirectory,
-        string fileName,
-        IReadOnlyList<string> arguments,
-        IReadOnlyDictionary<string, string?>? environment)
+    private Process Start(ProcessCommand command)
     {
         var start = new ProcessStartInfo
         {
-            FileName = fileName,
-            WorkingDirectory = workingDirectory,
+            FileName = command.FileName,
+            WorkingDirectory = command.WorkingDirectory ?? workingDirectory,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        foreach (var argument in arguments)
-        {
-            start.ArgumentList.Add(argument);
-        }
-        if (environment is not null)
-        {
-            foreach (var item in environment)
-            {
-                start.Environment[item.Key] = item.Value;
-            }
-        }
+        foreach (var argument in command.Arguments) start.ArgumentList.Add(argument);
+        foreach (var (name, value) in command.Environment ?? new Dictionary<string, string?>()) start.Environment[name] = value;
         var process = new Process { StartInfo = start };
         process.Start();
         return process;

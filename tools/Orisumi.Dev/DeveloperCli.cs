@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Help;
+using System.Text.Json;
 
 namespace Orisumi.Dev;
 
@@ -15,32 +16,21 @@ internal sealed class DeveloperCli(
 
     internal Command CreateCommand()
     {
-        var root = new Command("orisumi", "Orisumi development and verification")
-        {
-            new HelpOption { Recursive = true },
-            new VersionOption(),
-            new DocsCommand(repository, runner, output).CreateCommand(),
-            new VerificationCommand(repository, runner, output, error, _models).CreateCommand(),
-            new ReviewCommand(repository, runner, _models, output).CreateCommand(),
-            new LintCommand(repository, runner, output).CreateCommand(),
-            Group("analyze", "Analyze code structure and size",
-                new QualityCommand(repository, runner, output).CreateCommand(),
-                new LocCommand(repository, runner, output).CreateCommand()),
-            new RunsCommand(repository, output).CreateCommand(),
-            new ConfigCommand(repository, _models.Config, output, input ?? Console.In).CreateCommand(),
-            Group("tool", "Install or update the developer tool itself",
-                new InstallCommand(repository, runner, output).CreateCommand()),
-        };
-        root.SetAction(parse => new HelpAction().Invoke(parse));
+        var root = CommandLine.Group("orisumi", "Orisumi development and verification");
+        root.Options.Add(new HelpOption { Recursive = true });
+        root.Options.Add(new VersionOption());
+        root.Subcommands.Add(new DocsCommand(repository, runner, output).CreateCommand());
+        root.Subcommands.Add(new VerificationCommand(repository, runner, output, error, _models).CreateCommand());
+        root.Subcommands.Add(new ReviewCommand(repository, _models, output).CreateCommand());
+        root.Subcommands.Add(new LintCommand(repository, runner, output).CreateCommand());
+        root.Subcommands.Add(CommandLine.Group("analyze", "Analyze code structure and size",
+            new QualityCommand(repository, runner, output).CreateCommand(),
+            new LocCommand(repository, output).CreateCommand()));
+        root.Subcommands.Add(new RunsCommand(repository, output).CreateCommand());
+        root.Subcommands.Add(new ConfigCommand(repository, _models.Config, output, input ?? Console.In).CreateCommand());
+        root.Subcommands.Add(CommandLine.Group("tool", "Install or update the developer tool itself",
+            new InstallCommand(repository, runner, output).CreateCommand()));
         return root;
-    }
-
-    internal static Command Group(string name, string description, params Command[] commands)
-    {
-        var group = new Command(name, description);
-        group.SetAction(parse => new HelpAction().Invoke(parse));
-        foreach (var command in commands) group.Subcommands.Add(command);
-        return group;
     }
 
     public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken)
@@ -64,6 +54,22 @@ internal sealed class DeveloperCli(
             return 2;
         }
     }
+}
+
+internal static class CommandLine
+{
+    public static Command Group(string name, string description, params Command[] commands)
+    {
+        var group = new Command(name, description);
+        group.SetAction(parse => new HelpAction().Invoke(parse));
+        foreach (var command in commands) group.Subcommands.Add(command);
+        return group;
+    }
+
+    public static Option<bool> Json() => new("--json") { Description = "Print JSON" };
+
+    public static Task WriteJsonAsync(TextWriter output, object? value) =>
+        output.WriteLineAsync(JsonSerializer.Serialize(value, JsonOptions.Indented));
 }
 
 internal sealed class CommandUsageException(string message) : Exception(message);

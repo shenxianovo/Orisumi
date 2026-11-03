@@ -43,12 +43,12 @@ public sealed class ReviewTests
     [Test]
     public async Task FindingsComeFromConfidentAnswersAndRepeatedQuestionsUseTheCache()
     {
-        using var workspace = new Workspace();
+        using var workspace = new TestRepository(withProjects: false);
         var client = new FakeClient(input => input.Contains("否定", StringComparison.Ordinal) ? 0.9 : 0.1);
         var target = new ReviewTarget("docs/a.md", [new Passage(3, "一段正常的话"), new Passage(7, "一段否定的话")]);
 
-        var first = await new Reviewer(workspace.Repository, client).ReviewAsync([Rule], [target], [], workspace.Evidence(), CancellationToken.None);
-        var second = await new Reviewer(workspace.Repository, client).ReviewAsync([Rule], [target], [], workspace.Evidence(), CancellationToken.None);
+        var first = (await new Reviewer(workspace.Context, client).ReviewAsync([Rule], [target], [], CancellationToken.None)).Report;
+        var second = (await new Reviewer(workspace.Context, client).ReviewAsync([Rule], [target], [], CancellationToken.None)).Report;
 
         await Assert.That(string.Join('|', first.Findings.Select(finding => $"{finding.Path}:{finding.Line}"))).IsEqualTo("docs/a.md:7");
         await Assert.That(first.Judgments.Count).IsEqualTo(2);
@@ -62,22 +62,22 @@ public sealed class ReviewTests
     [Arguments(0.1, "违反的例子")]
     public async Task CalibrationReportsExamplesTheRuleGetsWrong(double probability, string missed)
     {
-        using var workspace = new Workspace();
-        var report = await new Reviewer(workspace.Repository, new FakeClient(_ => probability))
-            .ReviewAsync([Rule], [], [Rule], workspace.Evidence(), CancellationToken.None);
+        using var workspace = new TestRepository(withProjects: false);
+        var report = (await new Reviewer(workspace.Context, new FakeClient(_ => probability))
+            .ReviewAsync([Rule], [], [Rule], CancellationToken.None)).Report;
         await Assert.That(string.Join('|', report.Misses.Select(miss => miss.Example))).IsEqualTo(missed);
     }
 
     [Test]
     public async Task FailedCallsLeaveTheReviewIncompleteAndUncached()
     {
-        using var workspace = new Workspace();
+        using var workspace = new TestRepository(withProjects: false);
         var target = new ReviewTarget("docs/a.md", [new Passage(1, "一段话")]);
-        var report = await new Reviewer(workspace.Repository, new FakeClient(_ => throw new DecisionException("Decisions API returned 500: boom", [])))
-            .ReviewAsync([Rule], [target], [], workspace.Evidence(), CancellationToken.None);
+        var report = (await new Reviewer(workspace.Context, new FakeClient(_ => throw new DecisionException("Decisions API returned 500: boom", [])))
+            .ReviewAsync([Rule], [target], [], CancellationToken.None)).Report;
         await Assert.That(report.Completed).IsFalse();
         await Assert.That(report.Failures.Single()).Contains("500");
-        await Assert.That(Directory.Exists(workspace.Repository.Path(".artifacts", "review-cache"))).IsFalse();
+        await Assert.That(Directory.Exists(workspace.Context.Path(".artifacts", "review-cache"))).IsFalse();
     }
 
     [Test]
@@ -92,11 +92,9 @@ public sealed class ReviewTests
     [Test]
     public async Task VerifySkipsReviewWithoutAKeyAndStillPasses()
     {
-        using var workspace = new Workspace();
-        workspace.WriteRule();
-        workspace.Write("docs/guide.md", "新写的一段话");
-        var cli = new DeveloperCli(workspace.Repository, new ChangedRunner("docs/guide.md"), workspace.Output, TextWriter.Null,
-            new ModelAccess(workspace.Config, _ => throw new InvalidOperationException("no client without a key")));
+        using var workspace = Workspace();
+        var cli = new DeveloperCli(workspace.Context, new FixedRunner(0), workspace.Output, TextWriter.Null,
+            new ModelAccess(Config(workspace), _ => throw new InvalidOperationException("no client without a key")));
 
         await Assert.That(await cli.RunAsync(["verify", "--base", "HEAD"], CancellationToken.None)).IsEqualTo(0);
         await Assert.That(workspace.Output.ToString()).Contains("no OpenAI API key");
@@ -106,16 +104,16 @@ public sealed class ReviewTests
     [Test]
     public async Task VerifyReportsReviewFindingsWithoutFailing()
     {
-        using var workspace = new Workspace();
-        workspace.WriteRule();
-        workspace.Write("docs/guide.md", "新写的一段话");
-        workspace.Config.Set(UserConfig.OpenAIApiKey, "sk-test-0123456789");
-        var cli = new DeveloperCli(workspace.Repository, new ChangedRunner("docs/guide.md"), workspace.Output, TextWriter.Null,
-            new ModelAccess(workspace.Config, _ => new FakeClient(_ => 0.9)));
+        using var workspace = Workspace();
+        var config = Config(workspace);
+        config.Set(UserConfig.OpenAIApiKey, "sk-test-0123456789");
+        var cli = new DeveloperCli(workspace.Context, new FixedRunner(0), workspace.Output, TextWriter.Null,
+            new ModelAccess(config, _ => new FakeClient(_ => 0.9)));
 
         await Assert.That(await cli.RunAsync(["verify", "--base", "HEAD", "--json"], CancellationToken.None)).IsEqualTo(0);
         using var result = JsonDocument.Parse(workspace.Output.ToString());
-        var finding = result.RootElement.GetProperty("review").GetProperty("findings").EnumerateArray().Single();
+        var review = result.RootElement.GetProperty("checks").EnumerateArray().Single(check => check.GetProperty("name").GetString() == "review");
+        var finding = review.GetProperty("report").GetProperty("findings").EnumerateArray().Single();
         await Assert.That(finding.GetProperty("path").GetString()).IsEqualTo("docs/guide.md");
     }
 
@@ -135,50 +133,17 @@ public sealed class ReviewTests
         }
     }
 
-    private sealed class ChangedRunner(string path) : IProcessRunner
+    private static TestRepository Workspace()
     {
-        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken) =>
-            Task.FromResult(fileName == "git"
-                ? arguments[0] switch
-                {
-                    "diff" => new ProcessResult(0, path + "\0", ""),
-                    "show" => new ProcessResult(128, "", "does not exist"),
-                    _ => new ProcessResult(0, "", ""),
-                }
-                : new ProcessResult(0, "", ""));
-    }
-
-    private sealed class Workspace : IDisposable
-    {
-        public RepositoryContext Repository { get; } = new(Path.Combine(Path.GetTempPath(), "orisumi-review-tests-" + Guid.NewGuid().ToString("N")));
-        public StringWriter Output { get; } = new();
-        public UserConfig Config { get; }
-
-        public Workspace()
-        {
-            Directory.CreateDirectory(Repository.Root);
-            Config = new UserConfig(Repository.Path("home", "config.json"));
-        }
-
-        public string Evidence() => Directory.CreateDirectory(Repository.Path("evidence", Guid.NewGuid().ToString("N"))).FullName;
-
-        public void Write(string path, string text)
-        {
-            var full = Repository.Path(path);
-            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-            File.WriteAllText(full, text);
-        }
-
-        public void WriteRule() => Write(ReviewRules.Directory + "plain.json", JsonSerializer.Serialize(new
+        var workspace = new TestRepository(withProjects: false);
+        workspace.Write(ReviewRules.Directory + "plain.json", JsonSerializer.Serialize(new
         {
             title = Rule.Title, paths = Rule.Paths, question = Rule.Question, violations = Rule.Violations, conforming = Rule.Conforming,
         }));
-
-        public void Dispose()
-        {
-            Output.Dispose();
-            Directory.Delete(Repository.Root, true);
-        }
+        workspace.Commit();
+        workspace.Write("docs/guide.md", "新写的一段话");
+        return workspace;
     }
+
+    private static UserConfig Config(TestRepository workspace) => new(workspace.Context.Path(".artifacts", "home", "config.json"));
 }

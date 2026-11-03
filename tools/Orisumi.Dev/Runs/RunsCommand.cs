@@ -1,7 +1,5 @@
 using System.CommandLine;
-using System.CommandLine.Help;
 using System.Globalization;
-using System.Text.Json;
 using Spectre.Console;
 
 namespace Orisumi.Dev;
@@ -12,18 +10,17 @@ internal sealed class RunsCommand(RepositoryContext repository, TextWriter outpu
 
     public Command CreateCommand()
     {
-        var command = new Command("runs", "List or prune verification and analysis records for this checkout");
-        command.SetAction(parse => new HelpAction().Invoke(parse));
+        var command = CommandLine.Group("runs", "List or prune verification and analysis records for this checkout");
         var list = new Command("list", "List verification runs");
-        var listJson = new Option<bool>("--json") { Description = "Print JSON" };
+        var listJson = CommandLine.Json();
         list.Options.Add(listJson);
         list.SetAction(parse => ListAsync(parse.GetValue(listJson)));
         var prune = new Command("prune", "Preview evidence pruning by the default retention policy; --apply deletes selected runs");
         var apply = new Option<bool>("--apply") { Description = "Delete selected verification runs" };
-        var pruneJson = new Option<bool>("--json") { Description = "Print JSON" };
+        var pruneJson = CommandLine.Json();
         prune.Options.Add(apply);
         prune.Options.Add(pruneJson);
-        prune.SetAction((parse, token) => PruneAsync(parse.GetValue(apply), parse.GetValue(pruneJson), token));
+        prune.SetAction(parse => PruneAsync(parse.GetValue(apply), parse.GetValue(pruneJson)));
         command.Subcommands.Add(list);
         command.Subcommands.Add(prune);
         return command;
@@ -34,11 +31,11 @@ internal sealed class RunsCommand(RepositoryContext repository, TextWriter outpu
         var runs = _store.List();
         if (json)
         {
-            await output.WriteLineAsync(JsonSerializer.Serialize(new
+            await CommandLine.WriteJsonAsync(output, new
             {
                 root = _store.Root,
                 runs = runs.Select(run => new { run.Id, run.Directory, run.CreatedAt }),
-            }, JsonOptions.Indented));
+            });
             return 0;
         }
         var console = Terminal.Create(output);
@@ -69,7 +66,7 @@ internal sealed class RunsCommand(RepositoryContext repository, TextWriter outpu
         return
         [
             When(run.Run.CreatedAt, now),
-            Terminal.Esc(run.What),
+            Terminal.Esc(run.Title),
             $"{Terminal.Mark(outcome)} {Terminal.Verdict(outcome, result)}",
             run.Duration is { } duration ? Terminal.Duration(duration) : "",
             $"[grey]{Terminal.Esc(string.Join(", ", run.Failed))}[/]",
@@ -89,25 +86,17 @@ internal sealed class RunsCommand(RepositoryContext repository, TextWriter outpu
         return $"{day,-9} {local:HH:mm}";
     }
 
-    private async Task<int> PruneAsync(bool apply, bool json, CancellationToken cancellationToken)
+    private async Task<int> PruneAsync(bool apply, bool json)
     {
-        var outcome = _store.SelectForPruning(RetentionPolicy.Default);
-        if (apply)
-        {
-            foreach (var candidate in outcome.Candidates)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                _store.Delete(candidate);
-            }
-        }
+        var outcome = apply ? _store.Prune(RetentionPolicy.Default) : _store.SelectForPruning(RetentionPolicy.Default);
         if (json)
         {
-            await output.WriteLineAsync(JsonSerializer.Serialize(new
+            await CommandLine.WriteJsonAsync(output, new
             {
                 applied = apply,
                 bytes = outcome.Bytes,
                 candidates = outcome.Candidates.Select(run => run.Id),
-            }, JsonOptions.Indented));
+            });
             return 0;
         }
         var console = Terminal.Create(output);

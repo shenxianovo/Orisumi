@@ -1,6 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Help;
-using System.Text.Json;
 using Spectre.Console;
 
 namespace Orisumi.Dev;
@@ -9,11 +7,8 @@ internal sealed class ConfigCommand(RepositoryContext repository, UserConfig con
 {
     public Command CreateCommand()
     {
-        var command = new Command("config", "Show or change user settings shared by every checkout on this machine");
-        command.SetAction(parse => new HelpAction().Invoke(parse));
-
         var list = new Command("list", "List settings; secrets are masked");
-        var json = new Option<bool>("--json") { Description = "Print JSON" };
+        var json = CommandLine.Json();
         list.Options.Add(json);
         list.SetAction(parse => ListAsync(parse.GetValue(json)));
 
@@ -29,10 +24,7 @@ internal sealed class ConfigCommand(RepositoryContext repository, UserConfig con
         unset.Arguments.Add(unsetName);
         unset.SetAction(parse => Unset(UserConfig.Find(parse.GetValue(unsetName)!)));
 
-        command.Subcommands.Add(list);
-        command.Subcommands.Add(set);
-        command.Subcommands.Add(unset);
-        return command;
+        return CommandLine.Group("config", "Show or change user settings shared by every checkout on this machine", list, set, unset);
     }
 
     private static Argument<string> NameArgument() =>
@@ -43,7 +35,7 @@ internal sealed class ConfigCommand(RepositoryContext repository, UserConfig con
         var settings = UserConfig.Keys.Select(key => (Key: key, Value: config.Get(key))).ToArray();
         if (json)
         {
-            await output.WriteLineAsync(JsonSerializer.Serialize(new
+            await CommandLine.WriteJsonAsync(output, new
             {
                 path = config.Path,
                 settings = settings.Select(setting => new
@@ -53,7 +45,7 @@ internal sealed class ConfigCommand(RepositoryContext repository, UserConfig con
                     value = setting.Value is { } value ? UserConfig.Display(setting.Key, value) : null,
                     description = setting.Key.Description,
                 }),
-            }, JsonOptions.Indented));
+            });
             return 0;
         }
         var console = Terminal.Create(output);

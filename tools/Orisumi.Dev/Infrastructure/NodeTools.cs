@@ -1,6 +1,6 @@
 namespace Orisumi.Dev;
 
-internal sealed class NodeTools(RepositoryContext repository)
+internal sealed class NodeTools(RepositoryContext repository, IProcessRunner runner)
 {
     public string Directory { get; } = repository.Path("tools", "Orisumi.Dev", "node-tools");
 
@@ -12,7 +12,7 @@ internal sealed class NodeTools(RepositoryContext repository)
     public async Task EnsureAsync(CancellationToken cancellationToken)
     {
         if (System.IO.Directory.Exists(Path.Combine(Directory, "node_modules"))) return;
-        var installed = await ProcessRunner.CaptureAsync(Directory, "npm", ["ci", "--ignore-scripts"], cancellationToken);
+        var installed = await runner.CaptureAsync(new("npm", ["ci", "--ignore-scripts"], Directory), cancellationToken);
         if (installed.ExitCode != 0)
             throw new InvalidOperationException($"Installing {Path.GetFileName(Directory)} failed: {installed.StdErr.Trim()}");
     }

@@ -82,8 +82,7 @@ public sealed class ConfigTests
 
     private sealed class NoProcesses : IProcessRunner
     {
-        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken) =>
+        public Task<ProcessResult> CaptureAsync(ProcessCommand command, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("no processes");
     }
 }

@@ -20,30 +20,30 @@ public sealed class TerminalTests
     }
 
     [Test]
-    public async Task RunSummaryReadsTheOutcomeAndFailedSteps()
+    [Arguments("verify changed")]
+    [Arguments("review check")]
+    public async Task RunSummaryShowsTheCommandThatStartedTheRunAndItsFailedChecks(string title)
     {
         var directory = Path.Combine(Path.GetTempPath(), "orisumi-run-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
             var started = DateTimeOffset.UtcNow;
-            File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(new
+            File.WriteAllText(Path.Combine(directory, RunFiles.Manifest), JsonSerializer.Serialize(new
             {
-                kind = "verify", name = "full-fallback", exitCode = 1,
-                startedAt = started, completedAt = started.AddSeconds(95),
+                title, exitCode = 1, startedAt = started, completedAt = started.AddSeconds(95),
             }));
-            File.WriteAllText(Path.Combine(directory, "verification.json"), JsonSerializer.Serialize(new
+            File.WriteAllText(Path.Combine(directory, RunFiles.Verification), JsonSerializer.Serialize(new
             {
-                results = new object[] { new { name = "build", exitCode = 0 }, new { name = "tests", exitCode = 1 } },
+                checks = new object[] { new { name = "dotnet build", exitCode = 0 }, new { name = "quality", exitCode = 1 } },
             }));
-            File.WriteAllText(Path.Combine(directory, "quality.json"), "{}");
 
             var summary = RunStore.Summarize(new RunRecord("run", directory, started));
 
-            await Assert.That(summary.What).IsEqualTo("verify full (fallback) + quality");
+            await Assert.That(summary.Title).IsEqualTo(title);
             await Assert.That(summary.ExitCode).IsEqualTo(1);
             await Assert.That(summary.Duration).IsEqualTo(TimeSpan.FromSeconds(95));
-            await Assert.That(string.Join(",", summary.Failed)).IsEqualTo("tests");
+            await Assert.That(string.Join(",", summary.Failed)).IsEqualTo("quality");
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
@@ -57,7 +57,7 @@ public sealed class TerminalTests
         {
             var summary = RunStore.Summarize(new RunRecord("20261030T050639Z-verify-changed-abc", directory, DateTimeOffset.UtcNow));
             await Assert.That(summary.ExitCode).IsNull();
-            await Assert.That(summary.What).IsEqualTo("verify changed");
+            await Assert.That(summary.Title).IsEqualTo("20261030T050639Z-verify-changed-abc");
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
@@ -67,5 +67,5 @@ public sealed class TerminalTests
     [Arguments("FunctionDeclaration:useDay/FunctionDeclaration:experienceOf", "useDay.experienceOf")]
     [Arguments("FunctionDeclaration:EntityPage", "EntityPage")]
     public async Task AnalyzerSymbolsKeepTheTypeAndFunctionName(string symbol, string expected) =>
-        await Assert.That(QualityCommand.ShortSymbol(symbol)).IsEqualTo(expected);
+        await Assert.That(QualityCheck.ShortSymbol(symbol)).IsEqualTo(expected);
 }

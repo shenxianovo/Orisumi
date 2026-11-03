@@ -11,15 +11,14 @@ public sealed class CliContractTests
     [Arguments(130)]
     public async Task JsonExecutionReportsTheOutcomeWithoutProgressOnStdout(int exitCode)
     {
-        using var fixture = new CliFixture();
+        using var repository = Changed();
         using var error = new StringWriter();
-        var cli = new DeveloperCli(fixture.Repository, new CheckRunner(exitCode), fixture.Output, error);
-        var actual = await cli.RunAsync(["verify", "--base", "HEAD", "--json"], CancellationToken.None);
-        await Assert.That(actual).IsEqualTo(exitCode);
-        using var result = JsonDocument.Parse(fixture.Output.ToString());
+        var cli = new DeveloperCli(repository.Context, new FixedRunner(exitCode), repository.Output, error);
+        await Assert.That(await cli.RunAsync(["verify", "--base", "HEAD", "--json"], CancellationToken.None)).IsEqualTo(exitCode);
+        using var result = JsonDocument.Parse(repository.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(exitCode);
-        await Assert.That(result.RootElement.GetProperty("verification").GetProperty("results").GetArrayLength()).IsGreaterThan(0);
-        await Assert.That(error.ToString().Contains("dotnet-build", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(Check(result, "dotnet build").GetProperty("exitCode").GetInt32()).IsEqualTo(exitCode);
+        await Assert.That(error.ToString()).Contains("dotnet build");
     }
 
     [Test]
@@ -32,12 +31,13 @@ public sealed class CliContractTests
     [Arguments("config")]
     public async Task GroupsShowHelpWithoutPerformingOperations(string path)
     {
-        using var fixture = new CliFixture();
-        var cli = new DeveloperCli(fixture.Repository, fixture.Runner, fixture.Output, TextWriter.Null);
+        using var repository = new TestRepository(withProjects: false);
+        var runner = new FixedRunner(0);
+        var cli = new DeveloperCli(repository.Context, runner, repository.Output, TextWriter.Null);
         await Assert.That(await cli.RunAsync(path.Split(' ', StringSplitOptions.RemoveEmptyEntries), CancellationToken.None)).IsEqualTo(0);
-        await Assert.That(fixture.Runner.Calls.Count).IsEqualTo(0);
-        await Assert.That(fixture.Output.ToString().Contains("orisumi", StringComparison.Ordinal)).IsTrue();
-        await Assert.That(fixture.Output.ToString().Contains("Orisumi.Dev", StringComparison.Ordinal)).IsFalse();
+        await Assert.That(runner.Calls.Count).IsEqualTo(0);
+        await Assert.That(repository.Output.ToString()).Contains("orisumi");
+        await Assert.That(repository.Output.ToString()).DoesNotContain("Orisumi.Dev");
     }
 
     [Test]
@@ -53,27 +53,28 @@ public sealed class CliContractTests
     [Arguments("verify --scope all --quality")]
     public async Task InvalidCommandsDoNotPerformOperations(string arguments)
     {
-        using var fixture = new CliFixture();
-        var cli = new DeveloperCli(fixture.Repository, fixture.Runner, fixture.Output, TextWriter.Null);
+        using var repository = new TestRepository(withProjects: false);
+        var runner = new FixedRunner(0);
+        var cli = new DeveloperCli(repository.Context, runner, repository.Output, TextWriter.Null);
         await Assert.That(await cli.RunAsync(arguments.Split(' '), CancellationToken.None)).IsEqualTo(2);
-        await Assert.That(fixture.Runner.Calls.Count).IsEqualTo(0);
+        await Assert.That(runner.Calls.Count).IsEqualTo(0);
     }
 
     [Test]
     [Arguments("changed", true)]
     [Arguments("all", false)]
-    public async Task ScopePlansDoNotExecuteChecksOrCreateEvidence(string scope, bool quality)
+    public async Task PlansDoNotExecuteChecksOrCreateEvidence(string scope, bool quality)
     {
-        using var fixture = new CliFixture();
-        var runner = new CheckRunner(0);
-        var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
+        using var repository = Changed();
+        var runner = new FixedRunner(0);
+        var cli = new DeveloperCli(repository.Context, runner, repository.Output, TextWriter.Null);
         string[] selection = quality ? ["--base", "HEAD", "--quality"] : [];
         await Assert.That(await cli.RunAsync(["verify", "--scope", scope, .. selection, "--plan", "--json"], CancellationToken.None)).IsEqualTo(0);
-        using var result = JsonDocument.Parse(fixture.Output.ToString());
-        await Assert.That(result.RootElement.GetProperty("mode").GetString()).IsEqualTo(scope == "all" ? "full" : "changed");
-        await Assert.That(result.RootElement.GetProperty("quality").GetBoolean()).IsEqualTo(quality);
-        await Assert.That(runner.Calls.All(call => call.File == "git")).IsTrue();
-        await Assert.That(new RunStore(fixture.Repository).List().Count).IsEqualTo(0);
+        using var result = JsonDocument.Parse(repository.Output.ToString());
+        await Assert.That(result.RootElement.GetProperty("scope").GetString()).IsEqualTo(scope);
+        await Assert.That(Names(result).Contains("quality")).IsEqualTo(quality);
+        await Assert.That(runner.Calls.Count).IsEqualTo(0);
+        await Assert.That(new RunStore(repository.Context).List().Count).IsEqualTo(0);
     }
 
     [Test]
@@ -81,84 +82,51 @@ public sealed class CliContractTests
     [Arguments(false)]
     public async Task DefaultChangedScopeOnlyInfersHeadForDirtyWorktrees(bool dirty)
     {
-        using var fixture = new CliFixture();
-        var runner = new CheckRunner(0) { Dirty = dirty };
-        var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
-        var code = await cli.RunAsync(["verify", "--plan", "--json"], CancellationToken.None);
-        await Assert.That(code).IsEqualTo(dirty ? 0 : 2);
+        using var repository = dirty ? Changed() : new TestRepository();
+        var cli = new DeveloperCli(repository.Context, new FixedRunner(0), repository.Output, TextWriter.Null);
+        await Assert.That(await cli.RunAsync(["verify", "--plan", "--json"], CancellationToken.None)).IsEqualTo(dirty ? 0 : 2);
         if (!dirty) return;
-        using var result = JsonDocument.Parse(fixture.Output.ToString());
+        using var result = JsonDocument.Parse(repository.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("base").GetString()).IsEqualTo("HEAD");
     }
 
     [Test]
-    public async Task CombinedJsonReportsQualityFailureSeparatelyFromPassingChecks()
+    public async Task AnIncompleteQualityScanFailsTheRunWithoutHidingPassingChecks()
     {
-        using var fixture = new CliFixture();
-        var runner = new CheckRunner(0);
-        var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
-        var code = await cli.RunAsync(["verify", "--base", "HEAD", "--quality", "--json"], CancellationToken.None);
-        await Assert.That(code).IsEqualTo(1);
-        using var result = JsonDocument.Parse(fixture.Output.ToString());
-        await Assert.That(result.RootElement.GetProperty("verification").GetProperty("exitCode").GetInt32()).IsEqualTo(0);
-        await Assert.That(result.RootElement.GetProperty("quality").GetProperty("completed").GetBoolean()).IsFalse();
-        await Assert.That(new RunStore(fixture.Repository).List().Count).IsEqualTo(1);
+        using var repository = Changed();
+        var cli = new DeveloperCli(repository.Context, new FixedRunner(0), repository.Output, TextWriter.Null);
+        await Assert.That(await cli.RunAsync(["verify", "--base", "HEAD", "--quality", "--json"], CancellationToken.None)).IsEqualTo(1);
+        using var result = JsonDocument.Parse(repository.Output.ToString());
+        await Assert.That(Check(result, "dotnet build").GetProperty("exitCode").GetInt32()).IsEqualTo(0);
+        await Assert.That(Check(result, "quality").GetProperty("report").GetProperty("completed").GetBoolean()).IsFalse();
+        var run = new RunStore(repository.Context).List().Single();
+        await Assert.That(RunStore.Summarize(run).Failed).IsEquivalentTo(["quality"]);
     }
 
     [Test]
     public async Task CancellationProducesAJsonResultAndPreservesPartialEvidence()
     {
-        using var fixture = new CliFixture();
-        var runner = new CheckRunner(0) { Cancel = true };
-        var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
+        using var repository = Changed();
+        var cli = new DeveloperCli(repository.Context, new FixedRunner(0) { Cancel = true }, repository.Output, TextWriter.Null);
         await Assert.That(async () => await cli.RunAsync(["verify", "--base", "HEAD", "--json"], CancellationToken.None))
             .Throws<OperationCanceledException>();
-        using var result = JsonDocument.Parse(fixture.Output.ToString());
+        using var result = JsonDocument.Parse(repository.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);
-        var run = new RunStore(fixture.Repository).List().Single();
+        var run = new RunStore(repository.Context).List().Single();
         await Assert.That(File.ReadAllText(Path.Combine(run.Directory, "dotnet-build.log"))).IsEqualTo("partial output");
-        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(run.Directory, "manifest.json")));
-        await Assert.That(manifest.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);
+        await Assert.That(RunStore.Summarize(run).ExitCode).IsEqualTo(130);
     }
 
-    private sealed class CliFixture : IDisposable
+    private static TestRepository Changed()
     {
-        public RepositoryContext Repository { get; } = new(Path.Combine(Path.GetTempPath(), "orisumi-cli-tests-" + Guid.NewGuid().ToString("N")));
-        public CallRunner Runner { get; } = new();
-        public StringWriter Output { get; } = new();
-        public CliFixture() => Directory.CreateDirectory(Repository.Root);
-        public void Dispose() { Output.Dispose(); Directory.Delete(Repository.Root, true); }
+        var repository = new TestRepository();
+        repository.Write("tools/Example/Example.cs", "class Example { int Value => 1; }");
+        return repository;
     }
 
-    private sealed class CallRunner : IProcessRunner
-    {
-        public List<(string File, string[] Args)> Calls { get; } = [];
-        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken)
-        {
-            Calls.Add((fileName, arguments.ToArray()));
-            return Task.FromResult(new ProcessResult(0, "", ""));
-        }
-    }
+    private static JsonElement Check(JsonDocument result, string name) =>
+        result.RootElement.GetProperty("checks").EnumerateArray().Single(check => check.GetProperty("name").GetString() == name);
 
-    private sealed class CheckRunner(int exitCode) : IProcessRunner
-    {
-        public bool Dirty { get; init; }
-        public bool Cancel { get; init; }
-        public List<(string File, string[] Args)> Calls { get; } = [];
-        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken)
-        {
-            Calls.Add((fileName, arguments.ToArray()));
-            if (fileName == "git") return Task.FromResult(new ProcessResult(0, arguments[0] switch
-            {
-                "diff" => "tools/Orisumi.Dev/DeveloperCli.cs\0",
-                "rev-parse" => "1234567890abcdef",
-                "status" when Dirty => " M tools/Orisumi.Dev/DeveloperCli.cs",
-                _ => "",
-            }, ""));
-            if (Cancel) throw new CapturedProcessCancelledException("partial output", "", cancellationToken);
-            return Task.FromResult(new ProcessResult(exitCode, "build or test output", ""));
-        }
-    }
+    private static string[] Names(JsonDocument result) =>
+        [.. result.RootElement.GetProperty("checks").EnumerateArray().Select(check => check.GetProperty("name").GetString()!)];
 }

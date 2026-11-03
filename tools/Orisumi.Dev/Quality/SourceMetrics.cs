@@ -1,56 +1,34 @@
-using System.Collections.ObjectModel;
-
 namespace Orisumi.Dev;
-
-internal enum SourceRole
-{
-    Production,
-    Test,
-    Tooling,
-
-    Build,
-    Documentation,
-    Generated,
-
-    Unclassified,
-}
 
 internal sealed record SourceFileMetric(string Path, string Language, SourceRole Role, int Lines);
 
-internal sealed record SourceSnapshot(string Revision, IReadOnlyList<SourceFileMetric> Files)
+internal sealed record SourceSnapshot(IReadOnlyList<SourceFileMetric> Files)
 {
-    public IReadOnlyDictionary<string, int> ProductionByLanguage => new ReadOnlyDictionary<string, int>(
-        Files.Where(file => file.Role == SourceRole.Production)
-            .GroupBy(file => file.Language, StringComparer.Ordinal)
-            .OrderBy(group => group.Key, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.Sum(file => file.Lines), StringComparer.Ordinal));
-
-    public int ProductionLines => Lines(SourceRole.Production);
-    public int ProductionFiles => Files.Count(file => file.Role == SourceRole.Production);
-    public int TestLines => Lines(SourceRole.Test);
-    public int ToolingLines => Lines(SourceRole.Tooling);
-    public int BuildLines => Lines(SourceRole.Build);
-    public int UnclassifiedLines => Lines(SourceRole.Unclassified);
+    public int ProductionLines => Files.Where(file => file.Role == SourceRole.Production).Sum(file => file.Lines);
 
     public IReadOnlyList<string> UnclassifiedPaths => [.. Files
         .Where(file => file.Role == SourceRole.Unclassified)
         .Select(file => file.Path)
         .Order(StringComparer.Ordinal)];
 
-    public IReadOnlyList<string> CodeRoots => [.. Files
-        .Where(file => file.Role is not (SourceRole.Documentation or SourceRole.Generated))
-        .Select(file => file.Path.Split('/'))
-        .Where(segments => segments.Length > 1)
-        .Select(segments => segments[0])
-        .Distinct(StringComparer.Ordinal)
-        .Order(StringComparer.Ordinal)];
-
-    private int Lines(SourceRole role) => Files.Where(file => file.Role == role).Sum(file => file.Lines);
+    public static async Task<SourceSnapshot> ReadAsync(string root, ProjectLayout layout, CancellationToken cancellationToken)
+    {
+        var files = new List<SourceFileMetric>();
+        foreach (var path in await new Git(root).FilesAsync(cancellationToken))
+        {
+            if (!layout.TryClassify(path, out var language, out var role)) continue;
+            var absolute = System.IO.Path.Combine([root, .. path.Split('/')]);
+            if (!File.Exists(absolute)) continue;
+            var text = await File.ReadAllTextAsync(absolute, cancellationToken);
+            files.Add(new SourceFileMetric(path, language, role, SourceLineCounter.Count(text, language)));
+        }
+        return new SourceSnapshot(files);
+    }
 }
 
-internal static class SourceCorpus
+internal static class SourceLanguages
 {
-    private static readonly IReadOnlyDictionary<string, string> Languages =
+    private static readonly IReadOnlyDictionary<string, string> Extensions =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             [".cs"] = "C#",
@@ -78,55 +56,28 @@ internal static class SourceCorpus
             [".json"] = "JSON",
         };
 
-    private static readonly string[] ProductionRoots = ["src/"];
-
-    private static readonly string[] ToolingRoots =
-        ["tools/", "scripts/", ".agents/", ".config/", ".github/"];
-
     private static readonly string[] BuildLanguages = ["MSBuild", "XML", "Dockerfile", "YAML", "JSON"];
 
-    public static bool TryClassify(string path, out string language, out SourceRole role)
+    public static string? Of(string path)
     {
-        var normalized = path.Replace('\\', '/');
-        var name = Path.GetFileName(normalized);
-        language = name == "Dockerfile"
-            ? "Dockerfile"
-            : Languages.GetValueOrDefault(Path.GetExtension(name)) ?? string.Empty;
-        if (language.Length == 0)
-        {
-            role = default;
-            return false;
-        }
-
-        role = Classify(normalized, name, language);
-        return true;
+        var name = Path.GetFileName(path);
+        return name == "Dockerfile" ? "Dockerfile" : Extensions.GetValueOrDefault(Path.GetExtension(name));
     }
 
-    private static SourceRole Classify(string path, string name, string language) =>
-        IsGenerated(name) ? SourceRole.Generated
-        : language == "Markdown" || path.StartsWith("src/Docs/Orisumi.Docs/content/", StringComparison.Ordinal) ? SourceRole.Documentation
-        : IsBuild(name, language) ? SourceRole.Build
-        : IsTest(path, name) ? SourceRole.Test
-        : StartsWithAny(path, ProductionRoots) ? SourceRole.Production
-        : StartsWithAny(path, ToolingRoots) ? SourceRole.Tooling
-        : SourceRole.Unclassified;
-
-    private static bool StartsWithAny(string path, IReadOnlyList<string> roots) =>
-        roots.Any(root => path.StartsWith(root, StringComparison.Ordinal));
-
-    private static bool IsBuild(string name, string language) =>
+    public static bool IsBuild(string path, string language) =>
         BuildLanguages.Contains(language, StringComparer.Ordinal)
-        || name.Contains(".config.", StringComparison.Ordinal);
+        || Path.GetFileName(path).Contains(".config.", StringComparison.Ordinal);
 
-    private static bool IsGenerated(string name) =>
-        name.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase)
-        || name.EndsWith("ModelSnapshot.cs", StringComparison.OrdinalIgnoreCase)
-        || name is "next-env.d.ts"
-        || name is "pnpm-lock.yaml"
-        || name.EndsWith("-lock.json", StringComparison.OrdinalIgnoreCase)
-        || name is "package-lock.json";
+    public static bool IsGenerated(string path)
+    {
+        var name = Path.GetFileName(path);
+        return name.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("ModelSnapshot.cs", StringComparison.OrdinalIgnoreCase)
+            || name is "next-env.d.ts" or "pnpm-lock.yaml"
+            || name.EndsWith("-lock.json", StringComparison.OrdinalIgnoreCase);
+    }
 
-    private static bool IsTest(string path, string name)
+    public static bool IsTest(string path)
     {
         var segments = path.Split('/');
         if (segments[..^1].Any(segment => segment.Equals("tests", StringComparison.OrdinalIgnoreCase)
@@ -136,7 +87,7 @@ internal static class SourceCorpus
         {
             return true;
         }
-        var parts = name.Split('.');
+        var parts = segments[^1].Split('.');
         return parts.Length > 2 && parts[1..^1].Any(part => part is "test" or "spec");
     }
 }

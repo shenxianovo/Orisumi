@@ -60,6 +60,7 @@ Orisumi 正在从零重写。旧的设计和实现已经删除，留在 Git 历�
 - 代码里不写注释。需要解释的，改成更好的名字或一个测试，`orisumi lint` 检查。
 - 用户纠正了某类问题，能用代码查的写成检查，要靠判断的写成 `orisumi review` 的规则，把被纠正的原句放进违反的例子。
 - 修改 `tools/Orisumi.Dev` 后，在主检出目录运行 `orisumi tool install`，让全局命令和代码一致。用法见 [Orisumi.Dev README](tools/Orisumi.Dev/README.md)。
+- 新项目登记在根目录的 `Orisumi.slnx`，验证、质量扫描和行数统计都从它推导，见[项目清单](tools/Orisumi.Dev/README.md#项目清单)。
 
 ## 完成标准
 

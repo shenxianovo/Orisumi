@@ -1,6 +1,4 @@
 using System.CommandLine;
-using System.Text.Json;
-using System.Xml.Linq;
 using Spectre.Console;
 
 namespace Orisumi.Dev;
@@ -10,7 +8,6 @@ internal sealed record LocRoleRow(string Role, int Files, int Lines);
 internal sealed record LocRow(string Name, int Files, int Implementation, int Tests);
 
 internal sealed record LocReport(
-    string Revision,
     LocRow Code,
     IReadOnlyList<LocRoleRow> Roles,
     IReadOnlyList<LocRow> Modules,
@@ -19,9 +16,7 @@ internal sealed record LocReport(
 {
     public const string CrossModule = "Cross-module";
 
-    public static LocReport Create(
-        SourceSnapshot snapshot,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> testProjectReferences)
+    public static LocReport Create(SourceSnapshot snapshot, ProjectLayout layout)
     {
         var code = snapshot.Files
             .Where(file => file.Role is SourceRole.Production or SourceRole.Test or SourceRole.Tooling)
@@ -31,7 +26,7 @@ internal sealed record LocReport(
             .OrderBy(group => group.Key)
             .Select(group => new LocRoleRow(group.Key.ToString(), group.Count(), group.Sum(file => file.Lines)))
             .ToArray();
-        var modules = Rows(code, file => ModuleFor(file, testProjectReferences))
+        var modules = Rows(code, file => ModuleFor(layout.Owner(file.Path)!, layout))
             .OrderBy(row => row.Name == CrossModule)
             .ThenByDescending(row => row.Implementation)
             .ThenBy(row => row.Name, StringComparer.Ordinal)
@@ -40,7 +35,7 @@ internal sealed record LocReport(
             .OrderByDescending(row => row.Implementation)
             .ThenBy(row => row.Name, StringComparer.Ordinal)
             .ToArray();
-        return new LocReport(snapshot.Revision, Row("Total", code), roles, modules, languages, snapshot.UnclassifiedPaths);
+        return new LocReport(Row("Total", code), roles, modules, languages, snapshot.UnclassifiedPaths);
     }
 
     private static IEnumerable<LocRow> Rows(IEnumerable<SourceFileMetric> files, Func<SourceFileMetric, string> key) =>
@@ -52,84 +47,37 @@ internal sealed record LocReport(
         files.Where(file => file.Role != SourceRole.Test).Sum(file => file.Lines),
         files.Where(file => file.Role == SourceRole.Test).Sum(file => file.Lines));
 
-    private static string ModuleFor(
-        SourceFileMetric file,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> testProjectReferences)
+    private static string ModuleFor(Project owner, ProjectLayout layout)
     {
-        if (file.Role == SourceRole.Test && file.Path.Split('/') is ["tests", var project, ..])
-        {
-            var referenced = testProjectReferences.GetValueOrDefault(project, [])
-                .Select(PathModule)
-                .OfType<string>()
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            return referenced is [var module] ? module : CrossModule;
-        }
-        return PathModule(file.Path) ?? CrossModule;
+        if (owner.Role != SourceRole.Test) return owner.Name;
+        var referenced = layout.Projects
+            .Where(project => project.Role != SourceRole.Test && owner.References.Contains(project.Directory))
+            .Select(project => project.Name)
+            .ToArray();
+        return referenced is [var module] ? module : CrossModule;
     }
-
-    private static string? PathModule(string path) => path.Split('/') switch
-    {
-        ["src", "Docs", ..] => "Docs site",
-        ["src", var area, ..] => area,
-        ["tools", "Orisumi.Dev", ..] => "Developer CLI",
-        ["tests", ..] => null,
-        _ => "Repository tooling",
-    };
 }
 
-internal sealed class LocCommand(
-    RepositoryContext repository,
-    IProcessRunner runner,
-    TextWriter output)
+internal sealed class LocCommand(RepositoryContext repository, TextWriter output)
 {
     private const int BarWidth = 30;
 
     public Command CreateCommand()
     {
         var command = new Command("loc", "Count current effective LOC without running tests or analyzers");
-        var json = new Option<bool>("--json") { Description = "Print the report as JSON" };
+        var json = CommandLine.Json();
         command.Options.Add(json);
         command.SetAction((parse, token) => RunAsync(parse.GetValue(json), token));
         return command;
     }
 
-    public async Task<int> RunAsync(bool json, CancellationToken cancellationToken)
+    private async Task<int> RunAsync(bool json, CancellationToken cancellationToken)
     {
-        var snapshot = await new GitSourceReader(repository, runner).ReadWorktreeAsync(cancellationToken);
-        var references = await ReadTestProjectReferencesAsync(snapshot, cancellationToken);
-        var report = LocReport.Create(snapshot, references);
-        if (json)
-        {
-            await output.WriteLineAsync(JsonSerializer.Serialize(report, JsonOptions.Indented));
-            return 0;
-        }
-
-        Write(Terminal.Create(output), report);
+        var layout = ProjectLayout.Load(repository.Root);
+        var report = LocReport.Create(await SourceSnapshot.ReadAsync(repository.Root, layout, cancellationToken), layout);
+        if (json) await CommandLine.WriteJsonAsync(output, report);
+        else Write(Terminal.Create(output), report);
         return 0;
-    }
-
-    private async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> ReadTestProjectReferencesAsync(
-        SourceSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        var references = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-        foreach (var file in snapshot.Files)
-        {
-            if (file.Path.Split('/') is not ["tests", var project, var name]
-                || !name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)) continue;
-            var path = repository.Path("tests", project, name);
-            var directory = Path.GetDirectoryName(path)!;
-            await using var stream = File.OpenRead(path);
-            var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken);
-            references[project] = [.. document.Descendants("ProjectReference")
-                .Select(reference => reference.Attribute("Include")?.Value)
-                .OfType<string>()
-                .Select(include => Path.GetRelativePath(
-                    repository.Root, Path.GetFullPath(Path.Combine(directory, include.Replace('\\', '/'))))
-                    .Replace('\\', '/'))];
-        }
-        return references;
     }
 
     internal static void Write(IAnsiConsole console, LocReport report)

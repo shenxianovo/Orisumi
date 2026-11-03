@@ -28,6 +28,8 @@ internal sealed record ReviewReport(
     public bool Completed => Failures.Count == 0;
 }
 
+internal sealed record ReviewResult(ReviewReport Report, IReadOnlyList<DecisionCall> Calls);
+
 internal sealed class Reviewer(RepositoryContext repository, IDecisionClient client)
 {
     public const double Threshold = 0.5;
@@ -44,11 +46,10 @@ internal sealed class Reviewer(RepositoryContext repository, IDecisionClient cli
 
     private string CacheRoot => repository.Path(".artifacts", "review-cache");
 
-    public async Task<ReviewReport> ReviewAsync(
+    public async Task<ReviewResult> ReviewAsync(
         IReadOnlyList<ReviewRule> rules,
         IReadOnlyList<ReviewTarget> targets,
         IReadOnlyList<ReviewRule> calibrate,
-        string evidence,
         CancellationToken cancellationToken)
     {
         var passages = targets.SelectMany(target => target.Passages.SelectMany(passage =>
@@ -70,7 +71,7 @@ internal sealed class Reviewer(RepositoryContext repository, IDecisionClient cli
         var findings = passages
             .Where(item => Answer(item.Passage.Text, item.Rule) >= Threshold)
             .Select(item => new ReviewFinding(item.Path, item.Passage.Line, item.Rule.Id, item.Rule.Title,
-                Answer(item.Passage.Text, item.Rule)!.Value, Excerpt(item.Passage.Text)))
+                Answer(item.Passage.Text, item.Rule)!.Value, Terminal.Excerpt(item.Passage.Text)))
             .OrderBy(finding => finding.Path, StringComparer.Ordinal).ThenBy(finding => finding.Line)
             .ToArray();
         var misses = examples
@@ -89,17 +90,20 @@ internal sealed class Reviewer(RepositoryContext repository, IDecisionClient cli
             misses,
             judgments,
             judging.Failures);
-        await File.WriteAllTextAsync(Path.Combine(evidence, "review.json"),
-            JsonSerializer.Serialize(report, JsonOptions.Indented), CancellationToken.None);
-        await File.WriteAllLinesAsync(Path.Combine(evidence, "review-calls.jsonl"),
-            judging.Calls.Select(call => JsonSerializer.Serialize(new
+        return new ReviewResult(report, judging.Calls);
+    }
+
+    public static async Task SaveAsync(Run run, ReviewResult result)
+    {
+        await run.WriteJsonAsync(RunFiles.Review, result.Report);
+        await File.WriteAllLinesAsync(run.PathOf(RunFiles.ReviewCalls),
+            result.Calls.Select(call => JsonSerializer.Serialize(new
             {
                 status = call.Status,
                 elapsedMs = (int)call.Elapsed.TotalMilliseconds,
                 request = Json(call.Request),
                 response = Json(call.Response),
             }, JsonOptions.Compact)), CancellationToken.None);
-        return report;
     }
 
     private static object Json(string text)
@@ -177,11 +181,5 @@ internal sealed class Reviewer(RepositoryContext repository, IDecisionClient cli
         Directory.CreateDirectory(CacheRoot);
         await File.WriteAllTextAsync(CachePath(input, rule),
             JsonSerializer.Serialize(new CachedAnswer(probability), JsonOptions.Indented), cancellationToken);
-    }
-
-    internal static string Excerpt(string text)
-    {
-        var line = text.Split('\n')[0].Trim();
-        return line.Length > 60 ? line[..60] + "…" : line;
     }
 }

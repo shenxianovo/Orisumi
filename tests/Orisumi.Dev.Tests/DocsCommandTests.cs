@@ -26,11 +26,10 @@ public sealed class DocsCommandTests
     private sealed class PnpmRunner(int installExitCode) : IProcessRunner
     {
         public List<string> Calls { get; } = [];
-        public Task<ProcessResult> CaptureAsync(string fileName, IReadOnlyList<string> arguments,
-            IReadOnlyDictionary<string, string?>? environment, CancellationToken cancellationToken)
+        public Task<ProcessResult> CaptureAsync(ProcessCommand command, CancellationToken cancellationToken)
         {
-            Calls.Add($"{fileName} {string.Join(' ', arguments)}");
-            return Task.FromResult(new ProcessResult(arguments.Contains("install") ? installExitCode : 0, "", ""));
+            Calls.Add(command.ToString());
+            return Task.FromResult(new ProcessResult(command.Arguments.Contains("install") ? installExitCode : 0, "", ""));
         }
     }
 }
