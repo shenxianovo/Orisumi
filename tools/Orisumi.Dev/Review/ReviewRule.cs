@@ -3,54 +3,60 @@ using System.Text.RegularExpressions;
 
 namespace Orisumi.Dev;
 
+internal enum RuleKind { Writing, Noise }
+
 internal sealed record ReviewRule(
     string Id,
     string Title,
-    IReadOnlyList<string> Paths,
+    RuleKind Kind,
+    IReadOnlyList<string> Covers,
     string Question,
-    IReadOnlyList<string> Violations,
-    IReadOnlyList<string> Conforming)
+    IReadOnlyList<string> Yes,
+    IReadOnlyList<string> No)
 {
-    public bool Covers(string path) => Paths.Any(pattern => Glob.Matches(pattern, path));
+    public bool Applies(string subject) => Covers.Any(pattern => Glob.Matches(pattern, subject));
 }
 
 internal static class ReviewRules
 {
-    public const string Directory = "tools/Orisumi.Dev/Review/Rules/";
+    public const string WritingDirectory = "tools/Orisumi.Dev/Review/Rules/";
+    public const string NoiseDirectory = "tools/Orisumi.Dev/Review/Noise/";
 
     private sealed record RuleFile(
-        string? Title, string[]? Paths, string? Question, string[]? Violations, string[]? Conforming);
+        string? Title, string[]? Paths, string[]? Findings, string? Question, string[]? Yes, string[]? No);
 
-    public static IReadOnlyList<ReviewRule> Load(RepositoryContext repository)
+    public static IReadOnlyList<ReviewRule> Load(RepositoryContext repository) =>
+        [.. Load(repository, WritingDirectory, RuleKind.Writing), .. Load(repository, NoiseDirectory, RuleKind.Noise)];
+
+    private static IEnumerable<ReviewRule> Load(RepositoryContext repository, string relative, RuleKind kind)
     {
-        var directory = repository.Path(Directory);
-        if (!System.IO.Directory.Exists(directory)) return [];
-        return System.IO.Directory.EnumerateFiles(directory, "*.json")
+        var directory = repository.Path(relative);
+        return !Directory.Exists(directory) ? [] : Directory.EnumerateFiles(directory, "*.json")
             .Order(StringComparer.Ordinal)
-            .Select(Parse)
-            .ToArray();
+            .Select(path => Parse(path, kind));
     }
 
     public static bool Reviewable(string path, IReadOnlyList<ReviewRule> rules) =>
-        !ProjectLayout.IsScratch(path) && rules.Any(rule => rule.Covers(path));
+        !ProjectLayout.IsScratch(path) && rules.Any(rule => rule.Kind == RuleKind.Writing && rule.Applies(path));
 
     public static IReadOnlyList<ReviewRule> Changed(IReadOnlyList<ReviewRule> rules, IEnumerable<string> paths)
     {
-        var ids = paths.Select(IdOf).OfType<string>().ToHashSet(StringComparer.Ordinal);
-        return [.. rules.Where(rule => ids.Contains(rule.Id))];
+        var changed = paths.ToHashSet(StringComparer.Ordinal);
+        return [.. rules.Where(rule => changed.Contains(PathOf(rule)))];
     }
 
-    public static string? IdOf(string path) =>
-        path.StartsWith(Directory, StringComparison.Ordinal) && path.EndsWith(".json", StringComparison.Ordinal)
-            ? Path.GetFileNameWithoutExtension(path) : null;
+    public static string PathOf(ReviewRule rule) =>
+        (rule.Kind == RuleKind.Writing ? WritingDirectory : NoiseDirectory) + rule.Id + ".json";
 
-    private static ReviewRule Parse(string path)
+    private static ReviewRule Parse(string path, RuleKind kind)
     {
         var file = JsonSerializer.Deserialize<RuleFile>(File.ReadAllText(path), JsonOptions.Indented);
         var id = Path.GetFileNameWithoutExtension(path);
-        if (file is not { Title.Length: > 0, Paths.Length: > 0, Question.Length: > 0, Violations.Length: > 0, Conforming.Length: > 0 })
-            throw new InvalidOperationException($"Review rule {id} needs title, paths, question, violations and conforming.");
-        return new ReviewRule(id, file.Title, file.Paths, file.Question, file.Violations, file.Conforming);
+        var covers = kind == RuleKind.Writing ? file?.Paths : file?.Findings;
+        var coverField = kind == RuleKind.Writing ? "paths" : "findings";
+        if (file is not { Title.Length: > 0, Question.Length: > 0, Yes.Length: > 0, No.Length: > 0 } || covers is not { Length: > 0 })
+            throw new InvalidOperationException($"Rule {id} needs title, {coverField}, question, yes and no.");
+        return new ReviewRule(id, file.Title, kind, covers, file.Question, file.Yes, file.No);
     }
 }
 

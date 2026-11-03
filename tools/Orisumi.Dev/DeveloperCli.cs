@@ -24,7 +24,7 @@ internal sealed class DeveloperCli(
         root.Subcommands.Add(new ReviewCommand(repository, _models, output).CreateCommand());
         root.Subcommands.Add(new LintCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(CommandLine.Group("analyze", "Analyze code structure and size",
-            new QualityCommand(repository, runner, output).CreateCommand(),
+            new QualityCommand(repository, runner, _models, output).CreateCommand(),
             new LocCommand(repository, output).CreateCommand()));
         root.Subcommands.Add(new RunsCommand(repository, output).CreateCommand());
         root.Subcommands.Add(new ConfigCommand(repository, _models.Config, output, input ?? Console.In).CreateCommand());

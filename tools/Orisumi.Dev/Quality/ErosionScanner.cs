@@ -47,7 +47,7 @@ internal static class ErosionScanner
                     : node is TypeDeclarationSyntax ? $"{Identity(node)}/{function.Symbol}"
                     : Identity(node);
                 metrics.Add(new FunctionMetric("C#", function.Path, function.Line, symbol,
-                    function.Complexity, CountTokenLines(node), function.Column));
+                    function.Complexity, CountTokenLines(node), function.Column, node.GetLocation().GetLineSpan().EndLinePosition.Line + 1));
             }
         }
         return metrics;

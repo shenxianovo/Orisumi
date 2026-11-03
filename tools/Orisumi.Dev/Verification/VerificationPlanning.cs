@@ -33,7 +33,7 @@ internal sealed class VerificationPlanner(RepositoryContext repository, IProcess
         var baseRef = request.Quality ? await git.CommitAsync(requested, cancellationToken) : requested;
         var paths = await git.ChangedPathsAsync(baseRef, cancellationToken);
         var (checks, fallback) = ChecksFor(layout, paths);
-        if (request.Quality) checks = [.. checks, new QualityCheck(repository, runner, requested, baseRef)];
+        if (request.Quality) checks = [.. checks, new QualityCheck(repository, runner, models, requested, baseRef)];
         if (await ReviewCheck.ForChangesAsync(repository, models, baseRef, paths, cancellationToken) is { } review)
             checks = [.. checks, review];
         return new(VerificationScope.Changed, fallback, baseRef, paths, checks);

@@ -1,0 +1,4 @@
+[
+  { "rule": "knip/devDependencies", "path": "package.json", "symbol": "tailwindcss", "reason": "referenced-outside-code" },
+  { "rule": "knip/dependencies", "path": "package.json", "symbol": "@fontsource-variable/inter", "reason": "referenced-outside-code" }
+]

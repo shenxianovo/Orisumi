@@ -1,0 +1,18 @@
+{
+  "title": "框架约定的入口",
+  "findings": [
+    "knip/files",
+    "knip/exports",
+    "knip/types",
+    "knip/duplicates"
+  ],
+  "question": "这是一条「未使用」的发现，后面附有项目内的引用搜索结果。这个文件或导出是否是框架、构建工具按约定的文件名或导出名直接加载的入口，所以项目代码里不需要引用它？例如 Next.js 的 app 目录里的 page、layout、route 文件，或配置文件的默认导出。只是名字看起来像约定、但证据里看不出框架会加载它时回答否。",
+  "yes": [
+    "发现：knip/files\n位置：web/app/api/page-changes/route.dev.ts:1\n对象：app/api/page-changes/route.dev.ts\n所属项目：Web\n\n项目内对「app/api/page-changes/route.dev」的引用（1 处，不含项目清单和锁文件）：\nweb/next.config.mjs:13: const pageExtensionsWithDevelopmentApis = ['tsx', 'ts', 'jsx', 'js', 'dev.ts'];",
+    "发现：knip/files\n位置：web/app/blog/[slug]/page.tsx:1\n对象：app/blog/[slug]/page.tsx\n所属项目：Web\n\n项目内对「app/blog/[slug]/page」的引用（0 处，不含项目清单和锁文件）：\n（无）"
+  ],
+  "no": [
+    "发现：knip/files\n位置：web/lib/cn.ts:1\n对象：lib/cn.ts\n所属项目：Web\n\n项目内对「lib/cn」的引用（0 处，不含项目清单和锁文件）：\n（无）",
+    "发现：knip/exports\n位置：web/lib/routes.ts:21\n对象：legacyRoutes\n所属项目：Web\n\n项目内对「legacyRoutes」的引用（0 处，不含项目清单和锁文件）：\n（无）"
+  ]
+}

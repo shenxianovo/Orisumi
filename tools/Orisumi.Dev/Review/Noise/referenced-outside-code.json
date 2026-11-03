@@ -1,0 +1,19 @@
+{
+  "title": "代码之外的引用",
+  "findings": [
+    "knip/dependencies",
+    "knip/devDependencies",
+    "knip/files"
+  ],
+  "question": "这是一条「未使用」的发现，后面附有项目内的引用搜索结果。引用里是否有真实的使用，只是不在 JavaScript 或 TypeScript 的 import 里，所以分析工具看不到？例如 CSS 的 @import、构建或工具的配置文件、写成字符串的文件路径。只出现在注释、文档或别的包名里的同名文字不算使用；没有任何引用时回答否。",
+  "yes": [
+    "发现：knip/devDependencies\n位置：web/package.json:31\n对象：tailwindcss\n所属项目：Web\n\n项目内对「tailwindcss」的引用（1 处，不含项目清单和锁文件）：\nweb/app/global.css:1: @import 'tailwindcss';\n\n锁文件中把它作为依赖项的位置：\nimporters > . > devDependencies > tailwindcss:\npackages > tailwindcss@4.3.3:",
+    "发现：knip/dependencies\n位置：web/package.json:12\n对象：@fontsource-variable/inter\n所属项目：Web\n\n项目内对「@fontsource-variable/inter」的引用（1 处，不含项目清单和锁文件）：\nweb/app/layout.tsx:9: src: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',\n\n锁文件中把它作为依赖项的位置：\nimporters > . > dependencies > '@fontsource-variable/inter':",
+    "发现：knip/devDependencies\n位置：web/package.json:28\n对象：prettier-plugin-astro\n所属项目：Web\n\n项目内对「prettier-plugin-astro」的引用（1 处，不含项目清单和锁文件）：\nweb/.prettierrc.json:2: \"plugins\": [\"prettier-plugin-astro\"],\n\n锁文件中把它作为依赖项的位置：\nimporters > . > devDependencies > prettier-plugin-astro:"
+  ],
+  "no": [
+    "发现：knip/dependencies\n位置：web/package.json:16\n对象：shiki\n所属项目：Web\n\n项目内对「shiki」的引用（0 处，不含项目清单和锁文件）：\n（无）\n\n锁文件中把它作为依赖项的位置：\nimporters > . > dependencies > shiki:\npackages > shiki@4.5.0:\nsnapshots > fumadocs-core@16.17.7 > dependencies > shiki: 4.5.0",
+    "发现：knip/files\n位置：web/lib/cn.ts:1\n对象：lib/cn.ts\n所属项目：Web\n\n项目内对「lib/cn」的引用（0 处，不含项目清单和锁文件）：\n（无）",
+    "发现：knip/dependencies\n位置：web/package.json:20\n对象：lodash\n所属项目：Web\n\n项目内对「lodash」的引用（1 处，不含项目清单和锁文件）：\nweb/README.md:12: 以前用 lodash 做深拷贝，现在改用 structuredClone。\n\n锁文件中把它作为依赖项的位置：\nimporters > . > dependencies > lodash:"
+  ]
+}

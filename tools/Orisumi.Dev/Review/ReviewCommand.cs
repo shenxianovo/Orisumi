@@ -109,17 +109,18 @@ internal sealed class ReviewCommand(RepositoryContext repository, ModelAccess mo
         var rules = ReviewRules.Load(repository);
         if (json)
         {
-            await CommandLine.WriteJsonAsync(output, new { directory = ReviewRules.Directory, rules });
+            await CommandLine.WriteJsonAsync(output, new { rules });
             return 0;
         }
         var console = Terminal.Create(output);
-        Terminal.Heading(console, "Review rules", $"{rules.Count} {(rules.Count == 1 ? "rule" : "rules")}", Terminal.Esc(ReviewRules.Directory));
+        Terminal.Heading(console, "Review rules", $"{rules.Count} {(rules.Count == 1 ? "rule" : "rules")}");
         Terminal.Rows(console, rules.Select(rule => new[]
         {
             Terminal.Esc(rule.Id),
+            $"[grey]{rule.Kind.ToString().ToLowerInvariant()}[/]",
             Terminal.Esc(rule.Title),
-            $"[grey]{Terminal.Esc(string.Join(", ", rule.Paths))}[/]",
-            $"[grey]{rule.Violations.Count} violating · {rule.Conforming.Count} conforming examples[/]",
+            $"[grey]{Terminal.Esc(string.Join(", ", rule.Covers))}[/]",
+            $"[grey]{rule.Yes.Count} yes · {rule.No.Count} no examples[/]",
         }));
         return 0;
     }
@@ -222,7 +223,7 @@ internal sealed class ReviewCheck(
         }).Concat(report.Misses.Select(miss => new[]
         {
             $"  [yellow]{Terminal.Esc(miss.Title)}[/]",
-            miss.Violation ? "missed a violation" : "flagged a conforming example",
+            miss.Expected ? "answered no to a yes example" : "answered yes to a no example",
             $"[grey]{Probability(miss.Probability)}[/]",
             $"[grey]{Terminal.Esc(Terminal.Excerpt(miss.Example))}[/]",
         })));

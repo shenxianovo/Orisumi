@@ -5,7 +5,7 @@ namespace Orisumi.Dev.Tests;
 
 public sealed class ReviewTests
 {
-    private static readonly ReviewRule Rule = new("plain", "正面陈述", ["**/*.md"], "是否违反？", ["违反的例子"], ["符合的例子"]);
+    private static readonly ReviewRule Rule = new("plain", "正面陈述", RuleKind.Writing, ["**/*.md"], "是否违反？", ["违反的例子"], ["符合的例子"]);
 
     [Test]
     public async Task PassagesSkipFrontmatterFencesHeadingsAndModuleLines()
@@ -36,8 +36,9 @@ public sealed class ReviewTests
     {
         var repository = await RepositoryContext.DiscoverAsync(AppContext.BaseDirectory);
         var rules = ReviewRules.Load(repository);
-        await Assert.That(rules.Count).IsGreaterThan(0);
-        await Assert.That(rules.All(rule => rule.Violations.Count > 0 && rule.Conforming.Count > 0)).IsTrue();
+        await Assert.That(rules.Select(rule => rule.Kind).Distinct().Count()).IsEqualTo(2);
+        await Assert.That(rules.All(rule => rule.Yes.Count > 0 && rule.No.Count > 0)).IsTrue();
+        await Assert.That(rules.All(rule => File.Exists(repository.Path(ReviewRules.PathOf(rule))))).IsTrue();
     }
 
     [Test]
@@ -136,9 +137,9 @@ public sealed class ReviewTests
     private static TestRepository Workspace()
     {
         var workspace = new TestRepository(withProjects: false);
-        workspace.Write(ReviewRules.Directory + "plain.json", JsonSerializer.Serialize(new
+        workspace.Write(ReviewRules.WritingDirectory + "plain.json", JsonSerializer.Serialize(new
         {
-            title = Rule.Title, paths = Rule.Paths, question = Rule.Question, violations = Rule.Violations, conforming = Rule.Conforming,
+            title = Rule.Title, paths = Rule.Covers, question = Rule.Question, yes = Rule.Yes, no = Rule.No,
         }));
         workspace.Commit();
         workspace.Write("docs/guide.md", "新写的一段话");

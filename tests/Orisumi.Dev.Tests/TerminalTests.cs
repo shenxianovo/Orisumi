@@ -67,5 +67,5 @@ public sealed class TerminalTests
     [Arguments("FunctionDeclaration:useDay/FunctionDeclaration:experienceOf", "useDay.experienceOf")]
     [Arguments("FunctionDeclaration:EntityPage", "EntityPage")]
     public async Task AnalyzerSymbolsKeepTheTypeAndFunctionName(string symbol, string expected) =>
-        await Assert.That(QualityCheck.ShortSymbol(symbol)).IsEqualTo(expected);
+        await Assert.That(QualityFinding.ShortSymbol(symbol)).IsEqualTo(expected);
 }
