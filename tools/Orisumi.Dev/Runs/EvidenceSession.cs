@@ -2,9 +2,9 @@ using Spectre.Console;
 
 namespace Orisumi.Dev;
 
-internal sealed class EvidenceSession(ArtifactRun run)
+internal sealed class EvidenceSession(RunRecord run)
 {
-    public ArtifactRun Run { get; } = run;
+    public RunRecord Run { get; } = run;
     public List<string> Commands { get; } = [];
 
     public static async Task<int> ExecuteAsync(
@@ -15,7 +15,7 @@ internal sealed class EvidenceSession(ArtifactRun run)
         Func<EvidenceSession, Task<int>> action,
         TextWriter? notes = null)
     {
-        var store = new ArtifactStore(repository);
+        var store = new RunStore(repository);
         var session = new EvidenceSession(store.Create(kind, name));
         var exitCode = 1;
         string? failure = null;
@@ -32,7 +32,6 @@ internal sealed class EvidenceSession(ArtifactRun run)
         }
         catch (Exception exception)
         {
-            // Exception messages can contain native/user context; record only the failure kind.
             failure = exception.GetType().Name;
             throw;
         }
@@ -45,7 +44,7 @@ internal sealed class EvidenceSession(ArtifactRun run)
                 .Select(item => item!)
                 .Order(StringComparer.Ordinal)
                 .ToArray();
-            await ArtifactStore.WriteManifestAsync(session.Run, new EvidenceManifest(
+            await RunStore.WriteManifestAsync(session.Run, new EvidenceManifest(
                 session.Run.Id, kind, name, session.Run.CreatedAt, DateTimeOffset.UtcNow,
                 exitCode, session.Commands, artifacts, finalLimitations, failure),
                 CancellationToken.None);
@@ -53,18 +52,14 @@ internal sealed class EvidenceSession(ArtifactRun run)
         }
     }
 
-    /// <summary>
-    /// 跑完就收一次。手动 `runs prune` 的默认值以前基本命中不到，证据目录只会涨；
-    /// 保留规则与 `runs prune` 完全一致（最近若干次 + 最近若干次失败的），并且把删了什么说出来。
-    /// </summary>
-    private static void Collect(ArtifactStore store, TextWriter? notes)
+    private static void Collect(RunStore store, TextWriter? notes)
     {
         try
         {
             var pruned = store.Prune(RetentionPolicy.Default);
             if (pruned.Candidates.Count == 0 || notes is null) return;
             Terminal.Create(notes).MarkupLine(
-                $"[grey]pruned {pruned.Candidates.Count} old runs ({Terminal.Esc(ArtifactStore.FormatBytes(pruned.Bytes))}); see orisumi runs prune[/]");
+                $"[grey]pruned {pruned.Candidates.Count} old runs ({Terminal.Esc(RunStore.FormatBytes(pruned.Bytes))}); see orisumi runs prune[/]");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

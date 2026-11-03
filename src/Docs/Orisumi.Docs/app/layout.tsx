@@ -10,13 +10,11 @@ import type { Metadata } from 'next';
 import { SiteFavicon } from '@/components/site-icon';
 import Script from 'next/script';
 
-// Inter ships with the dependencies, so the dev server and the build never fetch fonts from Google.
 const inter = localFont({
   src: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
   weight: '100 900',
 });
 
-// One search filter per section of the sidebar. The value is the first URL segment, the `tag` of the search index.
 const searchTags = getSections().map((section) => ({ name: section.name, value: section.slug }));
 
 export const metadata: Metadata = {

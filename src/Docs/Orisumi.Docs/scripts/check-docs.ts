@@ -1,10 +1,10 @@
-// Checks that the project's documents are consistent: links, anchors, JSON examples, frontmatter and sidebar entries.
-// Project documents are the docs site content, every README.md and AGENTS.md, and the agent skills under .agents/.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, dirname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { anchorsOf, frontmatter, jsonBlocks, lineAt, linksOf, type Finding } from '../lib/docs-check.ts';
+import {
+  anchorsOf, frontmatter, jsonBlocks, lineAt, linksOf, mermaidLinksOf, requirementFindings, statementsOf, type Finding, type Link,
+} from '../lib/docs-check.ts';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
   cwd: fileURLToPath(new URL('.', import.meta.url)), encoding: 'utf8',
@@ -27,7 +27,6 @@ const anchors = (file: string) => {
   return anchorCache.get(file)!;
 };
 
-/** Resolve a link to a repository file, or null when it leaves the repository's documents. */
 function resolveLink(from: string, target: string): { file: string; anchor: string } | null | 'skip' {
   const [path, anchor = ''] = target.split('#');
   if (/^[a-z]+:/i.test(path) || path.startsWith('/llms') || path.startsWith('/og/')) return 'skip';
@@ -42,19 +41,24 @@ function resolveLink(from: string, target: string): { file: string; anchor: stri
   return existsSync(join(root, file)) ? { file, anchor } : null;
 }
 
-for (const [file, text] of texts) {
-  for (const link of linksOf(text)) {
+function checkLinks(file: string, text: string, links: Link[], checks: { missing: string; anchor: string }) {
+  for (const link of links) {
     const resolved = resolveLink(file, link.target);
     if (resolved === 'skip') continue;
     if (!resolved) {
-      findings.push({ file, line: lineAt(text, link.index), check: 'link', message: `${link.target} does not exist` });
+      findings.push({ file, line: lineAt(text, link.index), check: checks.missing, message: `${link.target} does not exist` });
       continue;
     }
     const isDocument = /\.mdx?$/.test(resolved.file);
     if (resolved.anchor && isDocument && !anchors(resolved.file).has(decodeURIComponent(resolved.anchor))) {
-      findings.push({ file, line: lineAt(text, link.index), check: 'anchor', message: `${link.target} has no anchor #${resolved.anchor}` });
+      findings.push({ file, line: lineAt(text, link.index), check: checks.anchor, message: `${link.target} has no anchor #${resolved.anchor}` });
     }
   }
+}
+
+for (const [file, text] of texts) {
+  checkLinks(file, text, linksOf(text), { missing: 'link', anchor: 'anchor' });
+  checkLinks(file, text, mermaidLinksOf(text), { missing: 'mermaid-link', anchor: 'mermaid-link' });
 
   findings.push(...jsonBlocks(file, text));
 
@@ -66,7 +70,9 @@ for (const [file, text] of texts) {
   }
 }
 
-// Sidebar: every meta.json entry exists and every page is reachable from some meta.json.
+const requirementPages = new Map([...texts].filter(([file]) => file.startsWith(`${docs}/requirements/`) && file.endsWith('.mdx')));
+findings.push(...requirementFindings([...requirementPages].flatMap(([file, text]) => statementsOf(file, text)), requirementPages));
+
 const metaDirs = new Set<string>();
 const listed = new Set<string>();
 const wildcard = new Set<string>();

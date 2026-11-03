@@ -15,8 +15,6 @@ internal enum Outcome
     Waiting,
 }
 
-/// 所有命令共用的终端写法：状态记号、标题、对齐、相对路径和耗时。
-/// 颜色只加强记号；输出被重定向或设置了 NO_COLOR 时不着色，也不显示动画。
 internal static class Terminal
 {
     public const string Dot = " [grey]·[/] ";
@@ -31,14 +29,12 @@ internal static class Terminal
             ColorSystem = terminal && !NoColor ? ColorSystemSupport.Detect : ColorSystemSupport.NoColors,
             Interactive = terminal ? InteractionSupport.Detect : InteractionSupport.No,
         });
-        // 重定向到文件或管道时，不按默认的 80 列折断路径。
         if (!terminal) console.Profile.Width = 240;
         return console;
     }
 
     private static bool NoColor => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
 
-    /// 只有真正的终端才着色和刷新；TERM=dumb 和 CI 环境按普通文本输出，日志里不会留下重绘的行。
     private static bool IsTerminal(TextWriter writer) =>
         Environment.GetEnvironmentVariable("TERM") != "dumb"
         && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI"))
@@ -73,14 +69,12 @@ internal static class Terminal
         _ => $"[grey]{Esc(text)}[/]",
     };
 
-    /// 第一行：主题 · 范围 · 结论。各部分已是 markup。
     public static void Heading(IAnsiConsole console, string subject, params string[] details)
     {
         console.MarkupLine(string.Join(Dot, [$"[bold]{Esc(subject)}[/]", .. details.Where(part => part.Length > 0)]));
         console.WriteLine();
     }
 
-    /// 左边标签、右边值的两列；值是 markup，可以有多行。
     public static void Fields(IAnsiConsole console, IEnumerable<(string Label, string Value)> rows)
     {
         var grid = new Grid()
@@ -90,7 +84,6 @@ internal static class Terminal
         console.Write(grid);
     }
 
-    /// 无边框、无表头的对齐表格。单元格是 markup；<paramref name="rightAligned"/> 是右对齐的列。
     public static void Rows(IAnsiConsole console, IEnumerable<string[]> rows, params int[] rightAligned)
     {
         var materialized = rows.ToArray();
@@ -112,7 +105,6 @@ internal static class Terminal
     public static void Error(TextWriter writer, string message) =>
         Create(writer).MarkupLine($"[red]✗[/] {Esc(message)}");
 
-    /// 仓库内的路径写成相对路径，主目录写成 ~。
     public static string Path(RepositoryContext repository, string path)
     {
         var full = System.IO.Path.GetFullPath(path);
@@ -141,13 +133,10 @@ internal static class Terminal
         _ => "±0",
     };
 
-    /// 支持 ANSI 的交互终端里原地刷新转圈和已用时间；其余情况直接运行，不输出进度。
-    /// 不支持 ANSI 时 Spectre 会把每次刷新另起一行，日志里因此会重复很多遍。
     public static async Task<T> SpinAsync<T>(IAnsiConsole console, string status, Func<Task<T>> action)
     {
         if (!console.Profile.Capabilities.Interactive || !console.Profile.Capabilities.Ansi) return await action();
         var clock = Stopwatch.StartNew();
-        // 每秒只重画一次：读原始字节的伪终端里，每秒最多多出一帧。
         return await console.Status()
             .AutoRefresh(false)
             .Spinner(Spinner.Known.Dots)
@@ -169,7 +158,6 @@ internal static class Terminal
         await SpinAsync(console, status, async () => { await action(); return 0; });
 }
 
-/// 表格按列宽补齐空格；写到文件或管道时去掉行尾的这些空格。
 internal sealed class TrailingSpaceTrimmer(TextWriter inner) : TextWriter
 {
     private int pendingSpaces;

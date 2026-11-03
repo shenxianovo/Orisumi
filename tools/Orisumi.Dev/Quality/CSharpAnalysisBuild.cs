@@ -2,7 +2,6 @@ using System.Xml.Linq;
 
 namespace Orisumi.Dev;
 
-/// <summary>Compile business and developer-tool projects for semantic diagnostics.</summary>
 internal static class CSharpAnalysisBuild
 {
     internal static string Prepare(string root, string outputSolution)

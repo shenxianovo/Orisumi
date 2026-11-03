@@ -4,7 +4,6 @@ using Spectre.Console;
 
 namespace Orisumi.Dev;
 
-/// Runs the docs site of this checkout.
 internal sealed class DocsCommand(RepositoryContext repository, IProcessRunner runner, TextWriter output)
 {
     internal string Site => repository.Path("src", "Docs", "Orisumi.Docs");
@@ -22,7 +21,6 @@ internal sealed class DocsCommand(RepositoryContext repository, IProcessRunner r
     internal async Task<int> DevAsync(CancellationToken token)
     {
         var console = Terminal.Create(output);
-        // pnpm leaves node_modules alone when it already matches the lockfile.
         var install = await Terminal.SpinAsync(console, "Installing docs dependencies",
             () => runner.CaptureAsync("pnpm", ["--dir", Site, "install", "--frozen-lockfile"], null, token));
         if (install.ExitCode != 0)

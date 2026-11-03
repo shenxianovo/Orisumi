@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["erosion.mjs", "comments.mjs", "eslint.config.mjs"],
+  "project": ["*.mjs"],
+  "ignoreExportsUsedInFile": true
+}

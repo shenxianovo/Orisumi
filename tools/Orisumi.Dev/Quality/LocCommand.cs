@@ -7,7 +7,6 @@ namespace Orisumi.Dev;
 
 internal sealed record LocRoleRow(string Role, int Files, int Lines);
 
-/// 一组代码文件的行数；实现包括生产代码和开发工具。
 internal sealed record LocRow(string Name, int Files, int Implementation, int Tests);
 
 internal sealed record LocReport(
@@ -18,10 +17,8 @@ internal sealed record LocReport(
     IReadOnlyList<LocRow> Languages,
     IReadOnlyList<string> UnclassifiedPaths)
 {
-    /// 引用的生产项目不止一个模块，或没有引用生产项目的测试项目。
     public const string CrossModule = "Cross-module";
 
-    /// <param name="testProjectReferences">tests/ 下每个测试项目引用的项目路径，键为项目目录名。</param>
     public static LocReport Create(
         SourceSnapshot snapshot,
         IReadOnlyDictionary<string, IReadOnlyList<string>> testProjectReferences)
@@ -71,7 +68,6 @@ internal sealed record LocReport(
         return PathModule(file.Path) ?? CrossModule;
     }
 
-    /// 路径所在的模块；tests/ 下的项目由它引用的项目决定，这里返回 null。
     private static string? PathModule(string path) => path.Split('/') switch
     {
         ["src", "Docs", ..] => "Docs site",
@@ -87,7 +83,6 @@ internal sealed class LocCommand(
     IProcessRunner runner,
     TextWriter output)
 {
-    /// 最长的一行（实现加测试）画满的格数。
     private const int BarWidth = 30;
 
     public Command CreateCommand()
@@ -191,10 +186,8 @@ internal sealed class LocCommand(
     private static string Columns(LocRow row, int width) =>
         $"  {Terminal.Esc(row.Name.PadRight(width))} {Count(row.Implementation)} {Count(row.Tests)}";
 
-    /// 右对齐到 8 列；零写成灰色的点。
     private static string Count(int lines) => lines == 0 ? new string(' ', 7) + "[grey]·[/]" : Terminal.Number(lines).PadLeft(8);
 
-    /// 不足半格但不为零时画成 <paramref name="sliver"/>，让很小的数量仍然可见。
     private static string Bar(int lines, double linesPerCell, char cell, string sliver)
     {
         if (lines == 0) return "";

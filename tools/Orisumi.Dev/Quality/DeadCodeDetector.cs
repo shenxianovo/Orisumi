@@ -19,8 +19,6 @@ internal sealed record DeadCodeReport(
     }
 }
 
-// Knip resolves JS/TS entry points; Roslyn supplies unused-private-member diagnostics
-// from the existing metrics build. Neither scan proves that a feature has business value.
 internal sealed partial class DeadCodeDetector(RepositoryContext repository, IProcessRunner runner)
 {
     public async Task<DeadCodeReport> CompareAsync(string baseCommit, string directory,
@@ -48,7 +46,7 @@ internal sealed partial class DeadCodeDetector(RepositoryContext repository, IPr
     {
         var findings = new List<DeadCodeFinding>();
         await ScanKnipAsync("src/Docs/Orisumi.Docs", "knip-docs.json", "docs");
-        await ScanKnipAsync("tools/Orisumi.Dev/jscpd", "knip-tools.json", "tools");
+        await ScanKnipAsync("tools/Orisumi.Dev/node-tools", "knip-tools.json", "tools");
         if (csharpComplete)
         {
             var csharp = await File.ReadAllTextAsync(Path.Combine(directory, label + "-csharp.log"), cancellationToken);
@@ -60,9 +58,9 @@ internal sealed partial class DeadCodeDetector(RepositoryContext repository, IPr
         {
             var project = Path.Combine(root, relative);
             if (!Directory.Exists(project)) return;
-            var tools = repository.Path("tools", "Orisumi.Dev", "jscpd");
-            var executable = Path.Combine(tools, "node_modules", ".bin", OperatingSystem.IsWindows() ? "knip.cmd" : "knip");
-            if (!File.Exists(executable)) throw new InvalidDataException($"Knip is missing; run npm --prefix {tools} ci --ignore-scripts.");
+            var tools = new NodeTools(repository);
+            await tools.EnsureAsync(cancellationToken);
+            var executable = tools.Bin("knip");
             if (scope == "docs" && !Directory.Exists(Path.Combine(project, "node_modules")))
             {
                 commands.Add($"pnpm install --frozen-lockfile --ignore-scripts ({label} Docs)");
@@ -70,7 +68,7 @@ internal sealed partial class DeadCodeDetector(RepositoryContext repository, IPr
                     ["install", "--frozen-lockfile", "--ignore-scripts"], cancellationToken);
                 if (restored.ExitCode != 0) throw new InvalidDataException($"Could not prepare {label} Docs dependencies: {restored.StdErr}");
             }
-            string[] arguments = ["--directory", project, "--config", Path.Combine(tools, config), "--reporter", "json", "--no-progress"];
+            string[] arguments = ["--directory", project, "--config", Path.Combine(tools.Directory, config), "--reporter", "json", "--no-progress"];
             commands.Add("knip " + string.Join(' ', arguments));
             var result = await ProcessRunner.CaptureAsync(project, executable, arguments, cancellationToken);
             await File.WriteAllTextAsync(Path.Combine(directory, $"{label}-{scope}-knip.json"), result.StdOut, cancellationToken);

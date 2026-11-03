@@ -1,6 +1,5 @@
 namespace Orisumi.Dev;
 
-/// 扫描前检查基点是否包含生产代码，并为无效基点提供建议。
 internal sealed record BaseUsability(bool Usable, string? Reason, IReadOnlyList<string> Suggestions)
 {
     public static BaseUsability Evaluate(string requested, SourceSnapshot baseline)

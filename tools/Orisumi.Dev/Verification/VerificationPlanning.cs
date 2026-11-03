@@ -10,12 +10,11 @@ internal sealed record VerificationRequest(string Mode, string? Base, bool PlanO
         if (Mode == "full" && (Base is not null || Quality))
             throw new CommandUsageException("--base and --quality require --scope changed.");
         var baseRef = await ResolveBaseAsync(Mode, Base, runner, cancellationToken);
-        // Pin quality comparisons to one commit so both checks see the same base.
         if (Quality && baseRef is not null) baseRef = await ResolveCommitAsync(baseRef, runner, cancellationToken);
         return this with { Base = baseRef };
     }
 
-    private static async Task<string?> ResolveBaseAsync(
+    internal static async Task<string?> ResolveBaseAsync(
         string mode,
         string? baseRef,
         IProcessRunner runner,
@@ -25,7 +24,7 @@ internal sealed record VerificationRequest(string Mode, string? Base, bool PlanO
         var status = await runner.CaptureAsync("git", ["status", "--porcelain"], null, cancellationToken);
         if (status.ExitCode != 0) throw new InvalidOperationException(status.StdErr.Trim());
         if (string.IsNullOrWhiteSpace(status.StdOut))
-            throw new CommandUsageException("verify checks --scope changed needs --base when the worktree is clean.");
+            throw new CommandUsageException("Changed scope needs --base when the worktree is clean.");
         return "HEAD";
     }
 
@@ -37,28 +36,37 @@ internal sealed record VerificationRequest(string Mode, string? Base, bool PlanO
     }
 }
 
-internal sealed record VerificationStep(string Name, string FileName, IReadOnlyList<string> Arguments);
+internal sealed record VerificationStep(
+    string Name, string FileName, IReadOnlyList<string> Arguments,
+    Func<TextWriter, CancellationToken, Task<int>>? InProcess = null);
 
-internal sealed record VerificationPlan(string Mode, string? Base, IReadOnlyList<string> ChangedPaths, IReadOnlyList<VerificationStep> Steps);
+internal sealed record VerificationPlan(
+    string Mode, string? Base, IReadOnlyList<string> ChangedPaths, IReadOnlyList<VerificationStep> Steps,
+    IReadOnlyList<string>? ReviewPaths = null)
+{
+    public IReadOnlyList<string> ReviewPaths { get; } = ReviewPaths ?? [];
+}
 
 internal static class VerificationPlanner
 {
     public static async Task<VerificationPlan> CreateAsync(
         RepositoryContext repository, IProcessRunner runner, VerificationRequest request, CancellationToken cancellationToken)
     {
-        if (request.Mode == "full") return new("full", request.Base, [], Full(repository));
+        if (request.Mode == "full") return new("full", request.Base, [], Full(repository, runner));
         var paths = await ChangedPathsAsync(runner, request.Base!, cancellationToken);
+        var rules = ReviewRules.Load(repository);
+        var review = paths.Where(path => ReviewSelection.Reviewable(path, rules) || ReviewRules.IdOf(path) is not null).ToArray();
         var selection = paths.Aggregate(CheckSelection.None, (current, path) => current | Select(path));
-        if (selection.HasFlag(CheckSelection.Unknown)) return new("full-fallback", request.Base, paths, Full(repository));
+        if (selection.HasFlag(CheckSelection.Unknown)) return new("full-fallback", request.Base, paths, Full(repository, runner), review);
         var steps = new List<VerificationStep>();
+        if (paths.Any(CommentLint.Covers)) steps.Add(Lint(repository, runner));
         if (selection.HasFlag(CheckSelection.Build)) steps.Add(Build(repository));
         if (selection.HasFlag(CheckSelection.Cli)) steps.Add(CliTests(repository));
         if (selection.HasFlag(CheckSelection.Docs)) steps.AddRange(Docs(repository));
         else if (selection.HasFlag(CheckSelection.DocsCheck)) steps.Add(DocsCheck(repository));
-        return new("changed", request.Base, paths, steps);
+        return new("changed", request.Base, paths, steps, review);
     }
 
-    // READMEs, AGENTS.md and agent skills are project documents covered by the docs consistency check.
     private static CheckSelection Select(string path)
     {
         var selection = SelectByArea(path);
@@ -106,10 +114,13 @@ internal static class VerificationPlanner
         ];
     }
 
-    private static IReadOnlyList<VerificationStep> Full(RepositoryContext repository) =>
-        [Build(repository), CliTests(repository), .. Docs(repository)];
+    private static IReadOnlyList<VerificationStep> Full(RepositoryContext repository, IProcessRunner runner) =>
+        [Lint(repository, runner), Build(repository), CliTests(repository), .. Docs(repository)];
 
-    private static async Task<IReadOnlyList<string>> ChangedPathsAsync(
+    private static VerificationStep Lint(RepositoryContext repository, IProcessRunner runner) =>
+        new("lint", "orisumi", ["lint"], (output, token) => new LintCommand(repository, runner, output).RunAsync(false, token));
+
+    internal static async Task<IReadOnlyList<string>> ChangedPathsAsync(
         IProcessRunner runner, string baseRef, CancellationToken cancellationToken)
     {
         var tracked = await runner.CaptureAsync("git",
@@ -141,6 +152,7 @@ internal static class VerificationReporter
                 plan.Base,
                 plan.ChangedPaths,
                 steps = plan.Steps.Select(step => new { step.Name, step.FileName, step.Arguments }),
+                plan.ReviewPaths,
             }, JsonOptions.Indented));
             return;
         }
@@ -153,6 +165,8 @@ internal static class VerificationReporter
             $"[grey]{Terminal.Esc(string.Join(' ', [step.FileName, .. step.Arguments.Select(argument => Relative(repository, argument))]))}[/]",
         }).ToList();
         if (quality) rows.Add(["quality".PadRight(width), $"[grey]structural observations against {Terminal.Esc(ShortBase(plan.Base))}[/]"]);
+        if (plan.ReviewPaths.Count > 0)
+            rows.Add(["review".PadRight(width), $"[grey]model-judged rules on {plan.ReviewPaths.Count} changed {(plan.ReviewPaths.Count == 1 ? "file" : "files")}[/]"]);
         if (rows.Count == 0) console.MarkupLine($"  {Terminal.Mark(Outcome.Skipped)} No executable checks selected");
         Terminal.Rows(console, rows);
     }
@@ -165,11 +179,11 @@ internal static class VerificationReporter
             "full-fallback" => $"all checks; changes since {ShortBase(plan.Base)} reach unmapped paths",
             _ => "all checks",
         };
-        var count = $"{plan.Steps.Count} {(plan.Steps.Count == 1 ? "check" : "checks")}" + (quality ? " + quality" : "");
+        var count = $"{plan.Steps.Count} {(plan.Steps.Count == 1 ? "check" : "checks")}" + (quality ? " + quality" : "")
+            + (plan.ReviewPaths.Count > 0 ? " + review" : "");
         Terminal.Heading(console, subject, Terminal.Esc(scope), count);
     }
 
-    /// 步骤名对齐的宽度，包括质量扫描那一行。
     public static int NameWidth(VerificationPlan plan) =>
         plan.Steps.Select(step => step.Name.Length).Append("quality".Length).Max();
 

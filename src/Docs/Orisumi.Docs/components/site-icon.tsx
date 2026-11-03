@@ -17,7 +17,6 @@ function usePlatformIcon() {
 
 export function SiteFavicon() {
   const icon = usePlatformIcon();
-  // React hoists this link into <head>, with the same server fallback as the site icon.
   return <link rel="icon" href={`/favicon-${icon}.png`} type="image/png" sizes="48x48" />;
 }
 

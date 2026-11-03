@@ -4,6 +4,7 @@
   "icon": "ListChecks",
   "root": true,
   "pages": [
-    "index"
+    "index",
+    "belief"
   ]
 }

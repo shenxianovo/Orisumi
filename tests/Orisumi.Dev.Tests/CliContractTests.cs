@@ -14,7 +14,7 @@ public sealed class CliContractTests
         using var fixture = new CliFixture();
         using var error = new StringWriter();
         var cli = new DeveloperCli(fixture.Repository, new CheckRunner(exitCode), fixture.Output, error);
-        var actual = await cli.RunAsync(["verify", "checks", "--base", "HEAD", "--json"], CancellationToken.None);
+        var actual = await cli.RunAsync(["verify", "--base", "HEAD", "--json"], CancellationToken.None);
         await Assert.That(actual).IsEqualTo(exitCode);
         using var result = JsonDocument.Parse(fixture.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(exitCode);
@@ -25,10 +25,11 @@ public sealed class CliContractTests
     [Test]
     [Arguments("")]
     [Arguments("docs")]
-    [Arguments("verify")]
     [Arguments("analyze")]
     [Arguments("runs")]
     [Arguments("tool")]
+    [Arguments("review")]
+    [Arguments("config")]
     public async Task GroupsShowHelpWithoutPerformingOperations(string path)
     {
         using var fixture = new CliFixture();
@@ -46,9 +47,10 @@ public sealed class CliContractTests
     [Arguments("loc")]
     [Arguments("install")]
     [Arguments("artifacts list")]
-    [Arguments("verify checks --scope invalid")]
-    [Arguments("verify checks --scope all --base HEAD")]
-    [Arguments("verify checks --scope all --quality")]
+    [Arguments("verify checks")]
+    [Arguments("verify --scope invalid")]
+    [Arguments("verify --scope all --base HEAD")]
+    [Arguments("verify --scope all --quality")]
     public async Task InvalidCommandsDoNotPerformOperations(string arguments)
     {
         using var fixture = new CliFixture();
@@ -66,12 +68,12 @@ public sealed class CliContractTests
         var runner = new CheckRunner(0);
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
         string[] selection = quality ? ["--base", "HEAD", "--quality"] : [];
-        await Assert.That(await cli.RunAsync(["verify", "checks", "--scope", scope, .. selection, "--plan", "--json"], CancellationToken.None)).IsEqualTo(0);
+        await Assert.That(await cli.RunAsync(["verify", "--scope", scope, .. selection, "--plan", "--json"], CancellationToken.None)).IsEqualTo(0);
         using var result = JsonDocument.Parse(fixture.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("mode").GetString()).IsEqualTo(scope == "all" ? "full" : "changed");
         await Assert.That(result.RootElement.GetProperty("quality").GetBoolean()).IsEqualTo(quality);
         await Assert.That(runner.Calls.All(call => call.File == "git")).IsTrue();
-        await Assert.That(new ArtifactStore(fixture.Repository).List().Count).IsEqualTo(0);
+        await Assert.That(new RunStore(fixture.Repository).List().Count).IsEqualTo(0);
     }
 
     [Test]
@@ -82,7 +84,7 @@ public sealed class CliContractTests
         using var fixture = new CliFixture();
         var runner = new CheckRunner(0) { Dirty = dirty };
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
-        var code = await cli.RunAsync(["verify", "checks", "--plan", "--json"], CancellationToken.None);
+        var code = await cli.RunAsync(["verify", "--plan", "--json"], CancellationToken.None);
         await Assert.That(code).IsEqualTo(dirty ? 0 : 2);
         if (!dirty) return;
         using var result = JsonDocument.Parse(fixture.Output.ToString());
@@ -95,12 +97,12 @@ public sealed class CliContractTests
         using var fixture = new CliFixture();
         var runner = new CheckRunner(0);
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
-        var code = await cli.RunAsync(["verify", "checks", "--base", "HEAD", "--quality", "--json"], CancellationToken.None);
+        var code = await cli.RunAsync(["verify", "--base", "HEAD", "--quality", "--json"], CancellationToken.None);
         await Assert.That(code).IsEqualTo(1);
         using var result = JsonDocument.Parse(fixture.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("verification").GetProperty("exitCode").GetInt32()).IsEqualTo(0);
         await Assert.That(result.RootElement.GetProperty("quality").GetProperty("completed").GetBoolean()).IsFalse();
-        await Assert.That(new ArtifactStore(fixture.Repository).List().Count).IsEqualTo(1);
+        await Assert.That(new RunStore(fixture.Repository).List().Count).IsEqualTo(1);
     }
 
     [Test]
@@ -109,11 +111,11 @@ public sealed class CliContractTests
         using var fixture = new CliFixture();
         var runner = new CheckRunner(0) { Cancel = true };
         var cli = new DeveloperCli(fixture.Repository, runner, fixture.Output, TextWriter.Null);
-        await Assert.That(async () => await cli.RunAsync(["verify", "checks", "--base", "HEAD", "--json"], CancellationToken.None))
+        await Assert.That(async () => await cli.RunAsync(["verify", "--base", "HEAD", "--json"], CancellationToken.None))
             .Throws<OperationCanceledException>();
         using var result = JsonDocument.Parse(fixture.Output.ToString());
         await Assert.That(result.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);
-        var run = new ArtifactStore(fixture.Repository).List().Single();
+        var run = new RunStore(fixture.Repository).List().Single();
         await Assert.That(File.ReadAllText(Path.Combine(run.Directory, "dotnet-build.log"))).IsEqualTo("partial output");
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(run.Directory, "manifest.json")));
         await Assert.That(manifest.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);

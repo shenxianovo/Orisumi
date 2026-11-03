@@ -20,7 +20,7 @@ public sealed class EvidenceTests
                 catch (OperationCanceledException) { return 130; }
             });
             await Assert.That(code).IsEqualTo(130);
-            var run = new ArtifactStore(repository).List().Single();
+            var run = new RunStore(repository).List().Single();
             await Assert.That(await File.ReadAllTextAsync(Path.Combine(run.Directory, "build.log"))).IsEqualTo("partial output");
             using var result = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(run.Directory, "verification.json")));
             await Assert.That(result.RootElement.GetProperty("exitCode").GetInt32()).IsEqualTo(130);
@@ -46,7 +46,7 @@ public sealed class EvidenceTests
         try
         {
             var repository = new RepositoryContext(root);
-            var store = new ArtifactStore(repository);
+            var store = new RunStore(repository);
             for (var i = 0; i < 18; i++)
             {
                 var run = store.Create("verify", $"run-{i}");

@@ -13,7 +13,6 @@ assert.ok(index && typeof index === 'object', 'Search must export a JSON index')
 const markdown = await readFile(join(output, 'start.md'), 'utf8');
 assert.match(markdown, /^# Orisumi/m);
 
-// Check the real output: every root-relative asset, page and Markdown link must exist.
 const missing = new Set();
 const files = await readdir(output, { recursive: true });
 const canonicalUrls = new Set();

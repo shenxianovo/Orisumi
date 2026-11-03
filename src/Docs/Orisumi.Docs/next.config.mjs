@@ -3,18 +3,19 @@ import { PHASE_DEVELOPMENT_SERVER } from 'next/constants.js';
 
 const withMDX = createMDX();
 
-/** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
   trailingSlash: true,
   images: { unoptimized: true },
 };
 
-/** @param {string} phase */
+const pageExtensionsWithDevelopmentApis = ['tsx', 'ts', 'jsx', 'js', 'dev.ts'];
+const pageMarkdownToExportRoute = { source: '/:path((?!llms\\.mdx/).+)\\.md', destination: '/llms.mdx/:path/content.md' };
+
 export default (phase) => withMDX(phase === PHASE_DEVELOPMENT_SERVER
   ? {
     ...config,
-    // The dev server maps /page.md to the Markdown export route; the static build writes the same files in scripts/finish-export.mjs.
-    rewrites: async () => [{ source: '/:path((?!llms\\.mdx/).+)\\.md', destination: '/llms.mdx/:path/content.md' }],
+    pageExtensions: pageExtensionsWithDevelopmentApis,
+    rewrites: async () => [pageMarkdownToExportRoute],
   }
   : { ...config, output: 'export' });

@@ -6,9 +6,9 @@ using Spectre.Console;
 
 namespace Orisumi.Dev;
 
-internal sealed class ArtifactsCommand(RepositoryContext repository, TextWriter output)
+internal sealed class RunsCommand(RepositoryContext repository, TextWriter output)
 {
-    private readonly ArtifactStore _store = new(repository);
+    private readonly RunStore _store = new(repository);
 
     public Command CreateCommand()
     {
@@ -47,10 +47,10 @@ internal sealed class ArtifactsCommand(RepositoryContext repository, TextWriter 
             console.MarkupLine($"{Terminal.Mark(Outcome.Waiting)} No runs under {Terminal.Esc(Terminal.Path(repository, _store.Root))}");
             return 0;
         }
-        var size = ArtifactStore.FormatBytes(runs.Sum(ArtifactStore.Bytes));
+        var size = RunStore.FormatBytes(runs.Sum(RunStore.Bytes));
         Terminal.Heading(console, "Runs", $"{runs.Count} kept", Terminal.Esc(size));
         var now = DateTimeOffset.Now;
-        Terminal.Rows(console, runs.Select(run => Describe(ArtifactStore.Summarize(run), now)), 3);
+        Terminal.Rows(console, runs.Select(run => Describe(RunStore.Summarize(run), now)), 3);
         console.WriteLine();
         console.MarkupLine($"  [grey]in {Terminal.Esc(Terminal.Path(repository, _store.Root))}/; --json lists each directory[/]");
         return 0;
@@ -118,7 +118,7 @@ internal sealed class ArtifactsCommand(RepositoryContext repository, TextWriter 
             console.MarkupLine($"{Terminal.Mark(Outcome.Passed)} Nothing to prune{Terminal.Dot}{kept}");
             return 0;
         }
-        var size = Terminal.Esc(ArtifactStore.FormatBytes(outcome.Bytes));
+        var size = Terminal.Esc(RunStore.FormatBytes(outcome.Bytes));
         console.MarkupLine(apply
             ? $"{Terminal.Mark(Outcome.Passed)} Pruned {outcome.Candidates.Count} runs, {size}{Terminal.Dot}{kept}"
             : $"{Terminal.Mark(Outcome.Waiting)} Would prune {outcome.Candidates.Count} runs, {size}{Terminal.Dot}{kept}");

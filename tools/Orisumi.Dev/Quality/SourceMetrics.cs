@@ -8,12 +8,10 @@ internal enum SourceRole
     Test,
     Tooling,
 
-    /// 构建与环境描述，单列统计，不计入生产 LOC。
     Build,
     Documentation,
     Generated,
 
-    /// 语言可识别，但未匹配任何角色的文件，单列报告。
     Unclassified,
 }
 
@@ -34,13 +32,11 @@ internal sealed record SourceSnapshot(string Revision, IReadOnlyList<SourceFileM
     public int BuildLines => Lines(SourceRole.Build);
     public int UnclassifiedLines => Lines(SourceRole.Unclassified);
 
-    /// 按路径排序的未归类文件。
     public IReadOnlyList<string> UnclassifiedPaths => [.. Files
         .Where(file => file.Role == SourceRole.Unclassified)
         .Select(file => file.Path)
         .Order(StringComparer.Ordinal)];
 
-    /// 代码所在的顶层目录，用于诊断无效基点；排除仓库根目录下的单个文件。
     public IReadOnlyList<string> CodeRoots => [.. Files
         .Where(file => file.Role is not (SourceRole.Documentation or SourceRole.Generated))
         .Select(file => file.Path.Split('/'))
@@ -85,7 +81,6 @@ internal static class SourceCorpus
     private static readonly string[] ProductionRoots = ["src/"];
 
     private static readonly string[] ToolingRoots =
-        // Historical baselines still contain script-based development tooling.
         ["tools/", "scripts/", ".agents/", ".config/", ".github/"];
 
     private static readonly string[] BuildLanguages = ["MSBuild", "XML", "Dockerfile", "YAML", "JSON"];

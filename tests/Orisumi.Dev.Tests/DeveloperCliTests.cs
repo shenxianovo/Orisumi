@@ -9,10 +9,11 @@ public sealed class DeveloperCliTests
     [Arguments("AGENTS.md", "docs-check")]
     [Arguments("notes/README.md", "docs-check")]
     [Arguments("tools/Orisumi.Dev/README.md", "dotnet-build,developer-cli-tests,docs-check")]
-    [Arguments("tools/Orisumi.Dev/DeveloperCli.cs", "dotnet-build,developer-cli-tests")]
-    [Arguments("tests/Orisumi.Dev.Tests/TerminalTests.cs", "dotnet-build,developer-cli-tests")]
+    [Arguments("tools/Orisumi.Dev/DeveloperCli.cs", "lint,dotnet-build,developer-cli-tests")]
+    [Arguments("tests/Orisumi.Dev.Tests/TerminalTests.cs", "lint,dotnet-build,developer-cli-tests")]
+    [Arguments("src/Docs/Orisumi.Docs/components/mermaid.tsx", "lint,docs-check,docs-test,docs-types,docs-build")]
     [Arguments(".scratch/model/notes.md", "")]
-    [Arguments("unclassified.config", "dotnet-build,developer-cli-tests,docs-check,docs-test,docs-types,docs-build")]
+    [Arguments("unclassified.config", "lint,dotnet-build,developer-cli-tests,docs-check,docs-test,docs-types,docs-build")]
     public async Task ChangedVerificationSelectsCurrentChecks(string path, string expected)
     {
         var runner = new RecordingRunner { ChangedPath = path };

@@ -40,7 +40,6 @@ function firstUrl(node: TreeNode): string | undefined {
   if (node.type === 'folder') return node.index?.url ?? node.children.map(firstUrl).find(Boolean);
 }
 
-/** The sections of the sidebar in order: the root folders, named by their `meta.json` titles. */
 export function getSections(): Section[] {
   return source.getPageTree().children.flatMap((node) => {
     const url = node.type === 'folder' && node.root ? firstUrl(node) : undefined;

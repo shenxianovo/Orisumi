@@ -1,11 +1,8 @@
-import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
 const root = path.resolve(process.argv[2]);
-const require = createRequire(pathToFileURL(path.join(import.meta.dirname, "jscpd", "package.json")));
-const ts = require("typescript");
 const files = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 
 function isFunction(node) {

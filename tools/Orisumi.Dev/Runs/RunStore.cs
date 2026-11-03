@@ -2,10 +2,9 @@ using System.Text.Json;
 
 namespace Orisumi.Dev;
 
-internal sealed record ArtifactRun(string Id, string Directory, DateTimeOffset CreatedAt);
+internal sealed record RunRecord(string Id, string Directory, DateTimeOffset CreatedAt);
 
-/// 一次运行在列表里显示的内容；没有 manifest 的运行还没结束或中途退出，退出码为 null。
-internal sealed record RunSummary(ArtifactRun Run, string What, int? ExitCode, TimeSpan? Duration, IReadOnlyList<string> Failed);
+internal sealed record RunSummary(RunRecord Run, string What, int? ExitCode, TimeSpan? Duration, IReadOnlyList<string> Failed);
 
 internal sealed record EvidenceManifest(
     string RunId,
@@ -27,23 +26,18 @@ internal sealed record EvidenceManifest(
     };
 }
 
-/// <summary>
-/// 证据保留规则。默认值必须在本项目的实际节奏下真的会命中——「保留最近 20 次且 14 天以上才删」
-/// 在一天跑十几次的节奏下等于空操作，证据目录因此长到 2.7G。
-/// 失败的运行单独保一批：出问题那次的产物才是最值得留的。
-/// </summary>
 internal sealed record RetentionPolicy(int Keep, int KeepFailed, TimeSpan OlderThan)
 {
     public static readonly RetentionPolicy Default = new(10, 5, TimeSpan.FromDays(2));
 }
 
-internal sealed record PruneOutcome(IReadOnlyList<ArtifactRun> Candidates, long Bytes);
+internal sealed record PruneOutcome(IReadOnlyList<RunRecord> Candidates, long Bytes);
 
-internal sealed class ArtifactStore(RepositoryContext repository)
+internal sealed class RunStore(RepositoryContext repository)
 {
-    public string Root { get; } = repository.Path(".artifacts", "verification");
+    public string Root { get; } = repository.Path(".artifacts", "runs");
 
-    public ArtifactRun Create(string kind, string name)
+    public RunRecord Create(string kind, string name)
     {
         Directory.CreateDirectory(Root);
         var now = DateTimeOffset.UtcNow;
@@ -53,11 +47,11 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         var id = candidate[..Math.Min(80, candidate.Length)];
         var directory = Path.Combine(Root, id);
         Directory.CreateDirectory(directory);
-        return new ArtifactRun(id, directory, now);
+        return new RunRecord(id, directory, now);
     }
 
     public static async Task WriteManifestAsync(
-        ArtifactRun run,
+        RunRecord run,
         EvidenceManifest manifest,
         CancellationToken cancellationToken)
     {
@@ -68,7 +62,7 @@ internal sealed class ArtifactStore(RepositoryContext repository)
             cancellationToken);
     }
 
-    public IReadOnlyList<ArtifactRun> List()
+    public IReadOnlyList<RunRecord> List()
     {
         if (!Directory.Exists(Root))
         {
@@ -76,15 +70,11 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         }
         return Directory.EnumerateDirectories(Root)
             .Select(path => new DirectoryInfo(path))
-            .Select(info => new ArtifactRun(info.Name, info.FullName, info.CreationTimeUtc))
+            .Select(info => new RunRecord(info.Name, info.FullName, info.CreationTimeUtc))
             .OrderByDescending(run => run.CreatedAt)
             .ToArray();
     }
 
-    /// <summary>
-    /// 保留最近 <see cref="RetentionPolicy.Keep"/> 次，外加最近 <see cref="RetentionPolicy.KeepFailed"/> 次失败的运行；
-    /// 其余超过保留期的都是候选。没有 manifest 的运行按「失败」对待——它是中途死掉的那种，值得留着看。
-    /// </summary>
     public PruneOutcome SelectForPruning(RetentionPolicy policy)
     {
         var runs = List();
@@ -101,7 +91,7 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         return new PruneOutcome(candidates, candidates.Sum(Bytes));
     }
 
-    public static RunSummary Summarize(ArtifactRun run)
+    public static RunSummary Summarize(RunRecord run)
     {
         var manifest = ReadJson(Path.Combine(run.Directory, "manifest.json"));
         var kind = Text(manifest, "kind");
@@ -117,8 +107,7 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         && document.TryGetProperty("startedAt", out var started) && document.TryGetProperty("completedAt", out var completed)
             ? completed.GetDateTimeOffset() - started.GetDateTimeOffset() : null;
 
-    /// 检查步骤按退出码判断，冒烟场景按状态判断；取消的步骤不算失败。
-    private static string[] FailedSteps(ArtifactRun run) =>
+    private static string[] FailedSteps(RunRecord run) =>
         ReadJson(Path.Combine(run.Directory, "verification.json")) is { } verification
         && verification.TryGetProperty("results", out var results)
             ? [.. results.EnumerateArray().Where(IsFailedStep).Select(result => Text(result, "name") ?? "")]
@@ -145,8 +134,7 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         }
     }
 
-    /// 退出码非 0 算失败；manifest 缺失或读不出来也算——这两种都是最需要留证据的情况。
-    public bool IsFailed(ArtifactRun run)
+    public bool IsFailed(RunRecord run)
     {
         var manifest = Path.Combine(run.Directory, "manifest.json");
         if (!File.Exists(manifest)) return true;
@@ -162,7 +150,7 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         }
     }
 
-    public static long Bytes(ArtifactRun run)
+    public static long Bytes(RunRecord run)
     {
         try
         {
@@ -176,7 +164,6 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         }
     }
 
-    /// 每次验证跑完自动收一次，靠的就是这个：删除按保留规则挑出来的运行目录。
     public PruneOutcome Prune(RetentionPolicy policy)
     {
         var outcome = SelectForPruning(policy);
@@ -200,7 +187,7 @@ internal sealed class ArtifactStore(RepositoryContext repository)
         return $"{value:0.##} {suffixes[suffix]}";
     }
 
-    public void Delete(ArtifactRun run)
+    public void Delete(RunRecord run)
     {
         var root = Path.GetFullPath(Root) + Path.DirectorySeparatorChar;
         var target = Path.GetFullPath(run.Directory);

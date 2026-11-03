@@ -38,7 +38,7 @@ public sealed class TerminalTests
             }));
             File.WriteAllText(Path.Combine(directory, "quality.json"), "{}");
 
-            var summary = ArtifactStore.Summarize(new ArtifactRun("run", directory, started));
+            var summary = RunStore.Summarize(new RunRecord("run", directory, started));
 
             await Assert.That(summary.What).IsEqualTo("verify full (fallback) + quality");
             await Assert.That(summary.ExitCode).IsEqualTo(1);
@@ -55,7 +55,7 @@ public sealed class TerminalTests
         Directory.CreateDirectory(directory);
         try
         {
-            var summary = ArtifactStore.Summarize(new ArtifactRun("20261030T050639Z-verify-changed-abc", directory, DateTimeOffset.UtcNow));
+            var summary = RunStore.Summarize(new RunRecord("20261030T050639Z-verify-changed-abc", directory, DateTimeOffset.UtcNow));
             await Assert.That(summary.ExitCode).IsNull();
             await Assert.That(summary.What).IsEqualTo("verify changed");
         }
@@ -63,7 +63,7 @@ public sealed class TerminalTests
     }
 
     [Test]
-    [Arguments("Orisumi.Dev/ArtifactStore`0/Summarize`0(:ArtifactRun)", "ArtifactStore.Summarize")]
+    [Arguments("Orisumi.Dev/RunStore`0/Summarize`0(:RunRecord)", "RunStore.Summarize")]
     [Arguments("FunctionDeclaration:useDay/FunctionDeclaration:experienceOf", "useDay.experienceOf")]
     [Arguments("FunctionDeclaration:EntityPage", "EntityPage")]
     public async Task AnalyzerSymbolsKeepTheTypeAndFunctionName(string symbol, string expected) =>

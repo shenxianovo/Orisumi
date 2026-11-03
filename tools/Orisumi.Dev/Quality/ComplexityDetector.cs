@@ -156,9 +156,6 @@ internal sealed partial class ComplexityDetector(RepositoryContext repository, I
         }
     }
 
-    /// <summary>
-    /// 未测到实现函数时，用诊断数量和源码位置说明基点与扫描范围是否匹配。
-    /// </summary>
     internal static string NoProductionMetrics(string root, IReadOnlyList<ComplexityHotspot> all)
     {
         if (all.Count == 0)
@@ -182,10 +179,9 @@ internal sealed partial class ComplexityDetector(RepositoryContext repository, I
         ICollection<string> commands,
         CancellationToken cancellationToken)
     {
-        var tools = repository.Path("tools", "Orisumi.Dev", "jscpd");
-        var executable = Path.Combine(tools, "node_modules", ".bin", OperatingSystem.IsWindows() ? "eslint.cmd" : "eslint");
-        if (!File.Exists(executable))
-            return new ComplexityScan([], [], $"TypeScript scanner is missing; run npm --prefix {tools} ci --ignore-scripts.");
+        var tools = new NodeTools(repository);
+        await tools.EnsureAsync(cancellationToken);
+        var executable = tools.Bin("eslint");
         var source = new GitSourceReader(new RepositoryContext(root), new ProcessRunner(root));
         var snapshot = await source.ReadWorktreeAsync(cancellationToken);
         var files = snapshot.Files.Where(file => file.Role is SourceRole.Production or SourceRole.Tooling
@@ -198,18 +194,18 @@ internal sealed partial class ComplexityDetector(RepositoryContext repository, I
         await File.WriteAllTextAsync(listPath, JsonSerializer.Serialize(files), cancellationToken);
         commands.Add($"eslint {label} implementation files (complexity)");
         var result = await ProcessRunner.CaptureAsync(root, executable,
-            ["--config", Path.Combine(tools, "eslint.config.mjs"), "--no-ignore", "--format", "json", .. files], cancellationToken);
+            ["--config", Path.Combine(tools.Directory, "eslint.config.mjs"), "--no-ignore", "--format", "json", .. files], cancellationToken);
         await File.WriteAllTextAsync(Path.Combine(directory, label + "-typescript.json"), result.StdOut, cancellationToken);
         await File.WriteAllTextAsync(Path.Combine(directory, label + "-typescript.log"), result.StdErr, cancellationToken);
         if (result.ExitCode is not (0 or 1))
             return new ComplexityScan([], [], $"TypeScript complexity scan failed: {LastUsefulLine(result)}");
         try
         {
-            commands.Add("node tools/Orisumi.Dev/erosion-typescript.mjs <source-root>");
+            commands.Add("node tools/Orisumi.Dev/node-tools/erosion.mjs <source-root>");
             var erosion = await ProcessRunner.CaptureAsync(
                 root,
                 "node",
-                [repository.Path("tools", "Orisumi.Dev", "erosion-typescript.mjs"), root, listPath],
+                [tools.Script("erosion.mjs"), root, listPath],
                 cancellationToken);
             if (erosion.ExitCode != 0)
             {
@@ -227,7 +223,6 @@ internal sealed partial class ComplexityDetector(RepositoryContext repository, I
         }
     }
 
-    /// 保留所有角色的 CA1502 诊断，用数量与路径判断基点是否有效。
     internal static IReadOnlyList<ComplexityHotspot> ParseAllCSharp(string root, string output) =>
         output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => CSharpDiagnostic().Match(line))

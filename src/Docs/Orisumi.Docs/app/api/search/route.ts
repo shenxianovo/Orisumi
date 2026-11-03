@@ -10,7 +10,6 @@ export const { staticGET: GET } = createFromSource(source, {
     title: page.data.title ?? page.url,
     description: page.data.description,
     structuredData: page.data.structuredData,
-    // The section of the page, such as `core` or `adr`, used by the section filter of the search dialog.
     tag: page.slugs[0],
   }),
 });

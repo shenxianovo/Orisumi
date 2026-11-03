@@ -15,19 +15,20 @@ internal sealed record QualityBaseReport(
     string Requested, string Resolved, bool Usable, string? Reason, IReadOnlyList<string> Suggestions);
 internal sealed record QualityReport(
     QualityBaseReport Base, string ArtifactDirectory, LineQualityReport? Lines,
-    CloneQualityReport? Clones, ComplexityQualityReport? Complexity, DeadCodeReport? DeadCode,
+    ComplexityQualityReport? Complexity, DeadCodeReport? DeadCode,
     bool Completed, IReadOnlyList<string> Failures);
 
 internal sealed class QualityCommand(RepositoryContext repository, IProcessRunner runner, TextWriter output)
 {
     public Command CreateCommand()
     {
-        var command = new Command("quality", "Observe structural quality relative to an explicit Git base");
-        var baseRef = new Option<string>("--base") { Required = true, Description = "Git comparison base" };
+        var command = new Command("quality", "Observe structural quality relative to a Git base");
+        var baseRef = new Option<string?>("--base") { Description = "Git comparison base; HEAD when the worktree has changes" };
         var json = new Option<bool>("--json") { Description = "Print the report as JSON" };
         command.Options.Add(baseRef);
         command.Options.Add(json);
-        command.SetAction((parse, token) => RunAsync(new QualityOptions(parse.GetValue(baseRef)!, parse.GetValue(json)), token));
+        command.SetAction(async (parse, token) => await RunAsync(new QualityOptions(
+            (await VerificationRequest.ResolveBaseAsync("changed", parse.GetValue(baseRef), runner, token))!, parse.GetValue(json)), token));
         return command;
     }
 
@@ -51,7 +52,6 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
         return report.Completed ? 0 : 1;
     }
 
-    /// 运行全部扫描，把报告写进证据目录。
     internal async Task<QualityReport> AnalyzeAsync(QualityOptions options, EvidenceSession evidence, CancellationToken token)
     {
         var source = new GitSourceReader(repository, runner);
@@ -60,28 +60,21 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
         var baseReport = new QualityBaseReport(options.Base, baseline.Revision,
             usability.Usable, usability.Reason, usability.Suggestions);
         if (!usability.Usable)
-            return await SaveAsync(new(baseReport, evidence.Run.Directory, null, null, null, null,
+            return await SaveAsync(new(baseReport, evidence.Run.Directory, null, null, null,
                 false, [usability.Reason!]), token);
 
         var current = await source.ReadWorktreeAsync(token);
-        var clones = await new CloneDetector(repository, runner)
-            .CompareAsync(baseline.Revision, baseline, current, evidence.Run.Directory, evidence.Commands, token);
         var complexity = await new ComplexityDetector(repository, runner)
             .CompareAsync(baseline.Revision, evidence.Run.Directory, evidence.Commands, token);
         var deadCode = await new DeadCodeDetector(repository, runner).CompareAsync(
             baseline.Revision, evidence.Run.Directory, evidence.Commands, complexity.BaselineCSharpComplete, complexity.CurrentCSharpComplete, token);
-        var failures = Failures(clones, complexity).Concat(deadCode.Failures()).ToArray();
+        var failures = Failures(complexity).Concat(deadCode.Failures()).ToArray();
         return await SaveAsync(new(baseReport, evidence.Run.Directory, CompareLines(baseline, current),
-            clones, complexity, deadCode, failures.Length == 0, failures), token);
+            complexity, deadCode, failures.Length == 0, failures), token);
     }
 
-    internal static IReadOnlyList<string> Failures(CloneQualityReport clones, ComplexityQualityReport complexity)
-    {
-        var failures = clones.Scans.Where(scan => !scan.Available)
-            .Select(scan => scan.Unavailable ?? $"The {scan.Scope} clone scan did not complete.").ToList();
-        if (!complexity.Available) failures.Add(complexity.Reason ?? "Complexity analysis did not complete.");
-        return failures;
-    }
+    internal static IReadOnlyList<string> Failures(ComplexityQualityReport complexity) =>
+        complexity.Available ? [] : [complexity.Reason ?? "Complexity analysis did not complete."];
 
     private static async Task<QualityReport> SaveAsync(QualityReport report, CancellationToken token)
     {
@@ -90,10 +83,8 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
         return report;
     }
 
-    /// 相对基点新增的发现数；复杂度在基点无法分析时不计。
     internal static int NewFindings(QualityReport report) =>
-        (report.Clones?.NewClones ?? 0)
-        + (report.Complexity is { BaselineComplete: true } complexity ? complexity.Regressions : 0)
+        (report.Complexity is { BaselineComplete: true } complexity ? complexity.Regressions : 0)
         + (report.DeadCode?.NewFindings.Count ?? 0);
 
     internal static string Verdict(QualityReport report) => !report.Completed
@@ -113,7 +104,6 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
             [
                 ["", "[grey]current[/]", "[grey]new[/]"],
                 ["Production LOC", Terminal.Number(lines.CurrentProductionLines), Terminal.Delta(lines.ProductionDelta)],
-                ["Clones", Terminal.Number(report.Clones!.Scans.Sum(scan => scan.Clones)), New(report.Clones.NewClones)],
             ];
             if (report.Complexity is { CurrentComplete: true } complexity)
             {
@@ -133,7 +123,6 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
         console.MarkupLine($"  [grey]evidence[/]  {Terminal.Esc(Terminal.Path(repository, Path.Combine(report.ArtifactDirectory, "quality.json")))}");
     }
 
-    /// 只展开新增的发现和未完成的扫描；现有的发现见 quality.json。
     internal static void WriteFindings(IAnsiConsole console, QualityReport report)
     {
         var findings = NewFindingLines(report).ToArray();
@@ -144,12 +133,7 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
     }
 
     private static IEnumerable<(string Kind, string Text)> NewFindingLines(QualityReport report) =>
-        NewClones(report).Concat(NewComplexity(report)).Concat(NewUnused(report));
-
-    private static IEnumerable<(string, string)> NewClones(QualityReport report) =>
-        (report.Clones?.Scans.SelectMany(scan => scan.NewFindings) ?? []).Select(finding => ("clone",
-            $"{finding.FirstFile}:{finding.FirstStart}-{finding.FirstEnd} ↔ "
-            + $"{finding.SecondFile}:{finding.SecondStart}-{finding.SecondEnd} · {finding.Lines} lines"));
+        NewComplexity(report).Concat(NewUnused(report));
 
     private static IEnumerable<(string, string)> NewComplexity(QualityReport report) =>
         (report.Complexity is { BaselineComplete: true } complexity ? complexity.RegressionDetails ?? [] : [])
@@ -160,7 +144,6 @@ internal sealed class QualityCommand(RepositoryContext repository, IProcessRunne
     private static IEnumerable<(string, string)> NewUnused(QualityReport report) =>
         (report.DeadCode?.NewFindings ?? []).Select(finding => ("unused", $"{finding.Path}:{finding.Line} {finding.Symbol} · {finding.Rule}"));
 
-    /// 分析器的符号名带命名空间、泛型元数和参数，只保留最后的类型和函数名。
     internal static string ShortSymbol(string symbol)
     {
         var withoutParameters = Regex.Replace(symbol, @"\(.*\)", "");

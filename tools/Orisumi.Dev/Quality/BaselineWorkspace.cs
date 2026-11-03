@@ -2,7 +2,6 @@ namespace Orisumi.Dev;
 
 internal sealed record BaselineWorkspace(string Path, bool Reused)
 {
-    /// 标记依赖恢复和首次扫描成功，供后续扫描使用 `--no-restore`。
     private string RestoreMarker => System.IO.Path.Combine(Path, ".baseline-restored");
 
     public bool NeedsRestore => !File.Exists(RestoreMarker);
@@ -10,10 +9,6 @@ internal sealed record BaselineWorkspace(string Path, bool Reused)
     public void MarkRestored() => File.WriteAllText(RestoreMarker, "restored");
 }
 
-/// <summary>
-/// 按 commit 缓存独立基线工作树，复用 `obj/`、`bin/` 和 `node_modules`，减少重复准备。
-/// 缓存位于 Git 忽略的 `.artifacts/quality-baselines/<commit>`，删除后可重建。
-/// </summary>
 internal sealed class BaselineWorkspaceCache(RepositoryContext repository, IProcessRunner runner)
 {
     public string Root { get; } = repository.Path(".artifacts", "quality-baselines");
@@ -24,14 +19,12 @@ internal sealed class BaselineWorkspaceCache(RepositoryContext repository, IProc
         CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Root);
-        // 用解析后的提交号作缓存键，避免 HEAD 或分支移动后复用旧基线。
         var resolved = await ResolveAsync(commit, cancellationToken);
         if (resolved is null)
         {
             return (null, $"Could not resolve Git base '{commit}' to a commit.");
         }
         var path = System.IO.Path.Combine(Root, resolved);
-        // Readiness also applies to revisions from before the project was renamed.
         if (Directory.Exists(path) && Directory.EnumerateFiles(path, "*.slnx").Any())
         {
             commands.Add($"reuse cached baseline worktree .artifacts/quality-baselines/{resolved[..7]}");
@@ -41,7 +34,6 @@ internal sealed class BaselineWorkspaceCache(RepositoryContext repository, IProc
         var added = await AddAsync(path, resolved, cancellationToken);
         if (added.ExitCode != 0)
         {
-            // 清理上次失败的工作树登记和残留目录，再重试一次。
             await runner.CaptureAsync("git", ["worktree", "prune"], null, cancellationToken);
             if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
             added = await AddAsync(path, resolved, cancellationToken);

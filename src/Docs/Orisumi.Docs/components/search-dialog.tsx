@@ -22,10 +22,6 @@ export interface SearchTag {
   value: string;
 }
 
-/**
- * The search dialog with a filter for each section. Fumadocs' default dialog renders its footer outside the popup,
- * where the filter sits behind the overlay, so the footer is placed inside the content here.
- */
 export function SectionSearchDialog({ tags = [], ...props }: SharedProps & { tags?: SearchTag[] }) {
   const [tag, setTag] = useState<string>();
   const search = useDocsSearch({ client: staticClient({ tag }) });

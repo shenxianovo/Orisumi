@@ -15,17 +15,16 @@ internal sealed class VerificationCommand(
     RepositoryContext repository,
     IProcessRunner runner,
     TextWriter output,
-    TextWriter? error = null)
+    TextWriter? error = null,
+    ModelAccess? models = null)
 {
+    private readonly ModelAccess _models = models ?? ModelAccess.Default;
     private const int FailureLines = 20;
     private const string QualityLimitation = "Quality findings guide review; scans must complete, but findings do not fail the run.";
 
     public Command CreateCommand()
     {
-        var command = new Command("verify", "Verify code and tests");
-        command.SetAction(parse => new HelpAction().Invoke(parse));
-
-        var checks = new Command("checks", "Run build and automated checks; scope selects changed paths or all checks");
+        var checks = new Command("verify", "Build, test, lint and review; the scope selects checks by changed paths or runs them all");
         var scope = new Option<string>("--scope")
         {
             Description = "Check selection; all excludes quality analysis",
@@ -44,8 +43,7 @@ internal sealed class VerificationCommand(
         checks.SetAction((parse, token) => RunAsync(new VerificationRequest(
             parse.GetValue(scope) == "all" ? "full" : "changed", parse.GetValue(baseRef),
             parse.GetValue(plan), parse.GetValue(json), parse.GetValue(quality)), token));
-        command.Subcommands.Add(checks);
-        return command;
+        return checks;
     }
 
     private static Option<bool> PlanOption() => new("--plan") { Description = "Print the plan without executing it" };
@@ -64,8 +62,8 @@ internal sealed class VerificationCommand(
         var progress = request.Json ? error ?? Console.Error : output;
         var console = Terminal.Create(progress);
         VerificationReporter.WriteHeading(console, plan, request.Quality);
-        var execution = new VerificationCommand(repository, runner, progress);
-        string[] limitations = request.Quality ? [QualityLimitation] : [];
+        var execution = new VerificationCommand(repository, runner, progress, models: _models);
+        var limitations = Limitations(plan, request);
         string? directory = null;
         var exitCode = 1;
         var clock = Stopwatch.StartNew();
@@ -74,9 +72,7 @@ internal sealed class VerificationCommand(
             exitCode = await EvidenceSession.ExecuteAsync(repository, "verify", plan.Mode, limitations, evidence =>
             {
                 directory = evidence.Run.Directory;
-                return request.Quality
-                    ? execution.RunWithQualityAsync(plan, request.Base!, evidence, cancellationToken)
-                    : execution.RunPlanAsync(plan, evidence, cancellationToken);
+                return execution.RunAllAsync(plan, request, evidence, cancellationToken);
             }, notes: progress);
             return exitCode;
         }
@@ -96,6 +92,7 @@ internal sealed class VerificationCommand(
                     evidence = directory,
                     verification = await ReadReportAsync(directory, "verification.json"),
                     quality = await ReadReportAsync(directory, "quality.json"),
+                    review = await ReadReportAsync(directory, "review.json"),
                 }, JsonOptions.Indented));
             }
         }
@@ -127,7 +124,45 @@ internal sealed class VerificationCommand(
         return result.ExitCode;
     }
 
-    /// 质量扫描在验证之后运行；任一步取消都按取消报告，不能被另一步的结果覆盖。
+    private static string[] Limitations(VerificationPlan plan, VerificationRequest request) =>
+    [
+        .. request.Quality ? [QualityLimitation] : Array.Empty<string>(),
+        .. plan.ReviewPaths.Count > 0 ? [ReviewCommand.Limitation] : Array.Empty<string>(),
+    ];
+
+    private async Task<int> RunAllAsync(
+        VerificationPlan plan, VerificationRequest request, EvidenceSession evidence, CancellationToken cancellationToken)
+    {
+        var checks = request.Quality
+            ? await RunWithQualityAsync(plan, request.Base!, evidence, cancellationToken)
+            : await RunPlanAsync(plan, evidence, cancellationToken);
+        if (checks == 130 || plan.ReviewPaths.Count == 0) return checks;
+        var review = await RunReviewAsync(plan, evidence, cancellationToken);
+        return checks != 0 ? checks : review;
+    }
+
+    private async Task<int> RunReviewAsync(VerificationPlan plan, EvidenceSession evidence, CancellationToken cancellationToken)
+    {
+        var console = Terminal.Create(output);
+        var width = VerificationReporter.NameWidth(plan);
+        if (_models.Client() is not { } client)
+        {
+            VerificationReporter.WriteStep(console, "review", width, Outcome.Skipped, TimeSpan.Zero, "[grey]no OpenAI API key[/]");
+            Terminal.Hint(console, ModelAccess.SetupHint);
+            return 0;
+        }
+        var clock = Stopwatch.StartNew();
+        var rules = ReviewRules.Load(repository);
+        var targets = await ReviewSelection.ChangedAsync(repository, runner, rules, plan.Base!, plan.ReviewPaths, cancellationToken);
+        var calibrate = ReviewSelection.ChangedRules(rules, plan.ReviewPaths);
+        var report = await Terminal.SpinAsync(console, "Reviewing",
+            () => new Reviewer(repository, client).ReviewAsync(rules, targets, calibrate, evidence.Run.Directory, cancellationToken));
+        VerificationReporter.WriteStep(console, "review", width, report.Completed ? Outcome.Passed : Outcome.Failed,
+            clock.Elapsed, ReviewCommand.Verdict(report));
+        ReviewCommand.WriteFindings(console, report);
+        return report.Completed ? 0 : 1;
+    }
+
     internal static async Task<CombinedResult> CombineAsync(
         Func<Task<int>> verify, Func<Task<int>> quality, CancellationToken cancellationToken)
     {
@@ -163,7 +198,9 @@ internal sealed class VerificationCommand(
                 try
                 {
                     result = await Terminal.SpinAsync(console, $"Running {Terminal.Esc(step.Name)}",
-                        () => runner.CaptureAsync(step.FileName, arguments, null, cancellationToken));
+                        () => step.InProcess is { } inProcess
+                            ? RunInProcessAsync(inProcess, cancellationToken)
+                            : runner.CaptureAsync(step.FileName, arguments, null, cancellationToken));
                 }
                 catch (CapturedProcessCancelledException cancelled)
                 {
@@ -204,12 +241,19 @@ internal sealed class VerificationCommand(
         }
     }
 
-    /// 失败步骤输出的最后几行；完整输出在日志里。
     private void WriteFailure(IAnsiConsole console, string text, string log)
     {
         foreach (var line in text.Split('\n').Select(line => line.TrimEnd('\r')).Where(line => line.Trim().Length > 0).TakeLast(FailureLines))
             console.MarkupLine($"      [grey]{Terminal.Esc(line)}[/]");
         console.MarkupLine($"      [grey]log[/] {Terminal.Esc(Terminal.Path(repository, log))}");
+    }
+
+    private static async Task<ProcessResult> RunInProcessAsync(
+        Func<TextWriter, CancellationToken, Task<int>> run, CancellationToken cancellationToken)
+    {
+        using var captured = new StringWriter();
+        var exitCode = await run(captured, cancellationToken);
+        return new ProcessResult(exitCode, captured.ToString(), "");
     }
 
     private static string Quote(string value) => value.Contains(' ', StringComparison.Ordinal) ? $"\"{value}\"" : value;

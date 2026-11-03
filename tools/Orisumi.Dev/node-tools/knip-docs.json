@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["app/**/route.dev.ts"],
   "project": ["app/**/*.{ts,tsx}", "components/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}", "*.{ts,mjs}"],
   "ignoreExportsUsedInFile": true
 }
