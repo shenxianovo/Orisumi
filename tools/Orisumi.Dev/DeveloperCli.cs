@@ -19,6 +19,7 @@ internal sealed class DeveloperCli(
         var root = CommandLine.Group("orisumi", "Orisumi development and verification");
         root.Options.Add(new HelpOption { Recursive = true });
         root.Options.Add(new VersionOption());
+        root.Subcommands.Add(new RunCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(new DocsCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(new TidyCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(new VerificationCommand(repository, runner, output, error).CreateCommand());
@@ -33,6 +34,8 @@ internal sealed class DeveloperCli(
 
     public async Task<int> RunAsync(string[] args, CancellationToken cancellationToken)
     {
+        if (args is [RunCommand.Name, .. var forwarded])
+            return await new RunCommand(repository, runner, output).ForwardAsync(forwarded, cancellationToken);
         var parsed = CreateCommand().Parse(args);
         var configuration = new InvocationConfiguration
         {

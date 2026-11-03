@@ -1,0 +1,14 @@
+{
+  "title": "Model",
+  "description": "导洞的模型：原件、读出和给 Agent 的命令",
+  "icon": "Layers",
+  "root": true,
+  "pages": [
+    "index",
+    "raw",
+    "readings",
+    "context",
+    "sources",
+    "..."
+  ]
+}

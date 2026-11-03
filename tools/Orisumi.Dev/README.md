@@ -61,6 +61,7 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 
 | 命令 | 作用 |
 | --- | --- |
+| `run` | 运行本检出的 Orisumi，`run` 后面的参数原样交给它，数据放在 `.local/orisumi/` |
 | `docs` | 运行文档站 |
 | `loc` | 行数统计 |
 | `runs` | 运行记录 |
