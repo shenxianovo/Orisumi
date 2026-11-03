@@ -27,5 +27,5 @@ orisumi docs dev
 
 ## 写文档
 
-- 链接写成指向文件的相对路径，例如 `[发心](./belief.mdx#用户)`，页面上和 GitHub 上都能跳转。链接、锚点、JSON 示例和需求页的依赖图由 `orisumi` 的 lint 检查，见 [Orisumi.Dev README · Lint](../../../tools/Orisumi.Dev/README.md#lint)。
+- 链接写成指向文件的相对路径，例如 `[发心](./belief.mdx#用户是任何人)`，页面上和 GitHub 上都能跳转。链接、锚点、JSON 示例和需求页的依赖图由 `orisumi` 的 lint 检查，见 [Orisumi.Dev README · Lint](../../../tools/Orisumi.Dev/README.md#lint)。
 - 每个文件夹的 `meta.json` 是 Fumadocs 的侧边栏配置。`pages` 先列出需要排在前面的页面，最后写 `"..."`，其余页面按文件名排在后面，新页面自动出现在侧边栏里。

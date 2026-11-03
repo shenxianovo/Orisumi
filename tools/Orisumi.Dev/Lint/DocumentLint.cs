@@ -6,7 +6,7 @@ namespace Orisumi.Dev;
 
 internal sealed record DocumentLink(string Target, int Index);
 
-internal enum StatementLevel { Axiom, Hypothesis, Inference }
+internal enum StatementLevel { Stance, Hypothesis, Inference }
 
 internal sealed record Statement(string Page, string Name, StatementLevel Level, IReadOnlyList<string> Basis, int Line);
 
@@ -21,7 +21,7 @@ internal static partial class DocumentLint
 {
     private static readonly Dictionary<string, StatementLevel> Levels = new(StringComparer.Ordinal)
     {
-        ["公理"] = StatementLevel.Axiom,
+        ["立场"] = StatementLevel.Stance,
         ["假设"] = StatementLevel.Hypothesis,
         ["推论"] = StatementLevel.Inference,
     };
