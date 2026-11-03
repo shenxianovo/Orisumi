@@ -6,19 +6,13 @@ namespace Orisumi.Dev;
 
 internal sealed record ComplexityHotspot(string Language, string Path, int Line, string Symbol, int Complexity, int Column = 1);
 
-internal sealed record DeadCodeFinding(string Rule, string Path, int Line, string Symbol)
-{
-    internal string Identity => $"{Rule}\0{Path}\0{Symbol}";
-}
-
-internal sealed record CodeScan(IReadOnlyList<FunctionMetric> Functions, IReadOnlyList<DeadCodeFinding> Unused);
 
 internal sealed partial class CSharpAnalysis(RepositoryContext repository, IProcessRunner runner, ProjectLayout layout)
 {
-    public async Task<CodeScan> ScanAsync(string root, string label, bool restore, Run run, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<FunctionMetric>> ScanAsync(string root, string label, bool restore, Run run, CancellationToken cancellationToken)
     {
         var solution = Prepare(root, layout, run.PathOf(label + "-implementation.slnx"));
-        if (solution.Projects == 0) return new CodeScan([], []);
+        if (solution.Projects == 0) return [];
         List<string> arguments =
         [
             "build", solution.Path, "--no-incremental", "--disable-build-servers", "--verbosity", "minimal", "--maxcpucount:1",
@@ -47,9 +41,7 @@ internal sealed partial class CSharpAnalysis(RepositoryContext repository, IProc
         var measured = ParseComplexity(root, output);
         if (measured.Count == 0)
             throw new InvalidDataException("CA1502 produced no function metrics; check that tools/Orisumi.Dev/CodeMetrics.props enables it.");
-        return new CodeScan(
-            ErosionScanner.FromCSharpAnalyzer(root, [.. measured.Where(item => layout.IsImplementation(item.Path))]),
-            [.. ParseUnused(root, output).Where(item => layout.IsImplementation(item.Path))]);
+        return ErosionScanner.FromCSharpAnalyzer(root, [.. measured.Where(item => layout.IsImplementation(item.Path))]);
     }
 
     internal static (string Path, int Projects) Prepare(string root, ProjectLayout layout, string outputSolution)
@@ -81,14 +73,6 @@ internal sealed partial class CSharpAnalysis(RepositoryContext repository, IProc
             .OrderBy(hotspot => hotspot.Path, StringComparer.Ordinal)
             .ThenBy(hotspot => hotspot.Line)];
 
-    internal static IReadOnlyList<DeadCodeFinding> ParseUnused(string root, string output) =>
-        [.. output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => UnusedDiagnostic().Match(line)).Where(match => match.Success)
-            .Select(match => new DeadCodeFinding("IDE0051", Relative(root, match.Groups["path"].Value),
-                int.Parse(match.Groups["line"].Value, CultureInfo.InvariantCulture),
-                match.Groups["symbol"].Value))
-            .DistinctBy(item => item.Identity)];
-
     private static string Relative(string root, string path) => System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
 
     private static string FailureSummary(ProcessResult result)
@@ -104,7 +88,4 @@ internal sealed partial class CSharpAnalysis(RepositoryContext repository, IProc
 
     [GeneratedRegex("^(?<path>.+)\\((?<line>\\d+),(?<column>\\d+)\\): warning CA1502: '(?<symbol>[^']+)' has a cyclomatic complexity of '(?<complexity>\\d+)'", RegexOptions.CultureInvariant)]
     private static partial Regex ComplexityDiagnostic();
-
-    [GeneratedRegex("^(?<path>.+)\\((?<line>\\d+),\\d+\\): (?:warning|error) IDE0051: Private member '(?<symbol>[^']+)' is unused", RegexOptions.CultureInvariant)]
-    private static partial Regex UnusedDiagnostic();
 }

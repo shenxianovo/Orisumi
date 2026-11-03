@@ -11,6 +11,5 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="System.CommandLine" />
-    <InternalsVisibleTo Include="Orisumi.Dev.Tests" />
   </ItemGroup>
 </Project>

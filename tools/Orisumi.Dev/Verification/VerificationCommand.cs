@@ -8,35 +8,32 @@ internal sealed class VerificationCommand(
     RepositoryContext repository,
     IProcessRunner runner,
     TextWriter output,
-    TextWriter error,
-    ModelAccess models)
+    TextWriter error)
 {
     public Command CreateCommand()
     {
-        var command = new Command("verify", "Build, test, lint and review; the scope selects checks by changed paths or runs them all");
+        var command = new Command("verify", "Run the gates a change must pass: tidiness, lint, build and tests");
         var scope = new Option<string>("--scope")
         {
-            Description = "changed selects checks by changed paths; all runs every check except quality",
+            Description = "changed selects checks by changed paths; all runs every check",
             DefaultValueFactory = _ => "changed",
         };
         scope.AcceptOnlyFromAmong("changed", "all");
         var baseRef = new Option<string?>("--base") { Description = "Git comparison base for changed scope" };
-        var quality = new Option<bool>("--quality") { Description = "Also analyze quality against the same base (changed scope only)" };
         var plan = new Option<bool>("--plan") { Description = "Print the plan without executing it" };
         var json = CommandLine.Json();
         command.Options.Add(scope);
         command.Options.Add(baseRef);
-        command.Options.Add(quality);
         command.Options.Add(plan);
         command.Options.Add(json);
         command.SetAction((parse, token) => RunAsync(new VerificationRequest(
-            parse.GetValue(scope) == "all" ? VerificationScope.All : VerificationScope.Changed, parse.GetValue(baseRef), parse.GetValue(plan), parse.GetValue(json), parse.GetValue(quality)), token));
+            parse.GetValue(scope) == "all" ? VerificationScope.All : VerificationScope.Changed, parse.GetValue(baseRef), parse.GetValue(plan), parse.GetValue(json)), token));
         return command;
     }
 
     public async Task<int> RunAsync(VerificationRequest request, CancellationToken cancellationToken)
     {
-        var plan = await new VerificationPlanner(repository, runner, models).CreateAsync(request, cancellationToken);
+        var plan = await new VerificationPlanner(repository, runner).CreateAsync(request, cancellationToken);
         if (request.PlanOnly)
         {
             await WritePlanAsync(plan, request.Json);
@@ -93,6 +90,11 @@ internal sealed class VerificationCommand(
                 results.Add(new CheckRecord(check.Name, 130, LogOf(run, check), null));
                 WriteStep(console, check.Name, width, Outcome.Cancelled, clock.Elapsed);
                 throw;
+            }
+            catch (Exception exception)
+            {
+                await File.AppendAllTextAsync(run.Log(check.Name), exception + Environment.NewLine, CancellationToken.None);
+                outcome = new CheckOutcome(1, $"[grey]{Terminal.Esc(exception.Message)}[/]");
             }
             results.Add(new CheckRecord(check.Name, outcome.ExitCode, LogOf(run, check), outcome.Report));
             WriteStep(console, check.Name, width, outcome.Mark, clock.Elapsed, outcome.Note);

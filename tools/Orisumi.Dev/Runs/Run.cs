@@ -7,10 +7,8 @@ internal static class RunFiles
 {
     public const string Manifest = "manifest.json";
     public const string Verification = "verification.json";
-    public const string Quality = "quality.json";
     public const string Review = "review.json";
     public const string ReviewCalls = "review-calls.jsonl";
-    public const string NoiseCalls = "noise-calls.jsonl";
 }
 
 internal sealed record RunManifest(

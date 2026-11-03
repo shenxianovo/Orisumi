@@ -21,13 +21,13 @@ Orisumi 正在从零重写。旧的设计和实现已经删除，留在 Git 历�
 - 依据写成指向上层陈述的链接，图中每个节点链接到它的说明。
 - 一条陈述被推翻或改写时，沿依赖图往下，所有能到达的陈述都要重新考虑。
 - 一条陈述被别的陈述依赖、或能独立变化时才单独成条，否则并进相关的那条。意思相近的陈述合并成一条。
-- 文档检查按这些规则检查需求页的结构和依赖图，规则见 [Orisumi.Dev README](tools/Orisumi.Dev/README.md#文档检查)。
+- `orisumi` 的 lint 按这些规则检查需求页的结构和依赖图，规则见 [Orisumi.Dev README](tools/Orisumi.Dev/README.md#文档)。
 
 ## 需求的位置
 
 - 用户确认的需求写在 [文档站的需求分区](src/Docs/Orisumi.Docs/content/docs/requirements/index.mdx)，只放确认的陈述。
 - 讨论中的候选、推论和待定的问题写在 `.scratch/requirements/`，确认后再整理进文档站，整理完删除。
-- 文档站推送后公开。个人上下文中的内容不写进文档站，需求里涉及个人生活的细节留在 `.scratch/`。
+- 仓库是公开的，推送后文档也公开。个人上下文中的内容不写进文档站，需求里涉及个人生活的细节留在 `.scratch/`。
 
 ## 个人上下文
 
@@ -45,7 +45,7 @@ Orisumi 正在从零重写。旧的设计和实现已经删除，留在 Git 历�
 - 直接在 main 上修改，不开分支和工作树。
 - 提交由用户发起，Agent 只在用户要求时提交。
 - 提交信息不加 `Co-Authored-By` 等署名行。
-- 推送到 main 会触发文档站发布，推送前取得用户同意。
+- 推送前取得用户同意。
 
 ## 写作
 
@@ -57,10 +57,11 @@ Orisumi 正在从零重写。旧的设计和实现已经删除，留在 Git 历�
 - 运行和预览项目都通过 `orisumi`，例如文档站用 `orisumi docs dev`，不直接调用 pnpm、dotnet 这些底层命令。缺少需要的命令时，先加到 Orisumi.Dev。
 - 进行中的记录放在 `.scratch/<slug>/`，完成后删除。
 - 同时运行的子 Agent 最多 2 到 3 个。
-- 代码里不写注释。需要解释的，改成更好的名字或一个测试，`orisumi lint` 检查。
-- 用户纠正了某类问题，能用代码查的写成检查，要靠判断的写成 `orisumi review` 的规则，把被纠正的原句放进违反的例子。
+- 改完文件后运行 `orisumi tidy`，它格式化改过的代码并 lint 改过的文件。
+- 代码里不写注释。需要解释的，改成更好的名字或一个测试，lint 检查。
+- 用户纠正了某类问题，能用代码查的写成 lint 规则或测试，要靠判断的写成一道[题](tools/Orisumi.Dev/README.md#题)，题目里写清被纠正的写法。
 - 修改 `tools/Orisumi.Dev` 后，在主检出目录运行 `orisumi tool install`，让全局命令和代码一致。用法见 [Orisumi.Dev README](tools/Orisumi.Dev/README.md)。
-- 新项目登记在根目录的 `Orisumi.slnx`，验证、质量扫描和行数统计都从它推导，见[项目清单](tools/Orisumi.Dev/README.md#项目清单)。
+- 新项目登记在根目录的 `Orisumi.slnx`，验证、评审和行数统计都从它推导，见[项目清单](tools/Orisumi.Dev/README.md#项目清单)。
 
 ## 完成标准
 

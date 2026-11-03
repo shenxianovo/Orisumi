@@ -1,83 +1,119 @@
 namespace Orisumi.Dev;
 
-internal sealed record ReviewTarget(string Path, IReadOnlyList<Passage> Passages);
+internal sealed record WritingFinding(string Path, int Line, string Question, string Title, double Probability, string Excerpt);
 
-internal sealed record ReviewFinding(string Path, int Line, string Rule, string Title, double Probability, string Excerpt);
+internal sealed record RegressionReview(ComplexityRegression Regression, string? Noise, double? Probability);
 
-internal sealed record CalibrationMiss(string Rule, string Title, string Example, bool Expected, double? Probability);
-
-internal sealed record ReviewJudgment(string Path, int Line, string Rule, double? Probability);
+internal sealed record ExceptionReview(DeclaredException Exception, bool? Holds, double? Probability, string Evidence);
 
 internal sealed record ReviewReport(
+    string Base,
+    string Commit,
     string Model,
+    bool Judged,
+    ComplexityReport Complexity,
+    IReadOnlyList<RegressionReview> Regressions,
     IReadOnlyList<string> Files,
-    IReadOnlyList<string> Calibrated,
-    int Questions,
-    int Cached,
-    int Refused,
-    IReadOnlyList<ReviewFinding> Findings,
-    IReadOnlyList<CalibrationMiss> Misses,
-    IReadOnlyList<ReviewJudgment> Judgments,
+    IReadOnlyList<WritingFinding> Writing,
+    IReadOnlyList<ExceptionReview> Exceptions,
     IReadOnlyList<string> Failures)
 {
     public bool Completed => Failures.Count == 0;
+
+    public IEnumerable<RegressionReview> NewComplexity => Regressions.Where(review => review.Noise is null);
+
+    public IEnumerable<ExceptionReview> BrokenExceptions => Exceptions.Where(review => review.Holds == false);
+
+    public int Findings => NewComplexity.Count() + Writing.Count + BrokenExceptions.Count();
 }
 
-internal sealed record ReviewResult(ReviewReport Report, IReadOnlyList<DecisionCall> Calls);
-
-internal sealed class Reviewer(RepositoryContext repository, IDecisionClient client)
+internal sealed class Reviewer(RepositoryContext repository, IProcessRunner runner, ModelAccess models)
 {
-    public async Task<ReviewResult> ReviewAsync(
-        IReadOnlyList<ReviewRule> rules,
-        IReadOnlyList<ReviewTarget> targets,
-        IReadOnlyList<ReviewRule> calibrate,
-        CancellationToken cancellationToken)
-    {
-        var passages = targets.SelectMany(target => target.Passages.SelectMany(passage =>
-            rules.Where(rule => rule.Kind == RuleKind.Writing && rule.Applies(target.Path))
-                .Select(rule => (target.Path, Passage: passage, Rule: rule)))).ToArray();
-        var examples = calibrate.SelectMany(rule =>
-            rule.Yes.Select(text => (Rule: rule, Text: text, Expected: true))
-                .Concat(rule.No.Select(text => (Rule: rule, Text: text, Expected: false)))).ToArray();
-        var questions = passages.Select(item => (Input: item.Passage.Text, item.Rule))
-            .Concat(examples.Select(item => (Input: item.Text, item.Rule)))
-            .Distinct()
-            .ToArray();
-        var judging = await new Judge(repository, client).AskAsync(questions, cancellationToken);
-        double? Answer(string input, ReviewRule rule) => judging.Answer(input, rule);
-        bool Answered(string input, ReviewRule rule) => judging.Answered(input, rule);
+    private sealed record Writing(string Path, Passage Passage, Question Question);
 
-        var judgments = passages.Where(item => Answered(item.Passage.Text, item.Rule))
-            .Select(item => new ReviewJudgment(item.Path, item.Passage.Line, item.Rule.Id, Answer(item.Passage.Text, item.Rule)))
+    private sealed record Regression(ComplexityRegression Change, string? Input);
+
+    private sealed record Declared(DeclaredException Exception, string Input);
+
+    public async Task<ReviewReport> ReviewAsync(string requested, string commit, Run run, CancellationToken cancellationToken)
+    {
+        var complexity = await new QualityAnalysis(repository, runner).AnalyzeAsync(commit, run, cancellationToken);
+        var layout = ProjectLayout.Load(repository.Root);
+        var questions = Questions.Load(repository, layout);
+        var evidence = new Evidence(repository, layout, await repository.Git.FilesAsync(cancellationToken));
+        var noise = questions.Where(question => question.Explains(Evidence.ComplexityRule)).ToArray();
+        var reason = questions.FirstOrDefault(question => question.Id == UnusedLint.ReasonQuestion);
+
+        var writing = await WritingAsync(questions, commit, cancellationToken);
+        var regressions = Regressions(complexity, evidence);
+        var exceptions = Exceptions(layout, evidence);
+        var asks = writing.Select(item => (item.Passage.Text, item.Question))
+            .Concat(regressions.Where(item => item.Input is not null).SelectMany(item => noise.Select(question => (item.Input!, question))))
+            .Concat(reason is null ? [] : exceptions.Select(item => (item.Input, reason)))
             .ToArray();
-        var findings = passages
-            .Where(item => Answer(item.Passage.Text, item.Rule) >= Judge.Threshold)
-            .Select(item => new ReviewFinding(item.Path, item.Passage.Line, item.Rule.Id, item.Rule.Title,
-                Answer(item.Passage.Text, item.Rule)!.Value, Terminal.Excerpt(item.Passage.Text)))
-            .OrderBy(finding => finding.Path, StringComparer.Ordinal).ThenBy(finding => finding.Line)
-            .ToArray();
-        var misses = examples
-            .Where(item => Answered(item.Text, item.Rule) && Answer(item.Text, item.Rule) is var probability
-                && (probability is null || probability >= Judge.Threshold != item.Expected))
-            .Select(item => new CalibrationMiss(item.Rule.Id, item.Rule.Title, item.Text, item.Expected, Answer(item.Text, item.Rule)))
-            .ToArray();
-        var report = new ReviewReport(
-            client.Model,
-            targets.Select(target => target.Path).ToArray(),
-            calibrate.Select(rule => rule.Id).ToArray(),
-            questions.Length,
-            judging.Cached,
-            judging.Refused,
-            findings,
-            misses,
-            judgments,
-            judging.Failures);
-        return new ReviewResult(report, judging.Calls);
+
+        var client = models.Client();
+        var model = client?.Model ?? OpenAIDecisionClient.DefaultModel;
+        var judging = client is null
+            ? new Judging(new Dictionary<(string, string), Answer>(), [], [])
+            : await new Judge(model, client, new CacheStore(repository)).AskAsync(asks, cancellationToken);
+        if (judging.Calls.Count > 0) await Judge.SaveCallsAsync(run, RunFiles.ReviewCalls, judging.Calls);
+
+        var report = new ReviewReport(requested, commit, model, client is not null, complexity,
+            [.. regressions.Select(item => Review(item, noise, judging))],
+            [.. writing.Select(item => item.Path).Distinct()],
+            [.. writing.SelectMany(item => Finding(item, judging)).OrderBy(finding => finding.Path, StringComparer.Ordinal).ThenBy(finding => finding.Line)],
+            [.. exceptions.Select(item => Review(item, reason, judging))],
+            [.. complexity.Failures, .. judging.Failures]);
+        await run.WriteJsonAsync(RunFiles.Review, report);
+        return report;
     }
 
-    public static async Task SaveAsync(Run run, ReviewResult result)
+    private async Task<List<Writing>> WritingAsync(IReadOnlyList<Question> questions, string commit, CancellationToken cancellationToken)
     {
-        await run.WriteJsonAsync(RunFiles.Review, result.Report);
-        await Judge.SaveCallsAsync(run, RunFiles.ReviewCalls, result.Calls);
+        var writing = new List<Writing>();
+        foreach (var path in await repository.Git.ChangedPathsAsync(commit, cancellationToken))
+        {
+            var reviewing = questions.Where(question => question.Reviews(path)).ToArray();
+            if (reviewing.Length == 0 || ProjectLayout.IsScratch(path) || !File.Exists(repository.Path(path))) continue;
+            var before = await repository.Git.ShowAsync(commit, path, cancellationToken);
+            var added = Passages.Added(before, await File.ReadAllTextAsync(repository.Path(path), cancellationToken));
+            writing.AddRange(added.SelectMany(passage => reviewing.Select(question => new Writing(path, passage, question))));
+        }
+        return writing;
+    }
+
+    private static Regression[] Regressions(ComplexityReport complexity, Evidence evidence) =>
+        [.. (complexity.Regressions ?? []).Select(change => new Regression(change, complexity.Vanished.Count == 0 ? null
+            : evidence.Complexity(change.Current, complexity.Functions.FirstOrDefault(function =>
+                function.Path == change.Current.Path && function.Line == change.Current.Line), complexity.Vanished)))];
+
+    private Declared[] Exceptions(ProjectLayout layout, Evidence evidence)
+    {
+        var lint = new UnusedLint(repository, runner, layout);
+        var reasons = lint.Reasons();
+        return [.. lint.Projects.SelectMany(project => lint.Exceptions(project, reasons).Exceptions)
+            .Select(exception => new Declared(exception, evidence.Unused(exception)))];
+    }
+
+    private static IEnumerable<WritingFinding> Finding(Writing item, Judging judging)
+    {
+        if (judging.Answer(item.Passage.Text, item.Question) is not { } answer || !item.Question.Passes(answer, Question.Yes)) yield break;
+        yield return new WritingFinding(item.Path, item.Passage.Line, item.Question.Id, item.Question.Title,
+            answer.ProbabilityOf(item.Question, Question.Yes)!.Value, Terminal.Excerpt(item.Passage.Text));
+    }
+
+    private static RegressionReview Review(Regression item, IReadOnlyList<Question> noise, Judging judging)
+    {
+        var renamed = item.Input is null ? null : noise.FirstOrDefault(question =>
+            judging.Answer(item.Input, question) is { } answer && question.Passes(answer, Question.Yes));
+        return new RegressionReview(item.Change, renamed?.Id, renamed is null ? null : judging.Answer(item.Input!, renamed)!.ProbabilityOf(renamed, Question.Yes));
+    }
+
+    private static ExceptionReview Review(Declared item, Question? reason, Judging judging)
+    {
+        var answer = reason is null ? null : judging.Answer(item.Input, reason);
+        return new ExceptionReview(item.Exception, answer is null ? null : reason!.Passes(answer, item.Exception.Reason),
+            answer?.ProbabilityOf(reason!, item.Exception.Reason), item.Input);
     }
 }

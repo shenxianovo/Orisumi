@@ -8,26 +8,14 @@ internal sealed partial class ScriptAnalysis(RepositoryContext repository, IProc
 {
     private readonly NodeTools _tools = new(repository, runner);
 
-    public async Task<CodeScan> ScanAsync(string root, string label, SourceSnapshot snapshot, Run run, CancellationToken cancellationToken)
-    {
-        await _tools.EnsureAsync(cancellationToken);
-        var functions = await ComplexityAsync(root, label, snapshot, run, cancellationToken);
-        var unused = new List<DeadCodeFinding>();
-        foreach (var project in layout.Projects.Where(project => project.Kind == ProjectKind.Node && project.IsImplementation))
-        {
-            var directory = Path.Combine(root, project.Directory);
-            if (Directory.Exists(directory)) unused.AddRange(await KnipAsync(directory, project, label, run, cancellationToken));
-        }
-        return new CodeScan(functions, unused);
-    }
-
-    private async Task<IReadOnlyList<FunctionMetric>> ComplexityAsync(
+    public async Task<IReadOnlyList<FunctionMetric>> ScanAsync(
         string root, string label, SourceSnapshot snapshot, Run run, CancellationToken cancellationToken)
     {
         var files = snapshot.Files
             .Where(file => file.Role is SourceRole.Production or SourceRole.Tooling && file.Language is "TypeScript" or "JavaScript")
             .Select(file => file.Path).ToArray();
         if (files.Length == 0) return [];
+        await _tools.EnsureAsync(cancellationToken);
         var list = run.PathOf(label + "-files.json");
         await File.WriteAllTextAsync(list, JsonSerializer.Serialize(files), cancellationToken);
         run.Commands.Add($"eslint {label} implementation files (complexity)");
@@ -40,56 +28,6 @@ internal sealed partial class ScriptAnalysis(RepositoryContext repository, IProc
         var spans = await runner.CaptureAsync(new("node", [_tools.Script("erosion.mjs"), root, list], root), cancellationToken);
         if (spans.ExitCode != 0) throw new InvalidDataException($"TypeScript erosion scan failed: {spans.LastLine}");
         return ApplyAnalyzerComplexity(ErosionScanner.ParseTypeScriptSpans(spans.StdOut), ParseEslint(root, eslint.StdOut));
-    }
-
-    private async Task<IReadOnlyList<DeadCodeFinding>> KnipAsync(
-        string directory, Project project, string label, Run run, CancellationToken cancellationToken)
-    {
-        if (!Directory.Exists(Path.Combine(directory, "node_modules")))
-        {
-            ProcessCommand install = project.PackageManager == "pnpm"
-                ? new("pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"], directory)
-                : new("npm", ["ci", "--ignore-scripts"], directory);
-            run.Commands.Add($"{install} ({label} {project.Name})");
-            var restored = await runner.CaptureAsync(install, cancellationToken);
-            if (restored.ExitCode != 0) throw new InvalidDataException($"Could not prepare {label} {project.Name} dependencies: {restored.LastLine}");
-        }
-        var command = new ProcessCommand(_tools.Bin("knip"), ["--directory", directory, "--reporter", "json", "--no-progress"], directory);
-        run.Commands.Add(command.ToString());
-        var result = await runner.CaptureAsync(command, cancellationToken);
-        await File.WriteAllTextAsync(run.PathOf($"{label}-{project.Name}-knip.json"), result.StdOut, cancellationToken);
-        await File.WriteAllTextAsync(run.PathOf($"{label}-{project.Name}-knip.log"), result.StdErr, cancellationToken);
-        if (result.ExitCode is not (0 or 1)) throw new InvalidDataException($"Knip failed ({label} {project.Name}): {result.LastLine}");
-        var findings = ParseKnip(result.StdOut, project.Directory);
-        if (result.ExitCode == 1 && findings.Count == 0)
-            throw new InvalidDataException($"Knip failed without findings ({label} {project.Name}): {result.LastLine}");
-        return findings;
-    }
-
-    internal static IReadOnlyList<DeadCodeFinding> ParseKnip(string json, string projectDirectory)
-    {
-        using var document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty("issues", out var issues) || issues.ValueKind != JsonValueKind.Array)
-            throw new InvalidDataException("Knip did not produce an issues array.");
-        var findings = new List<DeadCodeFinding>();
-        foreach (var issue in issues.EnumerateArray())
-        {
-            var path = projectDirectory + issue.GetProperty("file").GetString();
-            foreach (var category in issue.EnumerateObject().Where(item => item.Value.ValueKind == JsonValueKind.Array))
-            {
-                foreach (var item in category.Value.EnumerateArray())
-                {
-                    var entries = item.ValueKind == JsonValueKind.Array ? item.EnumerateArray().ToArray() : [item];
-                    foreach (var entry in entries)
-                    {
-                        findings.Add(new("knip/" + category.Name, path,
-                            entry.TryGetProperty("line", out var line) ? line.GetInt32() : 1,
-                            entry.TryGetProperty("name", out var name) ? name.GetString()! : path));
-                    }
-                }
-            }
-        }
-        return findings;
     }
 
     internal IReadOnlyList<ComplexityHotspot> ParseEslint(string root, string json)

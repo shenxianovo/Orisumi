@@ -1,12 +1,12 @@
 # Orisumi.Dev
 
-Orisumi.Dev 是人和 Agent 共用的开发工具，负责启动文档站、构建、测试、lint、质量扫描、模型检查和验证证据。项目开发需要的功能都加在这里。
+Orisumi.Dev 是开发的唯一入口，人、Agent 和以后的 CI 都通过它的命令 `orisumi` 格式化、lint、构建、测试、评审和查看证据。开发需要的功能都加在这里，见 [ADR 0001](../../src/Docs/Orisumi.Docs/content/docs/dev/adr/0001-single-entry.mdx)。用词见[开发术语](../../src/Docs/Orisumi.Docs/content/docs/dev/glossary.mdx)。
 
 ## 准备
 
-需要 `global.json` 指定的 .NET SDK，以及 Node.js、npm 和 pnpm。文档站的依赖由 `docs dev` 自动安装；lint 和质量扫描用到的 node 工具在 `tools/Orisumi.Dev/node-tools/`，首次用到时按锁文件自动安装。各语言用自己的工具链：C# 用 Roslyn 和 .NET 分析器，TypeScript 用 TypeScript 编译器 API，复杂度和未使用代码另用 ESLint 和 Knip。
+需要 `global.json` 指定的 .NET SDK，以及 Node.js、npm 和 pnpm。各语言用自己的工具链：C# 用 Roslyn、.NET 分析器和 `dotnet format`，TypeScript 和 JavaScript 用 TypeScript 编译器 API，复杂度另用 ESLint，未使用的代码用 Knip。这些 node 工具在 `tools/Orisumi.Dev/node-tools/`，首次用到时按锁文件自动安装；Node 项目自己的依赖在 lint 需要时按它的锁文件安装。
 
-模型检查需要 OpenAI API key，设置一次，这台机器上的所有检出目录共用：
+评审需要 OpenAI API key，设置一次，这台机器上的所有检出目录共用：
 
 ```sh
 orisumi config set openai.api-key
@@ -34,18 +34,36 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 | `/tests/` | 测试 |
 | `/tools/` | 开发工具 |
 
-其余信息来自各项目自己的清单：csproj 的 `ProjectReference` 决定测试项目覆盖哪些项目，`package.json` 的 scripts 决定 `verify` 运行哪些脚本，`pnpm-lock.yaml` 决定用 pnpm 还是 npm，knip 读项目目录里的 `knip.json`。验证、质量扫描和行数统计都从这份清单推导。新增项目时把它加进 `Orisumi.slnx`；不属于任何项目的代码文件在 `analyze loc` 里列为未分类。
+其余信息来自各项目自己的文件：
+
+| 文件 | 决定 |
+| --- | --- |
+| csproj 的 `ProjectReference` | 测试项目覆盖哪些项目 |
+| `package.json` 的 scripts | `verify` 运行其中的 `test`、`types:check`、`build` |
+| `pnpm-lock.yaml` | 用 pnpm 还是 npm |
+| `knip.json` | Knip 的入口和范围 |
+| `exceptions.json` | 未使用代码的[例外](#未使用的代码和例外) |
+| `Questions/*.json` | 这个项目的[题](#题) |
+
+验证、评审和行数统计都从这份清单推导。新增项目时把它加进 `Orisumi.slnx`；不属于任何项目的代码文件在 `loc` 里列为未分类。
 
 ## 命令
+
+改动按时机经过三层：
+
+| 层 | 命令 | 内容 |
+| --- | --- | --- |
+| 整理 | `tidy` | 改完文件后顺手运行：格式化改过的代码，lint 改过的文件 |
+| 验证 | `verify` | 交付前运行，全部是门禁：整理是否做完、lint、构建、测试 |
+| 评审 | `review` | 改完之后给评审者看，全部是报告：相对基点的复杂度、新写的文字、例外的理由 |
+
+其他命令：
 
 | 命令 | 作用 |
 | --- | --- |
 | `docs` | 运行文档站 |
-| `verify` | 按改动运行构建、测试、lint、文档检查和模型检查 |
-| `lint` | 代码里的注释 |
-| `review` | 模型检查：按规则判断写出的文字 |
-| `analyze` | 质量扫描和行数统计 |
-| `runs` | 验证、质量扫描和模型检查的运行记录 |
+| `loc` | 行数统计 |
+| `runs` | 运行记录 |
 | `config` | 用户级设置 |
 | `tool` | 安装和更新 `orisumi` 自身 |
 
@@ -53,13 +71,13 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 
 ### 输出
 
-命令默认输出给人读的文字，带 `--json` 选项的命令加上它输出 JSON。文字的第一行是“主题 · 范围 · 结论”，例如 `Quality · against HEAD (cd2bedb) · nothing new`。状态记号：
+命令默认输出给人读的文字，带 `--json` 选项的命令加上它输出 JSON。文字的第一行是“主题 · 范围 · 结论”，例如 `Review · against HEAD (cd2bedb) · nothing new`。状态记号：
 
 | 记号 | 含义 |
 | --- | --- |
 | ✓ | 成功 |
 | ✗ | 失败 |
-| ● | 运行中 |
+| ● | 运行中，或者报告有发现 |
 | ○ | 等待或已停止 |
 | ⊘ | 跳过或取消 |
 
@@ -75,10 +93,21 @@ orisumi docs dev
 
 先按锁文件安装文档站的依赖，已经一致时 pnpm 跳过，再在前台运行开发服务器，输出直接显示在终端，按 Ctrl+C 停止。地址是 <http://localhost:3000/>，端口被占用时 Next.js 换用下一个空闲端口，以服务器输出的地址为准。
 
+## 整理
+
+```sh
+orisumi tidy [--json]
+```
+
+改动是相对 `HEAD` 的已跟踪改动和未跟踪文件。`tidy` 依次：
+
+1. 格式化改过的代码：C# 用 `dotnet format whitespace`，按根目录的 `.editorconfig`；TypeScript 和 JavaScript 用 TypeScript 语言服务的格式化。Markdown 和 JSON 保持原样。
+2. 对改过的文件运行 [lint](#lint)，有发现时返回 1。
+
 ## 验证
 
 ```sh
-orisumi verify [--scope changed|all]
+orisumi verify [--scope changed|all] [--base <ref>] [--plan] [--json]
 ```
 
 `--scope` 选择范围，默认 `changed`：
@@ -86,25 +115,25 @@ orisumi verify [--scope changed|all]
 | 范围 | 检查 |
 | --- | --- |
 | `changed` | 根据相对基点的改动选择检查。项目之外的非 Markdown 文件触发全部检查 |
-| `all` | lint，构建解决方案，运行所有测试项目，运行所有 Node 项目的检查脚本 |
+| `all` | 全部代码文件的整理、整个仓库的 lint、构建解决方案、所有测试项目、所有 Node 项目的脚本 |
 
 改动路径按[项目清单](#项目清单)找到所属的项目，再选择检查：
 
 | 改动 | 检查 |
 | --- | --- |
-| `.cs`、`.ts`、`.tsx`、`.mjs` 等源文件 | lint，再加所属项目的检查 |
-| C# 项目里的文件 | 构建解决方案，运行覆盖这个项目的测试项目 |
-| Node 项目里的文件 | 项目 scripts 中的 `docs:check`、`test`、`types:check`、`build`，按这个顺序 |
-| 任何 Markdown | 各项目的 `docs:check` |
+| C#、TypeScript、JavaScript 文件 | 整理是否做完，lint，再加所属项目的检查 |
+| Markdown | lint；属于 Node 项目时再加那个项目的脚本 |
+| C# 项目里的其他文件 | 构建解决方案，运行覆盖这个项目的测试项目 |
+| Node 项目里的其他文件 | 项目 scripts 中的 `test`、`types:check`、`build`，按这个顺序 |
 | `.scratch/` | 无 |
 
-改动涉及模型检查规则覆盖的文件或规则本身时，其余检查之后再运行模型检查，见[模型检查](#模型检查)。它的发现不使命令失败；没有设置 key 时跳过并提示设置命令。
-
-- `--base` 指定基点。有未提交的改动时可以省略，默认使用 `HEAD`；没有改动时必须指定。
-- `--quality` 在同一次运行中执行检查，再以同一基点运行质量扫描，两者共用一份运行记录。
-- `--base` 和 `--quality` 只用于 `changed` 范围，与 `--scope all` 一起使用时返回参数错误。
+- `--base` 指定基点。有未提交的改动时可以省略，默认使用 `HEAD`；没有改动时必须指定。只用于 `changed` 范围。
 - 每项检查都运行到底，前面的失败不跳过后面的检查；取消时停止。
-- 构建失败、测试失败、lint 有发现、质量扫描或模型检查未完成时，命令返回失败。质量扫描和模型检查的发现不使命令失败，供评审参考。
+- 任何一项检查失败，命令返回失败。
+
+### 测试结果
+
+测试按用例汇总。C# 测试项目输出 TRX，Node 项目的 `test` 脚本通过 `NODE_OPTIONS` 加上 Node 自带的 JUnit reporter。每项测试检查显示用例数，失败时列出失败的用例和消息，完整结果在证据目录的 `.trx` 和 `.junit.xml` 文件里。
 
 ### 计划与 JSON 输出
 
@@ -115,57 +144,79 @@ orisumi verify [--scope changed|all]
 | `verify --plan --json` | 计划：`scope`、`fallback`、`base`、`changedPaths` 和每项检查的 `name`、`description` |
 | `verify --json` | 验证结果，和证据目录里的 `verification.json` 相同 |
 
-验证结果有 `evidence`（证据目录）、`scope`、`fallback`、`base`、`changedPaths`、`exitCode` 和 `checks`。`checks` 里每项检查有 `name`、`exitCode`、`log`（进程的输出），lint、质量扫描和模型检查另有 `report`。执行进度写到 stderr，stdout 可以整体解析。取消时同样输出结果，内容是已经完成的部分。
-
-### 文档检查
-
-文档检查查链接、锚点、JSON 示例、frontmatter 和侧边栏，并检查需求页的依赖图：
-
-- `## 公理`、`## 假设`、`## 推论` 下的每个 `###` 是一条陈述，名字在所有需求页中唯一。
-- 推论有「依据：」一行，链接到已有的陈述；公理和假设是出发点，没有依据。依据不能成环。
-- 页面上的 mermaid 图画出这一页的每条陈述和每条依据，假设带 `class hypothesis`，每个节点有 `click` 链接到自己的说明。
+验证结果有 `evidence`（证据目录）、`scope`、`fallback`、`base`、`changedPaths`、`exitCode` 和 `checks`。`checks` 里每项检查有 `name`、`exitCode`、`log`（进程的输出），整理、lint 和测试另有 `report`。执行进度写到 stderr，stdout 可以整体解析。取消时同样输出结果，内容是已经完成的部分。
 
 ## Lint
 
-```sh
-orisumi lint [--json]
+lint 是确定性的规则，在 `tidy` 里查改过的文件，在 `verify` 里查整个仓库。每条发现写成「规则 · 文件:行号 · 说明」。
+
+### 注释
+
+代码里不写注释：需要解释的，改成更好的名字或一个测试。C# 用 Roslyn 解析，TypeScript 和 JavaScript 用 TypeScript 编译器 API，字符串和正则里的 `//` 不算。三斜线 `<reference>`、`@ts-` 指令和 shebang 是给工具的指令，不算注释。
+
+### 文档
+
+`.scratch/` 之外的所有 Markdown 和 MDX：
+
+| 规则 | 内容 |
+| --- | --- |
+| `link` | 链接写成指向文件的相对路径，目标存在；以 `/` 开头的站点路径是发现。mermaid 的 `click` 链接也检查 |
+| `anchor` | 锚点对应显式的 `[#id]`，或者标题按 github-slugger 生成的 slug |
+| `json` | ` ```json ` 代码块可以解析，带标题或行高亮的代码块也检查 |
+| `requirements` | 需求页的依赖图，见下文 |
+
+一页里有 `## 公理`、`## 假设` 或 `## 推论` 时，它是需求页：
+
+- 这三节下的每个 `###` 是一条陈述，名字在所有需求页中唯一。
+- 推论有「依据：」一行，链接到已有的陈述；公理和假设是出发点，没有依据。依据不能成环。
+- 页面上的 mermaid 图画出这一页的每条陈述和每条依据，假设带 `class hypothesis`，每个节点有 `click` 链接到自己的说明。
+
+### 未使用的代码和例外
+
+C# 的未使用私有成员（IDE0051）由 `.editorconfig` 设为警告，构建时作为错误报告。Node 业务项目用 Knip 查未使用的文件、导出和依赖，每条发现都是 lint 发现。
+
+有些发现不需要改代码，例如只在 CSS 里 `@import` 的包，Knip 看不到这种引用。这样的发现由所属项目在自己目录下的 `exceptions.json` 声明为例外：
+
+```json
+[
+  { "rule": "knip/devDependencies", "path": "package.json", "symbol": "tailwindcss", "reason": "referenced-outside-code" }
+]
 ```
 
-检查工作区所有 C#、TypeScript 和 JavaScript 文件，代码里不写注释：需要解释的，改成更好的名字或一个测试。C# 用 Roslyn 解析，TypeScript 和 JavaScript 用 TypeScript 编译器 API，字符串和正则里的 `//` 不算。三斜线 `<reference>`、`@ts-` 指令和 shebang 是给工具的指令，不算注释。有发现时返回 1。
+`path` 相对项目目录，`reason` 是题 `unused-reason` 的选项。声明了但 Knip 不再报告的例外、理由不在选项里的例外也是 lint 发现。例外的理由是否仍然成立由[评审](#评审)复核。
 
-## 模型检查
+## 题
 
-有些判断靠代码做不出来，交给模型：每条规则是一道是非题，模型回答「是」的概率。规则分两类：
-
-- **写作规则**判断写出的文字，例如「用正面陈述写」，「是」表示违反。
-- **噪音理由**判断质量扫描的一条发现为什么不需要改代码，「是」表示这个理由成立，见[噪音](#噪音)。
-
-```sh
-orisumi review check                # 相对基点新出现的段落
-orisumi review check <文件>...       # 整个文件
-orisumi review check --all          # 规则覆盖的所有文件
-orisumi review rules                # 列出规则
-orisumi review calibrate [<规则>...] # 用规则自带的例子校准
-```
-
-`review check` 默认的基点和 `verify` 相同，有未提交的改动时用 `HEAD`，否则用 `--base` 指定。三个命令都可以加 `--json`。
-
-写作规则在 `tools/Orisumi.Dev/Review/Rules/`，噪音理由在 `tools/Orisumi.Dev/Review/Noise/`，一条规则一个 JSON 文件，文件名是规则的 ID：
+有些判断靠代码做不出来，交给 OpenAI Decisions API。一道题是一个 JSON 文件，放在所属项目的 `Questions/` 目录，文件名是题的 ID，ID 在仓库中唯一。
 
 | 字段 | 内容 |
 | --- | --- |
-| `title` | 规则名，输出里显示 |
-| `paths` | 写作规则覆盖的文件，`**` 跨目录，`*` 不跨目录 |
-| `findings` | 噪音理由适用的发现类型，例如 `knip/dependencies`、`complexity` |
-| `question` | 问模型的是非题 |
-| `yes` | 应该回答「是」的例子 |
-| `no` | 应该回答「否」的例子 |
+| `title` | 题名，输出里显示 |
+| `type` | `predicate`（判断题，默认）或 `choice`（选择题） |
+| `question` | 交给模型的题目 |
+| `paths` | 评审时审读哪些文件的新段落，`**` 跨目录，`*` 不跨目录 |
+| `findings` | 评审时解释哪类发现，例如 `knip/*`、`complexity` |
+| `threshold` | 通过条件，默认 0.5 |
+| `options` | 选择题的选项：`value`、`description` |
 
-文件按空行切成段落，跳过 frontmatter、代码块、只有标题的段落和 MDX 的 import/export。`.scratch/` 不参与检查。模型用的是 OpenAI Decisions API，一次请求问一段文字的所有适用规则，返回每条违反的概率，不返回理由，所以发现按段落定位，写成「规则 · 文件:行号 · 概率 · 段落开头」。概率达到 0.5 算发现。
+判断题的概率表示模型认为陈述成立的把握，只和通过条件比较。
 
-规则的例子是规则自己的测试。`review calibrate` 让模型判断两类规则的每个例子，列出判错的：该答「是」的答了「否」，或者反过来。改了规则，`verify` 会校准改过的那几条。纠正一类写法的问题时，加一条写作规则，并写上被纠正的原句作为 `yes` 的例子；模型把噪音判错时，把那条发现的证据加进对应理由的例子。
+## 评审
 
-同一模型、同一问题、同一段文字的回答缓存在 `.artifacts/review-cache/`，没改的内容不重复调用，结果也保持一致。每次调用的请求和响应保存在证据目录。
+```sh
+orisumi review [--base <ref>] [--json]
+```
+
+基点和 `verify` 相同。评审全部是报告，发现不使命令失败，没有完成时返回 1。
+
+| 内容 | 来源 |
+| --- | --- |
+| 复杂度 | 业务代码和开发工具中圈复杂度超过 10 的函数，列出新增或变复杂的。C# 由 CA1502 在一次分析构建中测量，TypeScript 和 JavaScript 由 ESLint 测量。复杂度负担是这些函数的复杂度乘行数占全部函数的比例 |
+| 噪音 | 复杂度的发现里，模型按 `findings` 含 `complexity` 的题判断是否只是改名或移动，判断时附上本次从基点消失的复杂函数 |
+| 写作 | 改动文件中新出现的段落，按 `paths` 覆盖它的题审读，概率达到通过条件的是发现 |
+| 例外 | 每条例外附上项目内的引用和锁文件中的位置，模型回答 `unused-reason`，声明的理由不再成立时列出 |
+
+基点在 `.artifacts/quality-baselines/<commit>/` 检出为 Git worktree，两边按当前的项目清单分类。基点必须能完成分析构建；历史代码无法编译时，评审报告复杂度比较未完成。文件按空行切成段落，跳过 frontmatter、代码块、只有标题的段落和 MDX 的 import/export。没有设置 key 时只做复杂度。评审的回答缓存在 `.artifacts/review-cache/`，不提交。
 
 ## 配置
 
@@ -179,63 +230,30 @@ orisumi config unset <名称>
 
 | 名称 | 用途 |
 | --- | --- |
-| `openai.api-key` | 模型检查和噪音判断调用 OpenAI |
+| `openai.api-key` | 评审调用 OpenAI |
 
-## 质量与行数
+## 行数
 
 ```sh
-orisumi analyze quality [--base <ref>]
-orisumi analyze loc
+orisumi loc [--json]
 ```
 
-两个命令都可以加 `--json`。`analyze quality` 的基点和 `verify` 相同。
-
-`analyze quality [--noise]` 扫描业务代码和开发工具的复杂度和未使用代码，并与基点比较。两边按当前的项目清单分类，C# 构建一次，同时得到复杂度和未使用的私有成员；TypeScript 和 JavaScript 用 ESLint 量复杂度，Node 项目用 Knip 找未使用的代码。发现供审查，业务需要的复杂代码可以保留。基点必须能完成分析构建；历史代码无法编译时，命令报告比较未完成并返回失败，当前代码的扫描结果仍然保存。
-
-终端列出相对基点新增的发现：新增或变复杂的函数、未使用的代码，以及未完成的扫描。现有的发现只给数量，完整列表在证据目录的 `quality.json`。`verify --quality` 的质量部分写法相同。
-
-### 噪音
-
-有些发现不需要改代码，例如只在 CSS 里 `@import` 的包，knip 看不到这种引用，于是报为未使用。每次扫描都让模型判断每条发现是不是噪音：
-
-1. 代码先为每条发现收集证据：项目里对它的引用，依赖在锁文件里的位置；复杂度的发现附上函数源码，以及本次从基点消失的复杂函数和它们的源码。
-2. 模型逐条回答适用的[噪音理由](#模型检查)，概率最高且达到 0.5 的就是判断出的理由；都不够的归为「其他」，当作真问题。
-3. 确认过的噪音由所属项目在自己目录下的 `noise.json` 声明，例如：
-
-```json
-[
-  { "rule": "knip/devDependencies", "path": "package.json", "symbol": "tailwindcss", "reason": "referenced-outside-code" }
-]
-```
-
-`path` 相对项目目录，`reason` 是噪音理由的 ID。每次扫描都会重新判断已声明的噪音：
-
-| 情况 | 输出 |
-| --- | --- |
-| 声明的理由仍然成立 | 折叠，只计入 Declared noise 的数量；加 `--noise` 逐条列出 |
-| 声明的理由不再成立 | 列为 `noise?`，注明声明的理由不再成立 |
-| 没有声明，模型判断出理由 | 列为 `noise?`，注明理由和概率，确认后写进 `noise.json` |
-| 声明了但扫描没有报这条发现 | 扫描未完成，提示从 `noise.json` 删掉这条声明 |
-
-折叠的发现不计入数量和新增。每条判断的证据、理由和概率保存在 `quality.json` 的 `noise` 里，模型调用保存在 `noise-calls.jsonl`。没有设置 OpenAI API key 时不判断，已声明的噪音照样折叠。
-
-`analyze loc` 按项目和语言统计工作区中已跟踪的文件，不计空行和纯注释行。开头的总数只算代码，也就是实现加测试，实现是业务代码和开发工具。文档、构建描述和生成文件（锁文件）单列一行，不进总数。文件先按语言分类，所以测试项目里的 csproj 算构建描述，README 算文档。
+按项目和语言统计工作区中已跟踪的文件，不计空行和纯注释行。开头的总数只算代码，也就是实现加测试，实现是业务代码和开发工具。文档、构建描述和生成文件（锁文件）单列一行，不进总数。文件先按语言分类，所以测试项目里的 csproj 算构建描述，README 算文档。
 
 项目里的测试归这个项目。测试项目按 csproj 的 `ProjectReference` 归属：只引用一个非测试项目的归那个项目，引用多个或一个都不引用的归 `Cross-module`。
 
 ## 证据
 
-每次验证、质量扫描和模型检查的证据保存在 `.artifacts/runs/<run-id>/`：
+每次验证和评审的证据保存在 `.artifacts/runs/<run-id>/`：
 
 | 文件 | 内容 |
 | --- | --- |
 | `manifest.json` | 执行清单：启动的命令、开始和结束时间、退出码、执行过的外部命令和产物。运行开始时写入，结束时更新 |
 | `verification.json` | 验证结果，见[计划与 JSON 输出](#计划与-json-输出) |
-| `quality.json` | 质量报告，加 `--quality` 或运行 `analyze quality` 时生成 |
-| `review.json` | 模型检查的报告：发现、校准判错的例子和每段的判断 |
-| `review-calls.jsonl` | 模型检查每次调用的请求、响应和耗时 |
-| `noise-calls.jsonl` | 噪音判断每次调用的请求、响应和耗时 |
-| 步骤日志 | 每个步骤的输出 |
+| `*.trx`、`*.junit.xml` | 每个测试检查的用例结果 |
+| `review.json` | 评审报告：复杂度、噪音、写作的发现、例外的复核和每条例外的证据 |
+| `review-calls.jsonl` | 评审调用模型的请求、响应和耗时 |
+| 步骤日志 | 每个步骤的输出，以及评审两边的分析构建、ESLint 的原始结果 |
 
 成功、失败和取消的运行都保存。
 
@@ -247,7 +265,7 @@ orisumi runs prune --apply   # 删除
 
 `runs list` 每次运行一行：开始的时间（本地时区）、启动它的命令、结果、耗时和失败的检查，由此可以看出哪次运行失败、失败在哪一步。需要证据目录的路径时加 `--json`。
 
-每次运行结束时自动清理，保留最近 10 次、最近 5 次没有成功的，以及 2 天内的全部运行。`runs prune` 使用同样的条件。质量扫描的基线工作树缓存在 `.artifacts/quality-baselines/<commit>/`，不参与清理，需要回收空间时移除对应的 Git worktree。
+每次运行结束时自动清理，保留最近 10 次、最近 5 次没有成功的，以及 2 天内的全部运行。`runs prune` 使用同样的条件。评审的基线工作树缓存在 `.artifacts/quality-baselines/<commit>/`，不参与清理，需要回收空间时移除对应的 Git worktree。
 
 ## 退出码
 

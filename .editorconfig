@@ -1,0 +1,15 @@
+root = true
+
+[*.{cs,ts,tsx,mts,cts,js,jsx,mjs,cjs}]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.cs]
+indent_size = 4
+dotnet_diagnostic.IDE0051.severity = warning
+
+[*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}]
+indent_size = 2

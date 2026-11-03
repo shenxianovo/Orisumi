@@ -1,0 +1,12 @@
+{
+  "title": "Development",
+  "description": "开发工具的术语和决定",
+  "icon": "Wrench",
+  "root": true,
+  "pages": [
+    "index",
+    "glossary",
+    "adr",
+    "..."
+  ]
+}

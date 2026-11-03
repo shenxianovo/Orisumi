@@ -2,7 +2,7 @@ namespace Orisumi.Dev;
 
 internal enum VerificationScope { Changed, All }
 
-internal sealed record VerificationRequest(VerificationScope Scope, string? Base, bool PlanOnly, bool Json, bool Quality = false);
+internal sealed record VerificationRequest(VerificationScope Scope, string? Base, bool PlanOnly, bool Json);
 
 internal sealed record VerificationPlan(
     VerificationScope Scope, bool Fallback, string? Base, IReadOnlyList<string> ChangedPaths, IReadOnlyList<ICheck> Checks)
@@ -16,27 +16,22 @@ internal sealed record VerificationRecord(
     string Evidence, string Scope, bool Fallback, string? Base, IReadOnlyList<string> ChangedPaths,
     int ExitCode, IReadOnlyList<CheckRecord> Checks);
 
-internal sealed class VerificationPlanner(RepositoryContext repository, IProcessRunner runner, ModelAccess models)
+internal sealed class VerificationPlanner(RepositoryContext repository, IProcessRunner runner)
 {
-    public static readonly string[] Scripts = ["docs:check", "test", "types:check", "build"];
-    private const string DocumentCheck = "docs:check";
+    public static readonly string[] Scripts = ["test", "types:check", "build"];
 
     public async Task<VerificationPlan> CreateAsync(VerificationRequest request, CancellationToken cancellationToken)
     {
-        if (request.Scope == VerificationScope.All && (request.Base is not null || request.Quality))
-            throw new CommandUsageException("--base and --quality require --scope changed.");
+        if (request.Scope == VerificationScope.All && request.Base is not null)
+            throw new CommandUsageException("--base requires --scope changed.");
         var layout = ProjectLayout.Load(repository.Root);
         if (request.Scope == VerificationScope.All)
-            return new(VerificationScope.All, false, null, [], Checks(layout, Everything(layout)));
-        var git = repository.Git;
-        var requested = await git.BaseAsync(request.Base, cancellationToken);
-        var baseRef = request.Quality ? await git.CommitAsync(requested, cancellationToken) : requested;
-        var paths = await git.ChangedPathsAsync(baseRef, cancellationToken);
+            return new(VerificationScope.All, false, null, [], [new FormatCheck(repository, runner, null), .. Checks(layout, Everything(layout))]);
+        var baseRef = await repository.Git.BaseAsync(request.Base, cancellationToken);
+        var paths = await repository.Git.ChangedPathsAsync(baseRef, cancellationToken);
         var (checks, fallback) = ChecksFor(layout, paths);
-        if (request.Quality) checks = [.. checks, new QualityCheck(repository, runner, models, requested, baseRef)];
-        if (await ReviewCheck.ForChangesAsync(repository, models, baseRef, paths, cancellationToken) is { } review)
-            checks = [.. checks, review];
-        return new(VerificationScope.Changed, fallback, baseRef, paths, checks);
+        ICheck[] tidy = paths.Any(Formatter.Covers) ? [new FormatCheck(repository, runner, paths)] : [];
+        return new(VerificationScope.Changed, fallback, baseRef, paths, [.. tidy, .. checks]);
     }
 
     internal (IReadOnlyList<ICheck> Checks, bool Fallback) ChecksFor(ProjectLayout layout, IReadOnlyList<string> paths) =>
@@ -55,16 +50,11 @@ internal sealed class VerificationPlanner(RepositoryContext repository, IProcess
         var selection = new Selection();
         foreach (var path in paths.Where(path => !ProjectLayout.IsScratch(path)))
         {
-            var markdown = SourceLanguages.Of(path) == "Markdown";
-            if (markdown)
-            {
-                foreach (var project in layout.Projects.Where(project => project.Scripts.Contains(DocumentCheck)))
-                    selection.Scripts.Add((project, DocumentCheck));
-            }
-            if (CommentLint.Covers(path)) selection.Lint = true;
+            var markdown = DocumentLint.Covers(path);
+            if (markdown || CommentLint.Covers(path)) selection.Lint = true;
             switch (layout.Owner(path))
             {
-                case null when markdown:
+                case null or { Kind: ProjectKind.CSharp } when markdown:
                     break;
                 case null:
                     return null;
@@ -97,11 +87,18 @@ internal sealed class VerificationPlanner(RepositoryContext repository, IProcess
         .. selection.Build && layout.Solution is { } solution
             ? [new ProcessCheck("dotnet build", new("dotnet", ["build", solution, "--verbosity", "minimal"]), runner, repository)]
             : Array.Empty<ICheck>(),
-        .. layout.Projects.Where(selection.Tests.Contains).Select(project => new ProcessCheck($"dotnet test {project.Name}",
-            new("dotnet", ["test", "--project", repository.Path(project.Manifest)]), runner, repository)),
+        .. layout.Projects.Where(selection.Tests.Contains).Select(project => new TestCheck($"dotnet test {project.Name}",
+            new("dotnet", ["test", "--project", repository.Path(project.Manifest)]), ProjectKind.CSharp, runner, repository)),
         .. layout.Projects.SelectMany(project => Scripts
             .Where(script => selection.Scripts.Contains((project, script)))
-            .Select(script => new ProcessCheck($"{project.Name} {script}",
-                new(project.PackageManager!, ["run", script], repository.Path(project.Directory)), runner, repository))),
+            .Select(script => Script(project, script))),
     ];
+
+    private ICheck Script(Project project, string script)
+    {
+        ProcessCommand command = new(project.PackageManager!, ["run", script], repository.Path(project.Directory));
+        return script == "test"
+            ? new TestCheck($"{project.Name} {script}", command, ProjectKind.Node, runner, repository)
+            : new ProcessCheck($"{project.Name} {script}", command, runner, repository);
+    }
 }

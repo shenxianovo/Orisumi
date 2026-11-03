@@ -11,52 +11,36 @@ internal sealed record LineComparison(int Base, int Current)
     public int Delta => Current - Base;
 }
 
-internal sealed record ComplexityComparison(
-    IReadOnlyList<ComplexityHotspot> Hotspots,
-    ErosionMeasurement Erosion,
-    ErosionMeasurement? BaseErosion,
-    IReadOnlyList<ComplexityRegression>? Regressions)
-{
-    public double? ErosionDelta => BaseErosion is { } before ? Erosion.Ratio - before.Ratio : null;
-}
+internal sealed record VanishedFunction(string Path, string Symbol, int Complexity, string Source);
 
-internal sealed record UnusedComparison(IReadOnlyList<DeadCodeFinding> Current, IReadOnlyList<DeadCodeFinding>? New);
-
-internal sealed record QualityReport(
-    string Base,
-    string Commit,
+internal sealed record ComplexityReport(
     LineComparison? ProductionLines,
-    ComplexityComparison? Complexity,
-    UnusedComparison? Unused,
-    NoiseReport? Noise,
+    IReadOnlyList<ComplexityHotspot> Hotspots,
+    ErosionMeasurement? Erosion,
+    ErosionMeasurement? BaseErosion,
+    IReadOnlyList<ComplexityRegression>? Regressions,
     IReadOnlyList<string> Failures)
 {
-    public bool Completed => Failures.Count == 0;
+    public double? ErosionDelta => Erosion is { } now && BaseErosion is { } before ? now.Ratio - before.Ratio : null;
 
-    public bool IsFolded(QualityFinding finding) => Noise?.IsFolded(finding) ?? false;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<FunctionMetric> Functions { get; init; } = [];
 
-    public IEnumerable<ComplexityHotspot> Hotspots => (Complexity?.Hotspots ?? []).Where(item => !IsFolded(QualityFinding.Of(item)));
-
-    public IEnumerable<ComplexityRegression>? Regressions =>
-        Complexity?.Regressions?.Where(item => !IsFolded(QualityFinding.Of(item.Current)));
-
-    public IEnumerable<DeadCodeFinding> UnusedCode => (Unused?.Current ?? []).Where(item => !IsFolded(QualityFinding.Of(item)));
-
-    public IEnumerable<DeadCodeFinding>? NewUnusedCode => Unused?.New?.Where(item => !IsFolded(QualityFinding.Of(item)));
-
-    public int NewFindings => (Regressions?.Count() ?? 0) + (NewUnusedCode?.Count() ?? 0);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<VanishedFunction> Vanished { get; init; } = [];
 }
 
-internal sealed class QualityAnalysis(RepositoryContext repository, IProcessRunner runner, ModelAccess models)
+internal sealed class QualityAnalysis(RepositoryContext repository, IProcessRunner runner)
 {
     public const int Threshold = 10;
+    private const int MaxSourceLines = 120;
 
-    private sealed record Side(SourceSnapshot Snapshot, CodeScan Code, IReadOnlyList<string> Errors)
+    private sealed record Side(SourceSnapshot Snapshot, IReadOnlyList<FunctionMetric> Functions, IReadOnlyList<string> Errors)
     {
         public bool Complete => Errors.Count == 0;
     }
 
-    public async Task<QualityReport> AnalyzeAsync(string requested, string commit, Run run, CancellationToken cancellationToken)
+    public async Task<ComplexityReport> AnalyzeAsync(string commit, Run run, CancellationToken cancellationToken)
     {
         var layout = ProjectLayout.Load(repository.Root);
         BaselineWorkspace workspace;
@@ -66,39 +50,25 @@ internal sealed class QualityAnalysis(RepositoryContext repository, IProcessRunn
         }
         catch (InvalidDataException exception)
         {
-            return await SaveAsync(run, new QualityReport(requested, commit, null, null, null, null, [exception.Message]));
+            return new ComplexityReport(null, [], null, null, null, [exception.Message]);
         }
         var baseline = await ScanAsync(layout, workspace.Path, "baseline", workspace.NeedsRestore, run, cancellationToken);
         if (baseline.Complete) workspace.MarkRestored();
         var current = await ScanAsync(layout, repository.Root, "current", true, run, cancellationToken);
-        var complexity = current.Complete ? CompareComplexity(baseline, current) : null;
-        var unused = current.Complete ? CompareUnused(baseline, current) : null;
         List<string> failures = [.. baseline.Errors.Select(error => $"baseline: {error}"), .. current.Errors.Select(error => $"current: {error}")];
-        NoiseReport? noise = null;
-        if (complexity is not null && unused is not null)
-        {
-            var vanished = baseline.Complete ? Vanished(workspace.Path, baseline.Code.Functions, current.Code.Functions) : [];
-            var (judged, noiseFailures) = await new NoiseJudge(repository, models, layout).JudgeAsync(
-                [.. complexity.Hotspots.Select(QualityFinding.Of), .. unused.Current.Select(QualityFinding.Of)],
-                new NoiseSources([.. current.Snapshot.Files.Select(file => file.Path)], current.Code.Functions, vanished), run, cancellationToken);
-            noise = judged;
-            failures.AddRange(noiseFailures);
-        }
-        var report = new QualityReport(
-            requested,
-            commit,
+        if (!current.Complete) return new ComplexityReport(null, [], null, null, null, failures);
+        var hotspots = Hotspots(current.Functions);
+        return new ComplexityReport(
             new LineComparison(baseline.Snapshot.ProductionLines, current.Snapshot.ProductionLines),
-            complexity,
-            unused,
-            noise,
-            failures);
-        return await SaveAsync(run, report);
-    }
-
-    private static async Task<QualityReport> SaveAsync(Run run, QualityReport report)
-    {
-        await run.WriteJsonAsync(RunFiles.Quality, report);
-        return report;
+            hotspots,
+            Erosion(current.Functions),
+            baseline.Complete ? Erosion(baseline.Functions) : null,
+            baseline.Complete ? Regressions(Hotspots(baseline.Functions), hotspots) : null,
+            failures)
+        {
+            Functions = current.Functions,
+            Vanished = baseline.Complete ? Vanished(workspace.Path, baseline.Functions, current.Functions) : [],
+        };
     }
 
     private async Task<Side> ScanAsync(ProjectLayout layout, string root, string label, bool restore, Run run, CancellationToken cancellationToken)
@@ -107,9 +77,9 @@ internal sealed class QualityAnalysis(RepositoryContext repository, IProcessRunn
         var errors = new List<string>();
         var csharp = await Attempt(() => new CSharpAnalysis(repository, runner, layout).ScanAsync(root, label, restore, run, cancellationToken));
         var scripts = await Attempt(() => new ScriptAnalysis(repository, runner, layout).ScanAsync(root, label, snapshot, run, cancellationToken));
-        return new Side(snapshot, new CodeScan([.. csharp.Functions, .. scripts.Functions], [.. csharp.Unused, .. scripts.Unused]), errors);
+        return new Side(snapshot, [.. csharp, .. scripts], errors);
 
-        async Task<CodeScan> Attempt(Func<Task<CodeScan>> scan)
+        async Task<IReadOnlyList<FunctionMetric>> Attempt(Func<Task<IReadOnlyList<FunctionMetric>>> scan)
         {
             try
             {
@@ -118,35 +88,21 @@ internal sealed class QualityAnalysis(RepositoryContext repository, IProcessRunn
             catch (Exception exception) when (exception is InvalidDataException or JsonException or IOException)
             {
                 errors.Add(exception.Message);
-                return new CodeScan([], []);
+                return [];
             }
         }
     }
 
-    private static ComplexityComparison CompareComplexity(Side baseline, Side current)
-    {
-        var hotspots = Hotspots(current.Code.Functions);
-        return new ComplexityComparison(
-            hotspots,
-            Erosion(current.Code.Functions),
-            baseline.Complete ? Erosion(baseline.Code.Functions) : null,
-            baseline.Complete ? Regressions(Hotspots(baseline.Code.Functions), hotspots) : null);
-    }
-
-    private static UnusedComparison CompareUnused(Side baseline, Side current)
-    {
-        var known = baseline.Code.Unused.Select(item => item.Identity).ToHashSet(StringComparer.Ordinal);
-        return new UnusedComparison(current.Code.Unused,
-            baseline.Complete ? [.. current.Code.Unused.Where(item => !known.Contains(item.Identity))] : null);
-    }
+    internal static string Source(string[] lines, FunctionMetric function) =>
+        string.Join('\n', lines.Skip(function.Line - 1).Take(Math.Clamp(function.EndLine - function.Line + 1, 1, MaxSourceLines)));
 
     private static VanishedFunction[] Vanished(string root, IReadOnlyList<FunctionMetric> baseline, IReadOnlyList<FunctionMetric> current)
     {
         var known = Hotspots(current).Select(Identity).ToHashSet(StringComparer.Ordinal);
         return [.. baseline
             .Where(function => function.Complexity > Threshold && !known.Contains(Identity(function.Hotspot)))
-            .Select(function => new VanishedFunction(function.Path, QualityFinding.ShortSymbol(function.Symbol), function.Complexity,
-                NoiseJudge.Source(File.ReadAllLines(Path.Combine(root, function.Path)), function)))];
+            .Select(function => new VanishedFunction(function.Path, ShortSymbol(function.Symbol), function.Complexity,
+                Source(File.ReadAllLines(Path.Combine(root, function.Path)), function)))];
     }
 
     private static ComplexityHotspot[] Hotspots(IReadOnlyList<FunctionMetric> functions) =>
@@ -168,6 +124,15 @@ internal sealed class QualityAnalysis(RepositoryContext repository, IProcessRunn
         var highRiskBurden = highRisk.Sum(item => item.Burden);
         return new ErosionMeasurement(functions.Count, highRisk.Length, totalBurden, highRiskBurden,
             totalBurden == 0 ? 0 : (double)highRiskBurden / totalBurden);
+    }
+
+    internal static string ShortSymbol(string symbol)
+    {
+        var segments = System.Text.RegularExpressions.Regex.Replace(symbol, @"\(.*\)", "").Split('/')
+            .Select(segment => System.Text.RegularExpressions.Regex.Replace(System.Text.RegularExpressions.Regex.Replace(segment, "^[A-Za-z]+:", ""), @"`\d+", ""))
+            .Where(segment => segment.Length > 0)
+            .ToArray();
+        return string.Join('.', segments.TakeLast(2));
     }
 
     private static string Identity(ComplexityHotspot hotspot) => $"{hotspot.Language}\0{hotspot.Path}\0{hotspot.Symbol}";

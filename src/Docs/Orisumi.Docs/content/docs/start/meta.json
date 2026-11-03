@@ -4,6 +4,7 @@
   "icon": "Compass",
   "root": true,
   "pages": [
-    "index"
+    "index",
+    "..."
   ]
 }

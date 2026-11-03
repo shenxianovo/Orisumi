@@ -20,12 +20,10 @@ internal sealed class DeveloperCli(
         root.Options.Add(new HelpOption { Recursive = true });
         root.Options.Add(new VersionOption());
         root.Subcommands.Add(new DocsCommand(repository, runner, output).CreateCommand());
-        root.Subcommands.Add(new VerificationCommand(repository, runner, output, error, _models).CreateCommand());
-        root.Subcommands.Add(new ReviewCommand(repository, _models, output).CreateCommand());
-        root.Subcommands.Add(new LintCommand(repository, runner, output).CreateCommand());
-        root.Subcommands.Add(CommandLine.Group("analyze", "Analyze code structure and size",
-            new QualityCommand(repository, runner, _models, output).CreateCommand(),
-            new LocCommand(repository, output).CreateCommand()));
+        root.Subcommands.Add(new TidyCommand(repository, runner, output).CreateCommand());
+        root.Subcommands.Add(new VerificationCommand(repository, runner, output, error).CreateCommand());
+        root.Subcommands.Add(new ReviewCommand(repository, runner, _models, output).CreateCommand());
+        root.Subcommands.Add(new LocCommand(repository, output).CreateCommand());
         root.Subcommands.Add(new RunsCommand(repository, output).CreateCommand());
         root.Subcommands.Add(new ConfigCommand(repository, _models.Config, output, input ?? Console.In).CreateCommand());
         root.Subcommands.Add(CommandLine.Group("tool", "Install or update the developer tool itself",

@@ -1,0 +1,22 @@
+{
+  "title": "例外的理由",
+  "type": "choice",
+  "findings": [
+    "knip/*"
+  ],
+  "question": "这是一条「未使用」的发现，后面附有项目内的引用搜索结果。这条发现不需要改代码的理由是哪一个？只出现在注释、文档、例外声明或别的包名里的同名文字不算使用；证据里看不出理由成立时选 none。",
+  "options": [
+    {
+      "value": "framework-convention",
+      "description": "一个文件或导出由框架、构建工具按它所在的位置和名字直接加载，例如 Next.js app 目录里的 page、layout、route 文件。项目配置可以只声明加载规则，比如目录或扩展名，而不写出这个文件。这个理由只适用于文件和导出，不适用于依赖包。"
+    },
+    {
+      "value": "referenced-outside-code",
+      "description": "某处引用直接写出了这个包名或文件路径，只是不经过 JavaScript 或 TypeScript 的 import，所以分析工具看不到，例如 CSS 的 @import、构建或工具配置里的插件列表、代码里以字符串写出的这个包里的文件路径（如 '../node_modules/<包>/…'）。"
+    },
+    {
+      "value": "none",
+      "description": "没有一处引用真正用到它：引用为零，或者同名文字只出现在注释、文档和别的包名里。这条发现是真问题。"
+    }
+  ]
+}

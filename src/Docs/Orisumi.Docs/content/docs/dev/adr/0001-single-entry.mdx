@@ -1,0 +1,8 @@
+---
+title: "0001 Orisumi.Dev 是开发的唯一入口"
+description: "开发用到的命令都由 orisumi 提供，CI 也安装它"
+---
+
+开发用到的格式化、lint、构建、测试和评审都由 Orisumi.Dev 提供，人、Agent 和 CI 都通过 `orisumi` 运行。各项目的测试由项目自己写在自己的目录里，`orisumi` 负责发现、运行和汇总结果。一条规则只有一处实现，本地和 CI 跑的是同一套检查，代价是 CI 要安装 .NET 和 `orisumi`。
+
+考虑过的另一种做法是把文档检查留在文档站，让只装 Node 的流程也能运行。那样一条写作规则会分在 AGENTS.md、Orisumi.Dev 的 README 和文档站三处。
