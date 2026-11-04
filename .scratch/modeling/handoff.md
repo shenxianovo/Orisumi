@@ -19,6 +19,7 @@
 4. `.scratch/modeling/benchmark.md`：测量基准。
 5. `.scratch/requirements/belief.md`：否决的方向和还待定的问题。
 6. 文档站的模型分区：导洞的模型。`.scratch/modeling/pilot.md`：导洞的进度、下一步和待定的问题；`benchmark-run-1.md` 是第一次答题的结果。
+7. `.scratch/modeling/storage.md`：导洞之后接着做的块存储和定期采集，已经定下的设计和顺序。
 
 ## 开工前
 
