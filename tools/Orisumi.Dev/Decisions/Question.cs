@@ -13,7 +13,6 @@ internal sealed record Question(
     QuestionType Type,
     string Instructions,
     IReadOnlyList<string> Paths,
-    IReadOnlyList<string> Findings,
     IReadOnlyList<QuestionOption> Options,
     double Threshold,
     string File)
@@ -22,8 +21,6 @@ internal sealed record Question(
     public const string No = "no";
 
     public bool Reviews(string path) => Paths.Any(pattern => Glob.Matches(pattern, path));
-
-    public bool Explains(string finding) => Findings.Any(pattern => Glob.Matches(pattern, finding));
 
     public bool Passes(Answer answer, string expected) => answer.ProbabilityOf(this, expected) >= Threshold;
 
@@ -37,7 +34,7 @@ internal static class Questions
     private sealed record OptionFile(string? Value, string? Description);
 
     private sealed record QuestionFile(
-        string? Title, string? Type, string? Question, string[]? Paths, string[]? Findings,
+        string? Title, string? Type, string? Question, string[]? Paths,
         double? Threshold, OptionFile[]? Options);
 
     public static IReadOnlyList<Question> Load(RepositoryContext repository) => Load(repository, ProjectLayout.Load(repository.Root));
@@ -70,7 +67,7 @@ internal static class Questions
         };
         if (file is not { Title.Length: > 0, Question.Length: > 0 }) throw Invalid(path, "needs title and question");
         var options = type == QuestionType.Predicate ? [] : Options(path, file.Options);
-        return new Question(id, file.Title, type, file.Question, file.Paths ?? [], file.Findings ?? [], options,
+        return new Question(id, file.Title, type, file.Question, file.Paths ?? [], options,
             file.Threshold ?? DefaultThreshold, path);
     }
 

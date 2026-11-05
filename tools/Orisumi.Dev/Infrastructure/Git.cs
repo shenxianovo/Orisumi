@@ -44,15 +44,6 @@ internal sealed class Git(string root)
         return result.ExitCode == 0 ? result.StdOut : null;
     }
 
-    public async Task<ProcessResult> AddWorktreeAsync(string path, string commit, CancellationToken cancellationToken)
-    {
-        var added = await CaptureAsync(["worktree", "add", "--detach", path, commit], cancellationToken);
-        if (added.ExitCode == 0) return added;
-        await CaptureAsync(["worktree", "prune"], cancellationToken);
-        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
-        return await CaptureAsync(["worktree", "add", "--detach", path, commit], cancellationToken);
-    }
-
     private Task<ProcessResult> CaptureAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) =>
         _runner.CaptureAsync(new("git", arguments), cancellationToken);
 

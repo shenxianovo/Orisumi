@@ -135,13 +135,6 @@ internal static class Terminal
 
     public static string Number(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
-    public static string Delta(int value) => value switch
-    {
-        > 0 => "+" + Number(value),
-        < 0 => Number(value),
-        _ => "±0",
-    };
-
     public static async Task<T> SpinAsync<T>(IAnsiConsole console, string status, Func<Task<T>> action)
     {
         if (!console.Profile.Capabilities.Interactive || !console.Profile.Capabilities.Ansi) return await action();

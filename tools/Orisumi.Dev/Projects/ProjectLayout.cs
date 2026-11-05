@@ -104,9 +104,6 @@ internal sealed class ProjectLayout(IReadOnlyList<Project> projects, string? sol
         return language.Length > 0;
     }
 
-    public bool IsImplementation(string path) =>
-        TryClassify(path, out _, out var role) && role is SourceRole.Production or SourceRole.Tooling;
-
     private SourceRole Classify(string path, string language) =>
         SourceLanguages.IsGenerated(path) ? SourceRole.Generated
         : language == "Markdown" ? SourceRole.Documentation

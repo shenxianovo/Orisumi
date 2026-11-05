@@ -6,22 +6,9 @@ namespace Orisumi.Dev;
 
 internal sealed class Evidence(RepositoryContext repository, ProjectLayout layout, IReadOnlyList<string> files)
 {
-    public const string ComplexityRule = "complexity";
     private const int MaxReferences = 15;
 
     private readonly Dictionary<string, string[]> _lines = new(StringComparer.Ordinal);
-
-    public string Complexity(ComplexityHotspot hotspot, FunctionMetric? function, IReadOnlyList<VanishedFunction> vanished)
-    {
-        var text = Heading(ComplexityRule, hotspot.Path, hotspot.Line, QualityAnalysis.ShortSymbol(hotspot.Symbol));
-        text.AppendLine(CultureInfo.InvariantCulture, $"复杂度：{hotspot.Complexity}");
-        if (function is not null) text.AppendLine().AppendLine("函数源码：").AppendLine(QualityAnalysis.Source(Lines(hotspot.Path), function));
-        text.AppendLine().AppendLine("本次从基点消失的复杂函数：");
-        if (vanished.Count == 0) text.AppendLine("（无）");
-        foreach (var item in vanished)
-            text.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"{item.Path} {item.Symbol} · {item.Complexity}").AppendLine(item.Source);
-        return text.ToString().TrimEnd();
-    }
 
     public string Unused(DeclaredException exception)
     {

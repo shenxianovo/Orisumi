@@ -4,7 +4,7 @@ Orisumi.Dev 是开发的唯一入口，人、Agent 和以后的 CI 都通过它�
 
 ## 准备
 
-需要 `global.json` 指定的 .NET SDK，以及 Node.js、npm 和 pnpm。各语言用自己的工具链：C# 用 Roslyn、.NET 分析器和 `dotnet format`，TypeScript 和 JavaScript 用 TypeScript 编译器 API，复杂度另用 ESLint，未使用的代码用 Knip。这些 node 工具在 `tools/Orisumi.Dev/node-tools/`，首次用到时按锁文件自动安装；Node 项目自己的依赖在 lint 需要时按它的锁文件安装。
+需要 `global.json` 指定的 .NET SDK，以及 Node.js、npm 和 pnpm。各语言用自己的工具链：C# 用 .NET 分析器和 `dotnet format`，TypeScript 和 JavaScript 用 TypeScript 编译器 API，未使用的代码用 Knip。这些 node 工具在 `tools/Orisumi.Dev/node-tools/`，首次用到时按锁文件自动安装；Node 项目自己的依赖在 lint 需要时按它的锁文件安装。
 
 评审需要 OpenAI API key，设置一次，这台机器上的所有检出目录共用：
 
@@ -55,7 +55,7 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 | --- | --- | --- |
 | 整理 | `tidy` | 改完文件后顺手运行：格式化改过的代码，lint 改过的文件 |
 | 验证 | `verify` | 交付前运行，全部是门禁：整理是否做完、lint、构建、测试 |
-| 评审 | `review` | 改完之后给评审者看，全部是报告：相对基点的复杂度、新写的文字、例外的理由 |
+| 评审 | `review` | 改完之后给评审者看，全部是报告：相对基点新写的文字、例外的理由 |
 
 其他命令：
 
@@ -151,10 +151,6 @@ orisumi verify [--scope changed|all] [--base <ref>] [--plan] [--json]
 
 lint 是确定性的规则，在 `tidy` 里查改过的文件，在 `verify` 里查整个仓库。每条发现写成「规则 · 文件:行号 · 说明」。
 
-### 注释
-
-代码里不写注释：需要解释的，改成更好的名字或一个测试。C# 用 Roslyn 解析，TypeScript 和 JavaScript 用 TypeScript 编译器 API，字符串和正则里的 `//` 不算。三斜线 `<reference>`、`@ts-` 指令和 shebang 是给工具的指令，不算注释。
-
 ### 文档
 
 `.scratch/` 之外的所有 Markdown 和 MDX：
@@ -196,7 +192,6 @@ C# 的未使用私有成员（IDE0051）由 `.editorconfig` 设为警告，构�
 | `type` | `predicate`（判断题，默认）或 `choice`（选择题） |
 | `question` | 交给模型的题目 |
 | `paths` | 评审时审读哪些文件的新段落，`**` 跨目录，`*` 不跨目录 |
-| `findings` | 评审时解释哪类发现，例如 `knip/*`、`complexity` |
 | `threshold` | 通过条件，默认 0.5 |
 | `options` | 选择题的选项：`value`、`description` |
 
@@ -212,12 +207,10 @@ orisumi review [--base <ref>] [--json]
 
 | 内容 | 来源 |
 | --- | --- |
-| 复杂度 | 业务代码和开发工具中圈复杂度超过 10 的函数，列出新增或变复杂的。C# 由 CA1502 在一次分析构建中测量，TypeScript 和 JavaScript 由 ESLint 测量。复杂度负担是这些函数的复杂度乘行数占全部函数的比例 |
-| 噪音 | 复杂度的发现里，模型按 `findings` 含 `complexity` 的题判断是否只是改名或移动，判断时附上本次从基点消失的复杂函数 |
 | 写作 | 改动文件中新出现的段落，按 `paths` 覆盖它的题审读，概率达到通过条件的是发现 |
 | 例外 | 每条例外附上项目内的引用和锁文件中的位置，模型回答 `unused-reason`，声明的理由不再成立时列出 |
 
-基点在 `.artifacts/quality-baselines/<commit>/` 检出为 Git worktree，两边按当前的项目清单分类。基点必须能完成分析构建；历史代码无法编译时，评审报告复杂度比较未完成。文件按空行切成段落，跳过 frontmatter、代码块、只有标题的段落和 MDX 的 import/export。没有设置 key 时只做复杂度。评审的回答缓存在 `.artifacts/review-cache/`，不提交。
+评审通过 Git 读取基点的文件内容。文件按空行切成段落，跳过 frontmatter、代码块、只有标题的段落和 MDX 的 import/export。设置 key 后运行写作和例外理由的模型评审；缺少 key 时输出跳过说明。评审的回答缓存在 `.artifacts/review-cache/`，不提交。
 
 ## 配置
 
@@ -252,9 +245,9 @@ orisumi loc [--json]
 | `manifest.json` | 执行清单：启动的命令、开始和结束时间、退出码、执行过的外部命令和产物。运行开始时写入，结束时更新 |
 | `verification.json` | 验证结果，见[计划与 JSON 输出](#计划与-json-输出) |
 | `*.trx`、`*.junit.xml` | 每个测试检查的用例结果 |
-| `review.json` | 评审报告：复杂度、噪音、写作的发现、例外的复核和每条例外的证据 |
+| `review.json` | 评审报告：写作的发现、例外的复核和每条例外的证据 |
 | `review-calls.jsonl` | 评审调用模型的请求、响应和耗时 |
-| 步骤日志 | 每个步骤的输出，以及评审两边的分析构建、ESLint 的原始结果 |
+| 步骤日志 | 每个步骤的输出 |
 
 成功、失败和取消的运行都保存。
 
@@ -266,7 +259,7 @@ orisumi runs prune --apply   # 删除
 
 `runs list` 每次运行一行：开始的时间（本地时区）、启动它的命令、结果、耗时和失败的检查，由此可以看出哪次运行失败、失败在哪一步。需要证据目录的路径时加 `--json`。
 
-每次运行结束时自动清理，保留最近 10 次、最近 5 次没有成功的，以及 2 天内的全部运行。`runs prune` 使用同样的条件。评审的基线工作树缓存在 `.artifacts/quality-baselines/<commit>/`，不参与清理，需要回收空间时移除对应的 Git worktree。
+每次运行结束时自动清理，保留最近 10 次、最近 5 次没有成功的，以及 2 天内的全部运行。`runs prune` 使用同样的条件。
 
 ## 退出码
 

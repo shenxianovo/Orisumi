@@ -4,8 +4,6 @@ internal sealed record SourceFileMetric(string Path, string Language, SourceRole
 
 internal sealed record SourceSnapshot(IReadOnlyList<SourceFileMetric> Files)
 {
-    public int ProductionLines => Files.Where(file => file.Role == SourceRole.Production).Sum(file => file.Lines);
-
     public IReadOnlyList<string> UnclassifiedPaths => [.. Files
         .Where(file => file.Role == SourceRole.Unclassified)
         .Select(file => file.Path)

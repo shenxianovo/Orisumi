@@ -1,2 +1,0 @@
-# Emit metrics for every method; the Developer CLI applies the >10 hotspot threshold.
-CA1502: 0

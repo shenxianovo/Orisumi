@@ -10,7 +10,6 @@ internal sealed class Linter(RepositoryContext repository, IProcessRunner runner
     {
         var files = await repository.Git.FilesAsync(cancellationToken);
         var findings = new List<LintFinding>();
-        findings.AddRange(await new CommentLint(repository, runner).ScanAsync(changed ?? files, cancellationToken));
         if (changed is null || changed.Any(DocumentLint.Covers))
             findings.AddRange(DocumentLint.Scan(DocumentLint.Read(repository, files), Exists));
         findings.AddRange(await new UnusedLint(repository, runner, ProjectLayout.Load(repository.Root)).ScanAsync(changed, cancellationToken));
@@ -35,7 +34,7 @@ internal sealed class LintCheck(RepositoryContext repository, IProcessRunner run
 {
     public string Name => "lint";
 
-    public string Description => "comments, documents and unused code across the repository";
+    public string Description => "documents and unused code across the repository";
 
     public async Task<CheckOutcome> RunAsync(Run run, CancellationToken cancellationToken)
     {

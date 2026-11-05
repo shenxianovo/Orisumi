@@ -2,8 +2,6 @@ namespace Orisumi.Dev;
 
 internal sealed record WritingFinding(string Path, int Line, string Question, string Title, double Probability, string Excerpt);
 
-internal sealed record RegressionReview(ComplexityRegression Regression, string? Noise, double? Probability);
-
 internal sealed record ExceptionReview(DeclaredException Exception, bool? Holds, double? Probability, string Evidence);
 
 internal sealed record ReviewReport(
@@ -11,8 +9,6 @@ internal sealed record ReviewReport(
     string Commit,
     string Model,
     bool Judged,
-    ComplexityReport Complexity,
-    IReadOnlyList<RegressionReview> Regressions,
     IReadOnlyList<string> Files,
     IReadOnlyList<WritingFinding> Writing,
     IReadOnlyList<ExceptionReview> Exceptions,
@@ -20,35 +16,27 @@ internal sealed record ReviewReport(
 {
     public bool Completed => Failures.Count == 0;
 
-    public IEnumerable<RegressionReview> NewComplexity => Regressions.Where(review => review.Noise is null);
-
     public IEnumerable<ExceptionReview> BrokenExceptions => Exceptions.Where(review => review.Holds == false);
 
-    public int Findings => NewComplexity.Count() + Writing.Count + BrokenExceptions.Count();
+    public int Findings => Writing.Count + BrokenExceptions.Count();
 }
 
 internal sealed class Reviewer(RepositoryContext repository, IProcessRunner runner, ModelAccess models)
 {
     private sealed record Writing(string Path, Passage Passage, Question Question);
 
-    private sealed record Regression(ComplexityRegression Change, string? Input);
-
     private sealed record Declared(DeclaredException Exception, string Input);
 
     public async Task<ReviewReport> ReviewAsync(string requested, string commit, Run run, CancellationToken cancellationToken)
     {
-        var complexity = await new QualityAnalysis(repository, runner).AnalyzeAsync(commit, run, cancellationToken);
         var layout = ProjectLayout.Load(repository.Root);
         var questions = Questions.Load(repository, layout);
         var evidence = new Evidence(repository, layout, await repository.Git.FilesAsync(cancellationToken));
-        var noise = questions.Where(question => question.Explains(Evidence.ComplexityRule)).ToArray();
         var reason = questions.FirstOrDefault(question => question.Id == UnusedLint.ReasonQuestion);
 
         var writing = await WritingAsync(questions, commit, cancellationToken);
-        var regressions = Regressions(complexity, evidence);
         var exceptions = Exceptions(layout, evidence);
         var asks = writing.Select(item => (item.Passage.Text, item.Question))
-            .Concat(regressions.Where(item => item.Input is not null).SelectMany(item => noise.Select(question => (item.Input!, question))))
             .Concat(reason is null ? [] : exceptions.Select(item => (item.Input, reason)))
             .ToArray();
 
@@ -59,12 +47,11 @@ internal sealed class Reviewer(RepositoryContext repository, IProcessRunner runn
             : await new Judge(model, client, new CacheStore(repository)).AskAsync(asks, cancellationToken);
         if (judging.Calls.Count > 0) await Judge.SaveCallsAsync(run, RunFiles.ReviewCalls, judging.Calls);
 
-        var report = new ReviewReport(requested, commit, model, client is not null, complexity,
-            [.. regressions.Select(item => Review(item, noise, judging))],
+        var report = new ReviewReport(requested, commit, model, client is not null,
             [.. writing.Select(item => item.Path).Distinct()],
             [.. writing.SelectMany(item => Finding(item, judging)).OrderBy(finding => finding.Path, StringComparer.Ordinal).ThenBy(finding => finding.Line)],
             [.. exceptions.Select(item => Review(item, reason, judging))],
-            [.. complexity.Failures, .. judging.Failures]);
+            judging.Failures);
         await run.WriteJsonAsync(RunFiles.Review, report);
         return report;
     }
@@ -83,11 +70,6 @@ internal sealed class Reviewer(RepositoryContext repository, IProcessRunner runn
         return writing;
     }
 
-    private static Regression[] Regressions(ComplexityReport complexity, Evidence evidence) =>
-        [.. (complexity.Regressions ?? []).Select(change => new Regression(change, complexity.Vanished.Count == 0 ? null
-            : evidence.Complexity(change.Current, complexity.Functions.FirstOrDefault(function =>
-                function.Path == change.Current.Path && function.Line == change.Current.Line), complexity.Vanished)))];
-
     private Declared[] Exceptions(ProjectLayout layout, Evidence evidence)
     {
         var lint = new UnusedLint(repository, runner, layout);
@@ -101,13 +83,6 @@ internal sealed class Reviewer(RepositoryContext repository, IProcessRunner runn
         if (judging.Answer(item.Passage.Text, item.Question) is not { } answer || !item.Question.Passes(answer, Question.Yes)) yield break;
         yield return new WritingFinding(item.Path, item.Passage.Line, item.Question.Id, item.Question.Title,
             answer.ProbabilityOf(item.Question, Question.Yes)!.Value, Terminal.Excerpt(item.Passage.Text));
-    }
-
-    private static RegressionReview Review(Regression item, IReadOnlyList<Question> noise, Judging judging)
-    {
-        var renamed = item.Input is null ? null : noise.FirstOrDefault(question =>
-            judging.Answer(item.Input, question) is { } answer && question.Passes(answer, Question.Yes));
-        return new RegressionReview(item.Change, renamed?.Id, renamed is null ? null : judging.Answer(item.Input!, renamed)!.ProbabilityOf(renamed, Question.Yes));
     }
 
     private static ExceptionReview Review(Declared item, Question? reason, Judging judging)

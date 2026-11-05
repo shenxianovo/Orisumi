@@ -78,7 +78,7 @@ Orisumi 正在从零重写。旧的设计和实现已经删除，留在 Git 历�
 - 进行中的记录放在 `.scratch/<slug>/`，完成后删除。
 - 同时运行的子 Agent 最多 2 到 3 个。
 - 改完文件后运行 `orisumi tidy`，它格式化改过的代码并 lint 改过的文件。
-- 代码里不写注释。需要解释的，改成更好的名字或一个测试，lint 检查。
+- 优先用命名、结构和测试表达意图。注释用于解释代码无法表达的外部约束和接口契约，评审时检查其必要性与准确性。
 - 用户纠正了某类问题，能用代码查的写成 lint 规则或测试，要靠判断的写成一道[题](tools/Orisumi.Dev/README.md#题)，题目里写清被纠正的写法。
 - 修改 `tools/Orisumi.Dev` 后，在主检出目录运行 `orisumi tool install`，让全局命令和代码一致。用法见 [Orisumi.Dev README](tools/Orisumi.Dev/README.md)。
 - 新项目登记在根目录的 `Orisumi.slnx`，验证、评审和行数统计都从它推导，见[项目清单](tools/Orisumi.Dev/README.md#项目清单)。

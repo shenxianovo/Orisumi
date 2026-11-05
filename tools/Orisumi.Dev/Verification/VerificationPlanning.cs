@@ -51,7 +51,7 @@ internal sealed class VerificationPlanner(RepositoryContext repository, IProcess
         foreach (var path in paths.Where(path => !ProjectLayout.IsScratch(path)))
         {
             var markdown = DocumentLint.Covers(path);
-            if (markdown || CommentLint.Covers(path)) selection.Lint = true;
+            if (markdown || SourceLanguages.Of(path) is "C#" or "TypeScript" or "JavaScript") selection.Lint = true;
             switch (layout.Owner(path))
             {
                 case null or { Kind: ProjectKind.CSharp } when markdown:
