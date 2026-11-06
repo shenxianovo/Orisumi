@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -12,6 +13,273 @@ public class NativeReceiverTests
     private const string Instance = "10203040-5060-4070-8090-a0b0c0d0e0f0";
     private const string Run = "f0e0d0c0-b0a0-4090-8070-605040302010";
     private const string Caller = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
+
+    [Test]
+    public async Task AcquisitionStatusUsesTheSameOriginalAndReceiptContract()
+    {
+        using var sample = new CaptureSample();
+        var payload = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Observation(1))
+            .Replace("\"kind\":\"callback\"", "\"kind\":\"status\"", StringComparison.Ordinal)
+            .Replace("tabs.onUpdated", "orisumi.persistentRound", StringComparison.Ordinal));
+        using var input = new MemoryStream(Frame(payload));
+        using var output = new MemoryStream();
+        await new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller);
+        var capture = sample.Store.Find(Receipts(output).Single().GetProperty("capture").GetString()!);
+        await Assert.That(capture.Record.Failure).IsNull();
+        await Assert.That(Read(sample.Store, capture, "observation.json").SequenceEqual(payload)).IsTrue();
+    }
+
+    [Test]
+    public async Task FragmentsRestoreTheExactEnvelopeBeforeAcknowledgingAndThenReadTheNextObservation()
+    {
+        using var sample = new CaptureSample();
+        var payload = Encoding.UTF8.GetBytes("{\"format\":\"orisumi-browser-v1\",\"instance\":\"10203040-5060-4070-8090-a0b0c0d0e0f0\",\"run\":\"f0e0d0c0-b0a0-4090-8070-605040302010\",\"sequence\":1,\"observedAt\":\"2026-11-06T16:00:00.000Z\",\"kind\":\"query\",\"operation\":\"bookmarks.getTree\",\"callbackArgs\":[[]]}");
+        var following = Observation(2);
+        using var input = new MemoryStream([.. Frame(Fragment(payload, 0, 128)), .. Frame(Fragment(payload, 128, payload.Length - 128)), .. Frame(following)]);
+        using var output = new CheckingOutput(() =>
+        {
+            if (!sample.Store.Captures().Any(capture => Read(sample.Store, capture, "observation.json").SequenceEqual(payload)))
+                throw new IOException("完整原件可恢复前不能收到回执");
+        });
+        await new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller);
+        var receipts = Receipts(output);
+        await Assert.That(receipts.Select(receipt => receipt.GetProperty("sequence").GetInt64()).SequenceEqual([1L, 2L])).IsTrue();
+        await Assert.That(sample.Store.Captures().Count).IsEqualTo(2);
+        for (var index = 0; index < receipts.Count; index++)
+        {
+            var capture = sample.Store.Find(receipts[index].GetProperty("capture").GetString()!);
+            await Assert.That(capture.Record.Failure).IsNull();
+            await Assert.That(Read(sample.Store, capture, "observation.json").SequenceEqual(index == 0 ? payload : following)).IsTrue();
+            await Assert.That(sample.Store.Manifest(capture).Single().Method).IsEqualTo(index == 0 ? "chrome-native-fragment-json" : "chrome-native-message-json");
+        }
+    }
+
+    [Test]
+    [Arguments("boundary", false)]
+    [Arguments("boundary", true)]
+    [Arguments("header", false)]
+    [Arguments("header", true)]
+    [Arguments("payload", false)]
+    [Arguments("payload", true)]
+    [Arguments("oversized", false)]
+    public async Task InterruptedFragmentsPreserveTheOriginalPrefixAndCurrentWireBytes(string point, bool cancelled)
+    {
+        using var sample = new CaptureSample();
+        using var stop = new CancellationTokenSource();
+        var payload = Observation(1);
+        var first = Frame(Fragment(payload, 0, 13));
+        var next = Frame(Fragment(payload, 13, payload.Length - 13));
+        var current = point switch
+        {
+            "header" => next[..2],
+            "payload" => next[..9],
+            "oversized" => BitConverter.GetBytes(64u * 1024 * 1024 + 1),
+            _ => Array.Empty<byte>(),
+        };
+        byte[] received = [.. first, .. current];
+        using var input = cancelled ? new InterruptedInput(received, received.Length, stop.Cancel) : new MemoryStream(received);
+        using var output = new MemoryStream();
+        var receive = () => new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller, stop.Token);
+        if (cancelled) await Assert.That(receive).Throws<OperationCanceledException>();
+        else await Assert.That(receive).Throws<IOException>();
+        var capture = sample.Store.Captures().Single();
+        await Assert.That(capture.Record.Failure).IsNotNull();
+        await Assert.That(Read(sample.Store, capture, "observation-prefix.bin").AsSpan().SequenceEqual(payload.AsSpan(0, 13))).IsTrue();
+        await Assert.That(sample.Store.Manifest(capture).Count).IsEqualTo(current.Length == 0 ? 1 : 2);
+        if (current.Length != 0)
+            await Assert.That(Read(sample.Store, capture, point == "oversized" ? "invalid-frame.bin" : "incomplete-frame.bin").SequenceEqual(current)).IsTrue();
+        await Assert.That(capture.Record.Origin.Contains("received bytes: 13", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(output.Length).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("base64")]
+    [Arguments("base64-whitespace")]
+    [Arguments("repeat")]
+    [Arguments("skip")]
+    [Arguments("instance")]
+    [Arguments("length")]
+    [Arguments("hash")]
+    [Arguments("overrun")]
+    [Arguments("ordinary")]
+    public async Task InvalidFollowingFragmentKeepsItsBytesAndTheAcceptedPrefix(string error)
+    {
+        using var sample = new CaptureSample();
+        var payload = Observation(1);
+        var fragment = JsonNode.Parse(Fragment(payload, 13, payload.Length - 13))!.AsObject();
+        switch (error)
+        {
+            case "base64": fragment["data"] = "not base64!"; break;
+            case "base64-whitespace": fragment["data"] = fragment["data"]!.GetValue<string>() + "\n"; break;
+            case "repeat": fragment["offset"] = 0; break;
+            case "skip": fragment["offset"] = 14; fragment["data"] = "YQ=="; break;
+            case "instance": fragment["instance"] = Guid.NewGuid().ToString(); break;
+            case "length": fragment["byteLength"] = payload.Length + 1; break;
+            case "hash": fragment["hash"] = "sha256-" + new string('0', 64); break;
+            case "overrun": fragment["data"] = Convert.ToBase64String([.. payload[13..], (byte)'x']); break;
+        }
+        var invalid = error == "ordinary" ? Observation(2) : Encoding.UTF8.GetBytes(fragment.ToJsonString());
+        byte[] received = [.. Frame(Fragment(payload, 0, 13)), .. Frame(invalid)];
+        using var input = new MemoryStream([.. received, .. Frame(Observation(3))]);
+        using var output = new MemoryStream();
+        await Assert.That(() => new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller)).Throws<IOException>();
+        var capture = sample.Store.Captures().Single();
+        await Assert.That(capture.Record.Failure).IsNotNull();
+        await Assert.That(Read(sample.Store, capture, "observation-prefix.bin").AsSpan().SequenceEqual(payload.AsSpan(0, 13))).IsTrue();
+        await Assert.That(Read(sample.Store, capture, "invalid-fragment.json").SequenceEqual(invalid)).IsTrue();
+        await Assert.That(input.Position).IsEqualTo(received.Length);
+        await Assert.That(output.Length).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("hash")]
+    [Arguments("identity")]
+    [Arguments("json")]
+    [Arguments("utf8")]
+    public async Task InvalidReassembledEnvelopeKeepsAllOriginalBytesWithoutAReceipt(string error)
+    {
+        using var sample = new CaptureSample();
+        var payload = error == "identity" ? Observation(2) : Observation(1);
+        if (error == "json") payload = payload[..^8];
+        if (error == "utf8") payload[Array.IndexOf(payload, (byte)'?')] = 0xff;
+        var first = JsonNode.Parse(Fragment(payload, 0, 13))!.AsObject();
+        var last = JsonNode.Parse(Fragment(payload, 13, payload.Length - 13))!.AsObject();
+        if (error == "hash")
+        {
+            first["hash"] = "sha256-" + new string('0', 64);
+            last["hash"] = "sha256-" + new string('0', 64);
+        }
+        using var input = new MemoryStream([.. Frame(Encoding.UTF8.GetBytes(first.ToJsonString())), .. Frame(Encoding.UTF8.GetBytes(last.ToJsonString()))]);
+        using var output = new MemoryStream();
+        await Assert.That(() => new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller)).Throws<IOException>();
+        var capture = sample.Store.Captures().Single();
+        await Assert.That(capture.Record.Failure).IsNotNull();
+        await Assert.That(Read(sample.Store, capture, "invalid-observation.json").SequenceEqual(payload)).IsTrue();
+        await Assert.That(sample.Store.Manifest(capture).Count).IsEqualTo(1);
+        await Assert.That(output.Length).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments("offset")]
+    [Arguments("length")]
+    [Arguments("unsafe-length")]
+    [Arguments("fractional-offset")]
+    [Arguments("hash")]
+    [Arguments("empty-data")]
+    [Arguments("oversized-data")]
+    [Arguments("noncanonical-data")]
+    public async Task InvalidFirstFragmentPreservesTheActualFrameWithoutInventingAPrefix(string error)
+    {
+        using var sample = new CaptureSample();
+        var fragment = JsonNode.Parse(Fragment(Observation(1), 0, 13))!.AsObject();
+        switch (error)
+        {
+            case "offset": fragment["offset"] = 1; break;
+            case "length": fragment["byteLength"] = 0; break;
+            case "unsafe-length": fragment["byteLength"] = 9_007_199_254_740_992L; break;
+            case "fractional-offset": fragment["offset"] = 0.5; break;
+            case "hash": fragment["hash"] = "sha256-" + new string('A', 64); break;
+            case "empty-data": fragment["data"] = ""; break;
+            case "oversized-data": fragment["data"] = Convert.ToBase64String(new byte[1_048_577]); break;
+            case "noncanonical-data": fragment["data"] = "Zh=="; break;
+        }
+        var payload = Encoding.UTF8.GetBytes(fragment.ToJsonString());
+        using var input = new MemoryStream(Frame(payload));
+        using var output = new MemoryStream();
+        await Assert.That(() => new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller)).Throws<IOException>();
+        var capture = sample.Store.Captures().Single();
+        await Assert.That(capture.Record.Failure).IsNotNull();
+        await Assert.That(sample.Store.Manifest(capture).Count).IsEqualTo(1);
+        await Assert.That(Read(sample.Store, capture, "invalid-fragment.json").SequenceEqual(payload)).IsTrue();
+        await Assert.That(output.Length).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task ReplayedFragmentsKeepUtf8AndEscapesSplitAcrossFrames()
+    {
+        using var sample = new CaptureSample();
+        var payload = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Observation(1))
+            .Replace("\"unknown\":null", "\"unknown\":{\"text\":\"a\\\"b\\\\c\",\"nested\":[true,null]}", StringComparison.Ordinal));
+        int[] cuts = [0, Array.IndexOf(payload, (byte)0xe4) + 1, Array.IndexOf(payload, (byte)'\\') + 1, payload.Length];
+        var wire = Enumerable.Range(0, cuts.Length - 1).SelectMany(index => Frame(Fragment(payload, cuts[index], cuts[index + 1] - cuts[index]))).ToArray();
+        var names = new List<string>();
+        for (var replay = 0; replay < 2; replay++)
+        {
+            using var input = new MemoryStream(wire);
+            using var output = new MemoryStream();
+            await new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller);
+            var name = Receipts(output).Single().GetProperty("capture").GetString()!;
+            names.Add(name);
+            await Assert.That(Read(sample.Store, sample.Store.Find(name), "observation.json").SequenceEqual(payload)).IsTrue();
+        }
+        await Assert.That(names[0]).IsNotEqualTo(names[1]);
+    }
+
+    [Test]
+    public async Task InterruptedPersistentReceiverDoesNotBlockLiveReceiverUsingTheSameStore()
+    {
+        using var sample = new CaptureSample();
+        using var stop = new CancellationTokenSource();
+        var payload = Observation(1);
+        using var pending = new WaitingInput(Frame(Fragment(payload, 0, 13)));
+        using var pendingOutput = new MemoryStream();
+        var receiving = new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(pending, pendingOutput, Caller, stop.Token);
+        try
+        {
+            await pending.Waiting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            using var live = new MemoryStream(Frame(Observation(2)));
+            using var liveOutput = new MemoryStream();
+            await new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(live, liveOutput, Caller).WaitAsync(TimeSpan.FromSeconds(5));
+            var saved = sample.Store.Find(Receipts(liveOutput).Single().GetProperty("capture").GetString()!);
+            await Assert.That(Read(sample.Store, saved, "observation.json").SequenceEqual(Observation(2))).IsTrue();
+            await Assert.That(pendingOutput.Length).IsEqualTo(0);
+        }
+        finally
+        {
+            stop.Cancel();
+            await Assert.That(() => receiving.WaitAsync(TimeSpan.FromSeconds(5))).Throws<OperationCanceledException>();
+        }
+        var failed = sample.Store.Captures().Single(capture => capture.Record.Failure is not null);
+        await Assert.That(Read(sample.Store, failed, "observation-prefix.bin").AsSpan().SequenceEqual(payload.AsSpan(0, 13))).IsTrue();
+        await Assert.That(sample.Store.Captures().Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task FragmentStorageFailureRetainsTheOnlyReassembledCopyWithoutAcknowledging()
+    {
+        using var sample = new CaptureSample();
+        var store = sample.Store;
+        File.WriteAllText(Path.Combine(sample.StoreDirectory, "blocks"), "blocked");
+        var payload = Observation(1);
+        using var input = new MemoryStream(Frame(Fragment(payload, 0, payload.Length)));
+        using var output = new MemoryStream();
+        await Assert.That(() => new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller)).Throws<IOException>();
+        var capture = store.Captures().Single();
+        await Assert.That(capture.Record.Manifest).IsNull();
+        var retained = capture.Record.Failure!.Reason.Split("临时文件保留在 ", StringSplitOptions.None).Last();
+        try
+        {
+            await Assert.That(File.ReadAllBytes(retained).SequenceEqual(payload)).IsTrue();
+            await Assert.That(output.Length).IsEqualTo(0);
+        }
+        finally
+        {
+            File.Delete(retained);
+        }
+    }
+
+    [Test]
+    public async Task BrokenFragmentReceiptKeepsTheCompletePublishedOriginal()
+    {
+        using var sample = new CaptureSample();
+        var payload = Observation(1);
+        using var input = new MemoryStream(Frame(Fragment(payload, 0, payload.Length)));
+        using var output = new CheckingOutput(() => throw new IOException("回执连接关闭"));
+        await Assert.That(() => new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller)).Throws<IOException>();
+        var capture = sample.Store.Captures().Single();
+        await Assert.That(capture.Record.Failure).IsNull();
+        await Assert.That(Read(sample.Store, capture, "observation.json").SequenceEqual(payload)).IsTrue();
+    }
 
     [Test]
     public async Task PayloadBytesAreRestorableAndTheReceiptNamesTheirCapture()
@@ -32,6 +300,29 @@ public class NativeReceiverTests
         await Assert.That(receipt.GetProperty("run").GetString()).IsEqualTo(Run);
         await Assert.That(receipt.GetProperty("sequence").GetInt64()).IsEqualTo(42);
         await Assert.That(receipt.GetProperty("capture").GetString()).IsEqualTo(capture.Name.ToString());
+    }
+
+    [Test]
+    public async Task DeepBookmarkTreesAndTheFollowingObservationKeepTheirBytesAndReceipts()
+    {
+        using var sample = new CaptureSample();
+        var bookmark = "{\"id\":\"leaf\",\"title\":\"中文\",\"url\":\"https://example.test/\"}";
+        for (var depth = 0; depth < 70; depth++) bookmark = "{\"children\":[" + bookmark + "]}";
+        var payload = Encoding.UTF8.GetBytes($$"""
+            { "format":"orisumi-browser-v1", "instance":"{{Instance}}", "run":"{{Run}}", "sequence":1, "observedAt":"2026-11-06T13:00:00.000Z", "kind":"query", "operation":"bookmarks.getTree", "callbackArgs":[[{{bookmark}}]] }
+            """);
+        var following = Observation(2);
+        using var input = new MemoryStream([.. Frame(payload), .. Frame(following)]);
+        using var output = new MemoryStream();
+        await new NativeReceiver(sample.StoreDirectory, "tests").RunAsync(input, output, Caller);
+        var receipts = Receipts(output);
+        await Assert.That(receipts.Select(receipt => receipt.GetProperty("sequence").GetInt64()).SequenceEqual([1L, 2L])).IsTrue();
+        for (var index = 0; index < receipts.Count; index++)
+        {
+            var capture = sample.Store.Find(receipts[index].GetProperty("capture").GetString()!);
+            await Assert.That(capture.Record.Failure).IsNull();
+            await Assert.That(Read(sample.Store, capture, "observation.json").SequenceEqual(index == 0 ? payload : following)).IsTrue();
+        }
     }
 
     [Test]
@@ -291,6 +582,18 @@ public class NativeReceiverTests
 
     private static byte[] Frame(byte[] payload) => [.. BitConverter.GetBytes((uint)payload.Length), .. payload];
 
+    private static byte[] Fragment(byte[] payload, int offset, int count) => JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        format = "orisumi-browser-fragment-v1",
+        instance = Instance,
+        run = Run,
+        sequence = 1,
+        byteLength = payload.Length,
+        hash = "sha256-" + Convert.ToHexStringLower(SHA256.HashData(payload)),
+        offset,
+        data = Convert.ToBase64String(payload, offset, count),
+    });
+
     private static byte[] Read(RawStore store, Capture capture, string path)
     {
         using var input = store.Open(capture, path);
@@ -341,6 +644,19 @@ public class NativeReceiverTests
         {
             beforeWrite();
             return base.WriteAsync(buffer, cancellationToken);
+        }
+    }
+
+    private sealed class WaitingInput(byte[] bytes) : MemoryStream(bytes)
+    {
+        public TaskCompletionSource Waiting { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Position < Length) return await base.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            Waiting.TrySetResult();
+            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            return 0;
         }
     }
 }

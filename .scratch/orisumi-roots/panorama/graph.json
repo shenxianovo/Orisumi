@@ -2,7 +2,7 @@
   "schema_version": 1,
   "title": "Orisumi 决策全景",
   "summary": "先让数据存在并留下。沿目标、来源、取得、保存、理解和使用查看依据、候选与影响。✓ 表示用户实际确认；Agent 在授权内采用方案，当前路线、条件性安排和后置项分别展示。",
-  "scope": "覆盖当前39条需求、7份架构决定、全部来源清单、现有模型与实现，以及本轮展开的实质候选。119个决策均有授权内的 Agent 采用、条件性或后置记录，并给出理由、代价与重审条件。候选继续到共享下游或具体实施、试验、勘探终点；实施与验证范围按独立交付推进。",
+  "scope": "覆盖当前39条需求、9份架构决定、全部来源清单、现有模型与实现，以及本轮展开的实质候选。122个决策均有授权内的 Agent 采用、条件性或后置记录，并给出理由、代价与重审条件。候选继续到共享下游或具体实施、试验、勘探终点；实施与验证范围按独立交付推进。",
   "project_root": "../../..",
   "modules": [
     {
@@ -3350,7 +3350,7 @@
         },
         {
           "kind": "file",
-          "ref": ".scratch/browser-persistent/contract.md",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
           "note": "文件和API各自保留出处与覆盖边界；API搜索加逐URL访问查询不等于完整History。生产接入与真实Profile验收另行进行。"
         }
       ],
@@ -3359,18 +3359,21 @@
           "id": "api",
           "title": "扩展/API 全量首取再跟变化",
           "status": "recommended",
-          "summary": "取得 history、bookmarks、downloads、sessions 等实际允许的返回，保留每轮响应和原对象标识。",
+          "summary": "取得 history、bookmarks、downloads 的完整接口返回和原回调，保留查询条件与实际原对象标识。sessions 留待独立需要。",
           "benefit": "少依赖内部数据库结构。",
           "cost": "各 API 可得时间、搜索词和停留字段可能不同。",
           "when": "取得能力或范围尚未测清时，先取得一个可核验样本。",
           "next": [
-            "接口与导出取得方式"
+            "接口与导出取得方式",
+            "浏览器超大原响应怎样交付",
+            "浏览器回填怎样并行",
+            "浏览器历史回填怎样遍历"
           ],
           "conflicts_with": [],
           "terminal": {
-            "kind": "survey",
-            "detail": "先读现行官方文档，然后在一个 Profile 上对照界面和一个受控下载/书签/访问样本。",
-            "check": "逐项列最早日期、字段、分页与权限，不把所有项目都声称有 90 天可补。"
+            "kind": "experiment",
+            "detail": "受控Profile完成三组真实API、Worker重启和原件恢复，再验证日常首轮。",
+            "check": "接口覆盖与数据库分别说明；真实参数、返回、错误、未解决区间与完整回执可核对。"
           }
         },
         {
@@ -3394,24 +3397,26 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "独立受控勘探及审阅已完成；日常History文件读取仍受限。正式API回填、周期与大响应处理尚在设计，日常扩展权限未改变。",
+        "state": "implemented",
+        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
         "refs": [
           ".scratch/requirements/survey-browser-persistent.md",
-          ".scratch/browser-persistent/contract.md"
+          "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "many",
       "choice_note": "扩展接口和本地数据库可并取，用样本证明字段差异；同一 Profile 的两份表示保留各自出处。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "api"
         ],
-        "reason": "日常库实际无法读取，扩展接口可先留下它能交付的视图。接受搜索未列出的中间重定向、文件独有字段和API各次时刻不同的范围；完整库仍待明确可读来源。",
+        "reason": "实际文件读取受限，先保存API确实交付的history/bookmarks/downloads视图。重定向/404与文件独有字段边界保留；已完成具体查询与传输契约，按其实现并做真实Profile验收。",
         "trigger": "先实测同时间戳/限量边界、Worker中断、大响应和暂存回执；真实Profile再验收。保持tabs/windows持续取得，原返回与覆盖缺口分别保留。",
-        "stage": "next"
+        "stage": "now"
       }
     },
     {
@@ -12649,6 +12654,314 @@
         "trigger": "当前来源、恢复、受限 IP 网络和用户级任务的装载/停止已测；真实重新登录、全天运行、系统状态和新来源按各自最小实验推进。",
         "stage": "now"
       }
+    },
+    {
+      "id": "浏览器超大原响应怎样交付",
+      "module": "capture",
+      "type": "decision",
+      "status": "proposed",
+      "summary": "已选bookmarks API实际返回过超过64MiB的完整内容；Native限制单条消息，原件完整边界另行选择。",
+      "basis": [
+        {
+          "id": "浏览器事件传输",
+          "relation": "choice",
+          "why": "已采用Native连接，需要尊重其真实单帧上限。"
+        },
+        {
+          "id": "完整内容的边界",
+          "relation": "choice",
+          "why": "API完整返回是一份内容，传输片段与原件身份分别确定。"
+        },
+        {
+          "id": "留最原始的一层",
+          "relation": "choice",
+          "why": "传输之后仍须恢复原始完整响应。"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          "note": "明确API原件、双通道、查询计划、回执与Worker中断范围。"
+        },
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+          "note": "真实70MiB API返回触发Native上限；精确分片格式、完整ACK与失败前缀留证。"
+        }
+      ],
+      "options": [
+        {
+          "id": "whole-envelope",
+          "title": "传输分片，完整原件才确认",
+          "status": "recommended",
+          "summary": "大响应按固定编码分片；接收端重组、校验并保存完整observation.json后才ACK。",
+          "benefit": "复用现有原件与恢复格式，片段不增加业务身份。",
+          "cost": "重连需重发整份已暂存原件，base64增大传输量；完整校验的成本需实测。",
+          "when": "Native交付单份大响应，来源已有完整本地暂存。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "对已取得的70MiB原返回完成持久化、分片、断连重放和独立恢复。",
+            "check": "逐字节恢复；完整发布前无ACK；失败前缀可取回；帧均在上限内。"
+          }
+        },
+        {
+          "id": "fragment-roots",
+          "title": "每片成为独立原件并逐片确认",
+          "status": "alternative",
+          "summary": "各片先发布根，再由完整清单组织它们并表达结束。",
+          "benefit": "能把已确认片作为断点，减少重发。",
+          "cost": "增加片段身份、完整标记及跨进程恢复关系；原API返回需再组装。",
+          "when": "实际巨大原件重发成本已形成问题。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "用同一真实输入比较断点收益、保存集大小和实现状态。",
+            "check": "只有取得全部关联及完成事实后才可声称响应完整；缺片准确显示。"
+          }
+        },
+        {
+          "id": "gap-only",
+          "title": "超限只留下未取得说明",
+          "status": "excluded",
+          "summary": "保留超限事实，响应正文留在来源等待其他取得方式。",
+          "benefit": "暂时维持原传输实现。",
+          "cost": "会漏掉已经能从API取得的完整材料。",
+          "when": "接收端确实无法更新时仅作为明确缺口。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "out_of_scope",
+            "detail": "本轮已有可实施分片路线，不采用主动舍弃正文。",
+            "check": "不得把失败说明计作完整响应原件。"
+          }
+        }
+      ],
+      "implementation": {
+        "state": "implemented",
+        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "refs": [
+          "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+        ]
+      },
+      "review": "按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。",
+      "choice_mode": "one",
+      "choice_note": "比较本节点的完整实施路线，当前由Agent在既有自主授权下采用。",
+      "resolution": {
+        "state": "adopted",
+        "choices": [
+          "whole-envelope"
+        ],
+        "reason": "真实API压力样本已超过Native上限；完整本地暂存与重放已有基础，传输分片能保持原件边界，接受重传与编码成本。",
+        "trigger": "固定响应编码、身份、长度/hash和完整ACK；实际重传成本或内存成为问题时再比较分片根。",
+        "stage": "now"
+      }
+    },
+    {
+      "id": "浏览器回填怎样并行",
+      "module": "capture",
+      "type": "decision",
+      "status": "proposed",
+      "summary": "持久API回填会产生大响应和大量请求，必须与已有tabs/windows观测区分发送阻塞和持久化结果。",
+      "basis": [
+        {
+          "id": "浏览器持久记录取得",
+          "relation": "choice",
+          "why": "新增持久API视图需要回填与变化取得。"
+        },
+        {
+          "id": "瞬时事件接收方式",
+          "relation": "choice",
+          "why": "已有瞬时观测继续即时暂存，等待回填不能代替收集。"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          "note": "明确API原件、双通道、查询计划、回执与Worker中断范围。"
+        }
+      ],
+      "options": [
+        {
+          "id": "two-lanes",
+          "title": "两个固定发送通道",
+          "status": "recommended",
+          "summary": "live与persistent各用一个Native连接和单inFlight，共享安装instance；回填逐份等完整ACK。",
+          "benefit": "隔离发送阻塞，接收端仍是顺序单原件状态。",
+          "cost": "多一个host进程；Worker事件循环与storage仍共享。",
+          "when": "当前实时观测和持久回填并行。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "在persistent超大响应/断连/写盘失败期间继续产生live观测。",
+            "check": "live落盘与ACK继续；共同instance唯一初始化；旧暂存可恢复；内存与延迟实测。"
+          }
+        },
+        {
+          "id": "interleave",
+          "title": "一个连接交错两类消息",
+          "status": "alternative",
+          "summary": "在传输片之间插入live消息，匹配多份同时待确认的身份。",
+          "benefit": "少一个host进程。",
+          "cost": "增加交错调度、多个ACK及传输中断的关系。",
+          "when": "额外host的实际成本值得换取更多状态时。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "与双通道在相同压力和中断序列下比较成本。",
+            "check": "任何ACK都不能删除另一份原件，实时消息与分片身份可独立追溯。"
+          }
+        },
+        {
+          "id": "fifo",
+          "title": "继续单队列顺序发送",
+          "status": "alternative",
+          "summary": "所有响应和观测使用原来的一个inFlight。",
+          "benefit": "状态最少。",
+          "cost": "实际超限或被拒项会挡后续live发送；回填产生等待。",
+          "when": "来源已明确没有大响应或愿意接受这项延迟时。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "用已证实的巨大响应与失败项说明队头行为。",
+            "check": "原件仍暂存且缺口/延迟明确，不能称为实时发送持续通畅。"
+          }
+        }
+      ],
+      "implementation": {
+        "state": "implemented",
+        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "refs": [
+          "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+        ]
+      },
+      "review": "按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。",
+      "choice_mode": "one",
+      "choice_note": "比较本节点的完整实施路线，当前由Agent在既有自主授权下采用。",
+      "resolution": {
+        "state": "adopted",
+        "choices": [
+          "two-lanes"
+        ],
+        "reason": "两个固定通道以额外host换取较少的ACK与调度状态，避免一个回填项堵住现有live；不引入通道注册平台。",
+        "trigger": "实测进程成本、共享事件循环延后和写盘失败；若成本成为问题，再比较单连接交错。",
+        "stage": "now"
+      }
+    },
+    {
+      "id": "浏览器历史回填怎样遍历",
+      "module": "capture",
+      "type": "decision",
+      "status": "proposed",
+      "summary": "search按请求时间筛选，但返回lastVisitTime可在区间外；同一时刻多项与隐藏重定向使覆盖必须按实际查询解释。",
+      "basis": [
+        {
+          "id": "浏览器持久记录取得",
+          "relation": "choice",
+          "why": "采用API可见历史视图，需要说明搜索与访问查询覆盖。"
+        },
+        {
+          "id": "出处一起保存",
+          "relation": "choice",
+          "why": "每次真实参数、返回、错误及本轮过程状态分别留下。"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          "note": "明确API原件、双通道、查询计划、回执与Worker中断范围。"
+        },
+        {
+          "kind": "file",
+          "ref": ".scratch/requirements/survey-browser-persistent.md",
+          "note": "API视图与数据库的字段、重定向、版本及真实权限边界。"
+        }
+      ],
+      "options": [
+        {
+          "id": "time-ranges",
+          "title": "固定时间区间逐步细分",
+          "status": "recommended",
+          "summary": "固定整数毫秒[0,T)，按原数组长度判饱和；二分区间，单毫秒桶扩大limit，已发现URL查询全部visits。",
+          "benefit": "逐批保存已取得返回，同时间戳项有明确处理方式。",
+          "cost": "增加请求和Worker内工作表；不是共同事务，隐藏/404记录仍可能不可得。",
+          "when": "接口只有时间筛选与maxResults，没有稳定页游标。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "复用同微秒/同毫秒、窗口外lastVisitTime、同URL多项和来源错误反例。",
+            "check": "不减一毫秒跳项，不按去重数量判饱和；结束记录列真实未解决区间与错误。"
+          }
+        },
+        {
+          "id": "one-query",
+          "title": "一次请求最大结果数",
+          "status": "alternative",
+          "summary": "固定时间范围，直接申请接口可表达的最大maxResults，然后逐URL取得visits。",
+          "benefit": "查询计划简单、请求少。",
+          "cost": "完整返回前没有部分结果，大返回及来源失败的代价需实测；仍不等于全库。",
+          "when": "真实规模和单次成本已经证明适合。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "experiment",
+            "detail": "对同一受控和真实来源比较结果、内存、耗时与中途停止后的已保存覆盖。",
+            "check": "返回原样保存，最大参数不被称为无限，隐藏记录边界保持。"
+          }
+        },
+        {
+          "id": "last-visit-cursor",
+          "title": "用返回的lastVisitTime作游标",
+          "status": "excluded",
+          "summary": "每页取最早返回时间后向前跳。",
+          "benefit": "表面上请求计划简单。",
+          "cost": "真实反例表明返回时间可在查询窗外；同时间戳跳转也会漏项。",
+          "when": "本次接口语义不支持。",
+          "next": [],
+          "conflicts_with": [],
+          "terminal": {
+            "kind": "out_of_scope",
+            "detail": "保留窗口内旧访问、窗口外新访问的来源反例。",
+            "check": "算法不得用此字段证明分页推进或完整。"
+          }
+        }
+      ],
+      "implementation": {
+        "state": "implemented",
+        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "refs": [
+          "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+          ".scratch/requirements/survey-browser-persistent.md",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+        ]
+      },
+      "review": "按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。",
+      "choice_mode": "one",
+      "choice_note": "比较本节点的完整实施路线，当前由Agent在既有自主授权下采用。",
+      "resolution": {
+        "state": "adopted",
+        "choices": [
+          "time-ranges"
+        ],
+        "reason": "真实边界实验与固定版源码支持请求区间细分；逐份确认后推进，接受重复查询和非原子视图，不把搜索当完整数据库。",
+        "trigger": "新版本接口变化、反复Worker中断或真实成本显著时重审；finished只表示计划结束并附缺口。",
+        "stage": "now"
+      }
     }
   ],
   "coverage": [
@@ -13631,7 +13944,7 @@
         "运行保障怎样安排",
         "调度频率与触发"
       ],
-      "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
+      "note": "五项用户级LaunchAgent持续取得前台、Codex、Claude Code及两个显式Git仓库，共用仓库外原件目录；更新后全部取得新版本成功根。装载、停止、恢复分别验收，真实重新登录和全天运行另测。"
     },
     {
       "ref": "tools/Orisumi.Dev/Run/PublishCommand.cs",
@@ -13664,7 +13977,7 @@
         "第一阶段怎样验收",
         "运行保障怎样安排"
       ],
-      "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。 当前扩为五任务，新增两个显式Git仓库，更新后均有新版本成功根；Native host独立重启和续传另验。"
+      "note": "五项用户级LaunchAgent持续取得前台、Codex、Claude Code及两个显式Git仓库，共用仓库外原件目录；更新后全部取得新版本成功根。装载、停止、恢复分别验收，真实重新登录和全天运行另测。"
     },
     {
       "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
@@ -13730,6 +14043,41 @@
         "事件时间与顺序"
       ],
       "note": "当前系统读取失败与CFT受控证据分别记录；API与数据库字段不互称完整重建，生产路线继续具体验证。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
+      "nodes": [
+        "浏览器持久记录取得",
+        "浏览器超大原响应怎样交付",
+        "浏览器回填怎样并行",
+        "浏览器历史回填怎样遍历"
+      ],
+      "note": "在真实接口与失败反例基础上采用具体格式/范围；代码实现与日常验收另记。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+      "nodes": [
+        "浏览器持久记录取得",
+        "浏览器超大原响应怎样交付",
+        "浏览器回填怎样并行",
+        "浏览器历史回填怎样遍历"
+      ],
+      "note": "在真实接口与失败反例基础上采用具体格式/范围；代码实现与日常验收另记。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/adr/0008-whole-browser-observations.mdx",
+      "nodes": [
+        "浏览器超大原响应怎样交付",
+        "浏览器回填怎样并行"
+      ],
+      "note": "70MiB真实API原样本支持完整观测分片、整件回执与双连接；接受整件重传和实际内存成本。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/adr/0009-history-api-ranges.mdx",
+      "nodes": [
+        "浏览器历史回填怎样遍历"
+      ],
+      "note": "同时间戳与窗口外lastVisitTime实测支持区间细分，完成只表达请求计划结束。"
     }
   ],
   "limitations": [

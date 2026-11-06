@@ -14,7 +14,7 @@
     <Content Include="orisumi-browser-host" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="../Orisumi.Browser/manifest.json;../Orisumi.Browser/worker.js;../Orisumi.Browser/delivery.js"
+    <Content Include="../Orisumi.Browser/manifest.json;../Orisumi.Browser/worker.js;../Orisumi.Browser/delivery.js;../Orisumi.Browser/persistent.js"
              Link="Browser/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

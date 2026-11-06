@@ -3,7 +3,7 @@ title: "来源怎么采"
 description: "会话、前台与浏览器观测、Git 历史的范围，以及旧 Heartbeat 的来源设计"
 ---
 
-这一页记录各来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 使用[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；[浏览器](./browser.mdx)由扩展取得标签与窗口观测，再交给本机原件接收器；[Git](./git.mdx)保存引用可达对象及分次取得的出处。旧 Heartbeat 的导出路线仍待验证。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
+这一页记录各来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 使用[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；[浏览器](./browser.mdx)由扩展取得标签与窗口观测，再交给本机原件接收器；[Git](./git.mdx)保存引用可达对象及分次取得的出处。[旧 Heartbeat](./heartbeat.mdx)已完成本人历史的一次原生导出与独立恢复。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
 
 ## macOS 前台应用
 
@@ -15,7 +15,9 @@ description: "会话、前台与浏览器观测、Git 历史的范围，以及�
 
 MV3 扩展保存 `tabs` 和 `windows` 的回调参数、初始状态查询、激活后的标签查询，以及取得时刻和来源环境。回调中的 URL、query、fragment、标题和后台标签属性保持原样；窗口内 active、窗口焦点和系统前台分别表达。
 
-来源名为 `browser`。扩展先写本地暂存，本机接收器将每个 Native Messaging payload 单独保存，发布根后回执；扩展收到匹配回执后移除暂存。接收程序退出期间的短暂事件因此可以补送，Worker 未取得或未成功暂存的内容仍有缺口。范围、身份、原件字节边界和安装方式见[浏览器观测](./browser.mdx)。
+[持久记录](./browser-persistent.mdx)另取得 history、bookmarks、downloads 的原回调与完整查询结果，按来源接口回填当前可见历史。
+
+来源名为 `browser`。扩展先写本地暂存，本机接收器将每个完整观测单独保存，超大内容通过分片重组，发布根后回执；扩展收到匹配回执后移除暂存。接收程序退出期间的短暂事件因此可以补送，Worker 未取得或未成功暂存的内容仍有缺口。范围、身份、原件字节边界和安装方式见[浏览器观测](./browser.mdx)。
 
 ## Claude Code
 

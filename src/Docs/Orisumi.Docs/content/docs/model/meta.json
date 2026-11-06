@@ -9,6 +9,7 @@
     "file-capture",
     "foreground",
     "browser",
+    "browser-persistent",
     "git",
     "heartbeat",
     "continuous-capture",

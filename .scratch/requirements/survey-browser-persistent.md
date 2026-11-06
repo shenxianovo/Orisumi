@@ -1,6 +1,6 @@
 # 浏览器持久记录勘探
 
-普通 Chrome 的本地 History 仍受系统访问限制；隔离 Chrome for Testing 的完整数据库与文件取得已跑通。扩展接口能取得历史、书签和下载的视图，但实测少于本地文件保存的内容。当前结论支持继续保留「浏览器持久记录取得」的有条件状态，具体候选见 [契约](../browser-persistent/contract.md)。本轮只勘探，没有接入日常采集。
+普通 Chrome 的本地 History 仍受系统访问限制；隔离 Chrome for Testing 的完整数据库与文件取得已跑通。扩展接口能取得历史、书签和下载的视图，但实测少于本地文件保存的内容。据此采用先保存API实际视图的路线，范围与查询方式见[持久记录模型](../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)。这份记录描述来源勘探，产品接入与运行证据见[验收](../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启)。
 
 ## 范围与证据
 

@@ -1,6 +1,6 @@
 ---
 title: "浏览器观测"
-description: "标签和窗口原回调、独立查询、本地暂存与原件回执"
+description: "标签、窗口与持久记录的完整观测、本地暂存和原件回执"
 ---
 
 例如，在两个浏览器窗口之间切换：每个窗口都可以有一个 active 标签，窗口焦点另外变化。扩展分别留下这些回调；激活后查到的 URL 是随后的一份查询结果。日后可结合系统前台应用解释它们，取得时保留各自的来源事实。
@@ -9,7 +9,7 @@ description: "标签和窗口原回调、独立查询、本地暂存与原件回
 
 ## 取得范围
 
-扩展使用 MV3，最低 Chrome 130。当前权限为 `tabs`、`nativeMessaging`、`storage`、`unlimitedStorage`、`alarms`。扩展与原件接收器都在本机运行。
+扩展使用 MV3，最低 Chrome 130。当前权限为 `tabs`、`nativeMessaging`、`storage`、`unlimitedStorage`、`alarms`、`history`、`bookmarks`、`downloads`。扩展与原件接收器都在本机运行。
 
 | 来源接口 | 留下的内容 |
 | --- | --- |
@@ -23,7 +23,7 @@ description: "标签和窗口原回调、独立查询、本地暂存与原件回
 
 URL、query、fragment、空值及接口提供的属性按交来时保存。`onActivated` 只交来标签和窗口 ID；`Tab.active` 表示窗口内选中的标签。窗口的 `WINDOW_ID_NONE` 按接口范围解释，系统前台应用来自[另一个来源](./foreground.mdx)。接口定义见 [Tabs](https://developer.chrome.com/docs/extensions/reference/api/tabs) 与 [Windows](https://developer.chrome.com/docs/extensions/reference/api/windows)。
 
-浏览历史批量、正文、截图、媒体、网络请求与标签组详情各有后续路线。当前记录中已有的 groupId 等属性保持原样。无痕窗口取决于该 Profile 对扩展的允许设置。
+历史、书签和下载的接口范围、回填与轮次见[浏览器持久记录](./browser-persistent.mdx)。正文、截图、媒体、网络请求与标签组详情各有后续路线。当前记录中已有的 groupId 等属性保持原样。无痕窗口取决于该 Profile 对扩展的允许设置。
 
 ## 格式与身份
 
@@ -39,7 +39,7 @@ URL、query、fragment、空值及接口提供的属性按交来时保存。`onA
 | `instance` | 扩展本地存储中的随机安装身份；同一 Profile 重启后保留，复制 Profile 可能复制它 |
 | `run`、`sequence` | 本次 Worker 执行的随机身份与递增序号；host 重连保持该次执行身份，Worker 重启新建 run |
 | `observedAt` | 回调到达扩展时的 UTC 时间，查询则为结果回调到达时刻 |
-| `kind` | `started`、`callback` 或 `query` |
+| `kind` | `started`、`callback`、`query` 或 `status` |
 | `operation`、`callbackArgs` | 接口名与完整回调参数数组 |
 | `arguments`、`requestedAt`、`triggerSequence` | 查询的调用参数、请求时刻和触发它的观测序号 |
 | `error` | 查询失败时接口返回的错误文字 |
@@ -48,7 +48,9 @@ URL、query、fragment、空值及接口提供的属性按交来时保存。`onA
 
 ## 暂存与传输
 
-每份新观测先写入 `storage.local`，成功后再通过 `runtime.connectNative("dev.orisumi.browser")` 发送。一条收到匹配回执后继续下一条。暂存索引通过 `getKeys()` 取得，内容逐条读取；Worker 重启从遗留项继续。`alarms` 每分钟提供重试机会，浏览器调度可能延后。
+每份新观测固定为完整 JSON 字符串，先写入 `storage.local`，成功后再通过 `runtime.connectNative("dev.orisumi.browser")` 发送。标签与窗口走 live 队列，持久记录走 persistent 队列；两条连接各自一条待回执原件，一个断开时另一个仍可发送。安装 instance、Worker run 和序号共用，队列不成为新的来源身份。
+
+暂存 key 分别为 `pending:<run>:<16位sequence>` 与 `persistent:<run>:<16位sequence>`，索引通过 `getKeys()` 取得，内容逐条读取；已存在的对象形式 live 暂存也可重放。Worker 重启从遗留项继续，`alarms` 每分钟提供重试机会，浏览器调度可能延后。`persisted` 表示扩展暂存写入成功，`committed` 表示完整原件回执到达；后续查询等待后者。
 
 接收器的回执包含原件根的完整名字：
 
@@ -56,17 +58,37 @@ URL、query、fragment、空值及接口提供的属性按交来时保存。`onA
 {"format":"orisumi-browser-ack-v1","instance":"<UUID>","run":"<UUID>","sequence":4,"capture":"sha256-<完整摘要>"}
 ```
 
-扩展核对 instance、run、sequence 和完整根名字，再移除对应暂存。清理旧项失败时，新观测仍先落盘；新项写入失败时，已确认旧项仍能清理，已经落盘的队列仍能发送。收到回执前进程退出会重发；每次取得保留独立出处，相同字节继续复用原件块。重放顺序由暂存队列决定，事件顺序按来源 run、sequence 和观测时间读取。
+扩展核对 instance、run、sequence 和完整根名字，再移除对应暂存。清理旧项失败时，新观测仍先落盘；某个新项写入失败时，其他等待项仍尝试落盘，已确认旧项仍能清理，已经落盘的队列仍能发送。收到回执前进程退出会重发；每次取得保留独立出处，相同字节继续复用原件块。重放顺序由暂存队列决定，事件顺序按来源 run、sequence 和观测时间读取。
 
 `unlimitedStorage` 开放 API 的默认空间上限，对应尽量留下、体量形成问题后再定预算的选择。磁盘写入仍可能失败；此时保留当前内存项并输出错误，下一次事件或重试继续写入。Worker 结束前尚未成功写入的内容仍可能丢失，卸载扩展会清掉其本地暂存。接口依据见 [Storage](https://developer.chrome.com/docs/extensions/reference/api/storage) 与 [Worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。
 
 ## 进入原件
 
-Chrome 将消息序列化成 UTF-8 JSON，前面加四字节本机端序长度。`NativeReceiver` 保存完整 payload 的原始字节为 `observation.json`，取得方式 `chrome-native-message-json`；每条独立写一份 `browser` 采集记录。长度头用于分帧，payload 保持收到的空白、编码与属性顺序。
+普通消息由 Chrome 序列化成 UTF-8 JSON，前面加四字节本机端序长度。`NativeReceiver` 保存完整 payload 原字节为 `observation.json`，取得方式 `chrome-native-message-json`；长度头用于分帧，payload 保持实际收到的空白、编码与属性顺序。按本地固定字符串计算 UTF-8 长度，超过 64 MiB 时发送分片；普通发送若同步返回已核对的大小超限错误，也改从第零字节分片。[Native Messaging 协议](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)。
 
-采集根与清单发布完成后才写回执。接收端记录的 `capturedAt`、`completedAt` 是这条内容的保存窗口；原件中的 `observedAt` 可以早于补送时间。出处保存 caller origin、本次 host 的 connection UUID、该连接内帧序号，以及独立验证过的 instance/run/sequence。
+每个分片是 `orisumi-browser-fragment-v1` JSON，包含：
 
-未完成的帧保留已收到的长度头与内容，并记录失败；完整坏 JSON 也留下实际字节。超过 Chrome 到 host 的 64 MiB 上限时保留已读头并停止。回执写出失败时，已经发布的原件仍然成功。恢复仍使用已有 `raw restore` 或 `raw export`，见[原件](./raw.mdx)。协议依据见 [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)。
+| 字段 | 约束 |
+| --- | --- |
+| `instance`、`run`、`sequence` | 与完整观测一致；sequence 为正的 JavaScript 安全整数 |
+| `byteLength`、`hash` | 整件 UTF-8 字节长度与 `sha256-` 加64位小写十六进制摘要 |
+| `offset` | 原件中的字节偏移，首片为零，后续严格连续 |
+| `data` | 最多1 MiB原字节的规范 base64，允许在 UTF-8 字符或 JSON 字段中间切片 |
+
+同一连接按顺序传完一件，再处理下一件。接收器把分片写入临时文件，核对身份、总长、连续偏移、整件摘要、严格 UTF-8 和完整 JSON；通过后保存一份 `observation.json`，取得方式 `chrome-native-fragment-json`。这份原件保留扩展已暂存字符串的 UTF-8 字节；普通路径保存 Chrome 实际编码的字节，两种取得方式各自声明编码边界。完整 JSON 校验仍有整件内存成本，临时文件不代表总内存恒定。
+
+采集根与清单发布完成后才写完整回执，没有逐片回执。断连从头发送，根已经发布而回执丢失时，再次取得各有一份出处，相同内容复用块。`capturedAt`、`completedAt` 是本次内容的保存窗口，`observedAt` 可以早于补送时间。出处保存 caller origin、host connection UUID、帧序号和观测身份；分片另外保留首末帧、声明总长、摘要与实际取得长度。
+
+失败时仍保留实际拿到的字节：
+
+| 情况 | 保存内容 |
+| --- | --- |
+| 未完成 Native 帧或超限长度头 | `incomplete-frame.bin` 或 `invalid-frame.bin`，含实际长度头和已读内容 |
+| 首个完整坏分片 | `invalid-fragment.json` 原 payload |
+| 分片途中断连、取消或收到坏帧 | `observation-prefix.bin` 连续原件前缀，并保留实际取得的坏帧或破损帧 |
+| 整件重组后校验失败 | `invalid-observation.json` 完整重组字节与失败原因 |
+
+成功原件或失败证据发布后删除重组临时文件。存储也失败时，仍含唯一前缀的临时文件保留，错误指出其位置；强制终止前尚未发布的内容不算已保存的原件。恢复使用已有 `raw restore` 或 `raw export`，见[原件](./raw.mdx)。取舍见[大观测决定](./adr/0008-whole-browser-observations.mdx)。
 
 ## 本机运行
 

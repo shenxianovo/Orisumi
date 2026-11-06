@@ -216,6 +216,20 @@
 
 所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)、[浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
 
+#### [浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)
+
+**Agent采用 · 当前**
+
+候选：扩展/API 全量首取再跟变化。
+
+理由与代价：实际文件读取受限，先保存API确实交付的history/bookmarks/downloads视图。重定向/404与文件独有字段边界保留；已完成具体查询与传输契约，按其实现并做真实Profile验收。
+
+启动或重审条件：先实测同时间戳/限量边界、Worker中断、大响应和暂存回执；真实Profile再验收。保持tabs/windows持续取得，原返回与覆盖缺口分别保留。
+
+依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
+
+所选候选的后续：[接口与导出取得方式](modules/capture.md#n-c68c6175d29abc5e)、[浏览器超大原响应怎样交付](modules/capture.md#n-8dbe7245f6450587)、[浏览器回填怎样并行](modules/capture.md#n-c1ef0a692ec80384)、[浏览器历史回填怎样遍历](modules/capture.md#n-aa199b18276f22a3)
+
 #### [浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
 
 **Agent采用 · 当前**
@@ -910,6 +924,42 @@
 
 依据：[尽量收集一切](modules/roots.md#n-c3c6e7607f2c9805)、[交付路线怎样排序](modules/delivery.md#n-e93627fc1fab2325)
 
+#### [浏览器超大原响应怎样交付](modules/capture.md#n-8dbe7245f6450587)
+
+**Agent采用 · 当前**
+
+候选：传输分片，完整原件才确认。
+
+理由与代价：真实API压力样本已超过Native上限；完整本地暂存与重放已有基础，传输分片能保持原件边界，接受重传与编码成本。
+
+启动或重审条件：固定响应编码、身份、长度/hash和完整ACK；实际重传成本或内存成为问题时再比较分片根。
+
+依据：[浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)、[完整内容的边界](modules/records.md#n-26854bffbe13f18e)、[留最原始的一层](modules/roots.md#n-760744617270b5ce)
+
+#### [浏览器回填怎样并行](modules/capture.md#n-c1ef0a692ec80384)
+
+**Agent采用 · 当前**
+
+候选：两个固定发送通道。
+
+理由与代价：两个固定通道以额外host换取较少的ACK与调度状态，避免一个回填项堵住现有live；不引入通道注册平台。
+
+启动或重审条件：实测进程成本、共享事件循环延后和写盘失败；若成本成为问题，再比较单连接交错。
+
+依据：[浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)、[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)
+
+#### [浏览器历史回填怎样遍历](modules/capture.md#n-aa199b18276f22a3)
+
+**Agent采用 · 当前**
+
+候选：固定时间区间逐步细分。
+
+理由与代价：真实边界实验与固定版源码支持请求区间细分；逐份确认后推进，接受重复查询和非原子视图，不把搜索当完整数据库。
+
+启动或重审条件：新版本接口变化、反复Worker中断或真实成本显著时重审；finished只表示计划结束并附缺口。
+
+依据：[浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)、[出处一起保存](modules/roots.md#n-2ce85769c25073e7)
+
 ## 条件成立再做
 
 ### 下一步
@@ -955,20 +1005,6 @@
 依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
 
 所选候选的后续：[文件变化取得策略](modules/capture.md#n-6de65500ebbea77b)
-
-#### [浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)
-
-**条件成立再做 · 下一步**
-
-候选：扩展/API 全量首取再跟变化。
-
-理由与代价：日常库实际无法读取，扩展接口可先留下它能交付的视图。接受搜索未列出的中间重定向、文件独有字段和API各次时刻不同的范围；完整库仍待明确可读来源。
-
-启动或重审条件：先实测同时间戳/限量边界、Worker中断、大响应和暂存回执；真实Profile再验收。保持tabs/windows持续取得，原返回与覆盖缺口分别保留。
-
-依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
-
-所选候选的后续：[接口与导出取得方式](modules/capture.md#n-c68c6175d29abc5e)
 
 ### 以后
 

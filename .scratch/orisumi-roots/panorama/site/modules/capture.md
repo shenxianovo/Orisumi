@@ -26,6 +26,9 @@ flowchart TD
   n_f47170f9f44e3fc5["助手推论｜采集启动与执行位置"]
   n_5c39e84c8ee42507["助手推论｜采集单次结果与保障边界"]
   n_fd5e4f2373611f18["助手推论｜连续录制怎样分段"]
+  n_8dbe7245f6450587["助手推论｜浏览器超大原响应怎样交付"]
+  n_c1ef0a692ec80384["助手推论｜浏览器回填怎样并行"]
+  n_aa199b18276f22a3["助手推论｜浏览器历史回填怎样遍历"]
   n_2c0e3b3ad774e034 -->|选择依据| n_a6470ed7ace260f0
   n_b75cd5e6c6494099 -->|候选后续| n_359653aed5ab9c59
   n_b75cd5e6c6494099 -->|候选后续| n_f116b26a22aa88eb
@@ -57,6 +60,8 @@ flowchart TD
   n_2c0e3b3ad774e034 -->|选择依据| n_f47170f9f44e3fc5
   n_3077b006413df0eb -->|选择依据| n_5c39e84c8ee42507
   n_84f109ff78f86572 -->|选择依据| n_fd5e4f2373611f18
+  n_b75cd5e6c6494099 -->|选择依据| n_8dbe7245f6450587
+  n_359653aed5ab9c59 -->|选择依据| n_c1ef0a692ec80384
   click n_2c0e3b3ad774e034 href "#n-2c0e3b3ad774e034"
   click n_a6470ed7ace260f0 href "#n-a6470ed7ace260f0"
   click n_3077b006413df0eb href "#n-3077b006413df0eb"
@@ -77,6 +82,9 @@ flowchart TD
   click n_f47170f9f44e3fc5 href "#n-f47170f9f44e3fc5"
   click n_5c39e84c8ee42507 href "#n-5c39e84c8ee42507"
   click n_fd5e4f2373611f18 href "#n-fd5e4f2373611f18"
+  click n_8dbe7245f6450587 href "#n-8dbe7245f6450587"
+  click n_c1ef0a692ec80384 href "#n-c1ef0a692ec80384"
+  click n_aa199b18276f22a3 href "#n-aa199b18276f22a3"
 ```
 
 <a id="n-2c0e3b3ad774e034"></a>
@@ -212,9 +220,9 @@ flowchart TD
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
-<details><summary>可能需要回看：12 个下游节点（含所有候选路线）</summary>
+<details><summary>可能需要回看：14 个下游节点（含所有候选路线）</summary>
 
-[事件时间与顺序](#n-0843f43438c1c4a1)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[瞬时事件接收方式](#n-359653aed5ab9c59)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[调度频率与触发](#n-4804bedf60d73204)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)
+[事件时间与顺序](#n-0843f43438c1c4a1)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[浏览器回填怎样并行](#n-c1ef0a692ec80384)、[浏览器超大原响应怎样交付](#n-8dbe7245f6450587)、[瞬时事件接收方式](#n-359653aed5ab9c59)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[调度频率与触发](#n-4804bedf60d73204)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)
 
 </details>
 
@@ -307,9 +315,9 @@ flowchart TD
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
-<details><summary>可能需要回看：44 个下游节点（含所有候选路线）</summary>
+<details><summary>可能需要回看：46 个下游节点（含所有候选路线）</summary>
 
-[事件时间与顺序](#n-0843f43438c1c4a1)、[位置定位到哪里](records.md#n-d75a21e927a755bb)、[共享怎样授权](access.md#n-4b3c6032607d1b5c)、[分块策略与版本](storage.md#n-044919fef0bfc086)、[删除记录与回收](storage.md#n-0350116e746cba2c)、[压缩与存放表示](storage.md#n-d00cf82ac296b520)、[原件分单元和块两层](records.md#n-c2507b9e78d79f34)、[原件存成块](storage.md#n-1e55971a7ab3ff58)、[原样保存与一致性](records.md#n-49d755be3c14fe60)、[取得时间怎样记录](records.md#n-746612aae6ea6fde)、[取得权限与资源条件](#n-55c7589ea4cd33f0)、[各处原样都存](records.md#n-8e446efeb629f847)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[完整内容的边界](records.md#n-26854bffbe13f18e)、[导出与恢复](storage.md#n-da66683208852205)、[屏幕观测粒度](sources-live.md#n-e5a27649574fb74b)、[接口与导出取得方式](#n-c68c6175d29abc5e)、[接口全量与增量](#n-76b9927e1c8393d5)、[数据库取得一致性](#n-cba810bb05a18834)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[新旧理解怎样评测](delivery.md#n-cbfb97254da427c8)、[时间含义怎样保留](understanding.md#n-e0bf0a291b892dad)、[来源原生增量怎样保存](storage.md#n-95be81155ce3d6b5)、[模型调用留下什么](understanding.md#n-97745ff5030f65f3)、[派生结果遇到删除或撤权](access.md#n-183194894919be77)、[浏览器事件传输](#n-b75cd5e6c6494099)、[浏览器页面内容范围](sources-live.md#n-a7ffdec9fe8bb5c3)、[理解版本怎样使用](understanding.md#n-be7944dd96e1f491)、[瞬时事件接收方式](#n-359653aed5ab9c59)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[读出引用到哪里](understanding.md#n-fe26af63a38ee976)、[调度频率与触发](#n-4804bedf60d73204)、[跨材料的取得时刻](#n-cc2fd44e41899000)、[连续媒体分段与编码](#n-84f109ff78f86572)、[连续录制怎样分段](#n-fd5e4f2373611f18)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集幂等](storage.md#n-cbc00cff523393ab)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)、[重复位置怎样归并](records.md#n-9034dc9f63983316)、[附件与依赖的收集边界](sources.md#n-128cbd6f1a6dfa45)
+[事件时间与顺序](#n-0843f43438c1c4a1)、[位置定位到哪里](records.md#n-d75a21e927a755bb)、[共享怎样授权](access.md#n-4b3c6032607d1b5c)、[分块策略与版本](storage.md#n-044919fef0bfc086)、[删除记录与回收](storage.md#n-0350116e746cba2c)、[压缩与存放表示](storage.md#n-d00cf82ac296b520)、[原件分单元和块两层](records.md#n-c2507b9e78d79f34)、[原件存成块](storage.md#n-1e55971a7ab3ff58)、[原样保存与一致性](records.md#n-49d755be3c14fe60)、[取得时间怎样记录](records.md#n-746612aae6ea6fde)、[取得权限与资源条件](#n-55c7589ea4cd33f0)、[各处原样都存](records.md#n-8e446efeb629f847)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[完整内容的边界](records.md#n-26854bffbe13f18e)、[导出与恢复](storage.md#n-da66683208852205)、[屏幕观测粒度](sources-live.md#n-e5a27649574fb74b)、[接口与导出取得方式](#n-c68c6175d29abc5e)、[接口全量与增量](#n-76b9927e1c8393d5)、[数据库取得一致性](#n-cba810bb05a18834)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[新旧理解怎样评测](delivery.md#n-cbfb97254da427c8)、[时间含义怎样保留](understanding.md#n-e0bf0a291b892dad)、[来源原生增量怎样保存](storage.md#n-95be81155ce3d6b5)、[模型调用留下什么](understanding.md#n-97745ff5030f65f3)、[派生结果遇到删除或撤权](access.md#n-183194894919be77)、[浏览器事件传输](#n-b75cd5e6c6494099)、[浏览器回填怎样并行](#n-c1ef0a692ec80384)、[浏览器超大原响应怎样交付](#n-8dbe7245f6450587)、[浏览器页面内容范围](sources-live.md#n-a7ffdec9fe8bb5c3)、[理解版本怎样使用](understanding.md#n-be7944dd96e1f491)、[瞬时事件接收方式](#n-359653aed5ab9c59)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[读出引用到哪里](understanding.md#n-fe26af63a38ee976)、[调度频率与触发](#n-4804bedf60d73204)、[跨材料的取得时刻](#n-cc2fd44e41899000)、[连续媒体分段与编码](#n-84f109ff78f86572)、[连续录制怎样分段](#n-fd5e4f2373611f18)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集幂等](storage.md#n-cbc00cff523393ab)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)、[重复位置怎样归并](records.md#n-9034dc9f63983316)、[附件与依赖的收集边界](sources.md#n-128cbd6f1a6dfa45)
 
 </details>
 
@@ -712,9 +720,9 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
-<details><summary>可能需要回看：36 个下游节点（含所有候选路线）</summary>
+<details><summary>可能需要回看：38 个下游节点（含所有候选路线）</summary>
 
-[事件时间与顺序](#n-0843f43438c1c4a1)、[位置定位到哪里](records.md#n-d75a21e927a755bb)、[共享怎样授权](access.md#n-4b3c6032607d1b5c)、[分块策略与版本](storage.md#n-044919fef0bfc086)、[删除记录与回收](storage.md#n-0350116e746cba2c)、[压缩与存放表示](storage.md#n-d00cf82ac296b520)、[原件存成块](storage.md#n-1e55971a7ab3ff58)、[取得权限与资源条件](#n-55c7589ea4cd33f0)、[各处原样都存](records.md#n-8e446efeb629f847)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[导出与恢复](storage.md#n-da66683208852205)、[屏幕观测粒度](sources-live.md#n-e5a27649574fb74b)、[接口全量与增量](#n-76b9927e1c8393d5)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[新旧理解怎样评测](delivery.md#n-cbfb97254da427c8)、[来源原生增量怎样保存](storage.md#n-95be81155ce3d6b5)、[模型调用留下什么](understanding.md#n-97745ff5030f65f3)、[派生结果遇到删除或撤权](access.md#n-183194894919be77)、[浏览器事件传输](#n-b75cd5e6c6494099)、[浏览器页面内容范围](sources-live.md#n-a7ffdec9fe8bb5c3)、[理解版本怎样使用](understanding.md#n-be7944dd96e1f491)、[瞬时事件接收方式](#n-359653aed5ab9c59)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[读出引用到哪里](understanding.md#n-fe26af63a38ee976)、[调度频率与触发](#n-4804bedf60d73204)、[连续媒体分段与编码](#n-84f109ff78f86572)、[连续录制怎样分段](#n-fd5e4f2373611f18)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集幂等](storage.md#n-cbc00cff523393ab)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)、[重复位置怎样归并](records.md#n-9034dc9f63983316)、[附件与依赖的收集边界](sources.md#n-128cbd6f1a6dfa45)
+[事件时间与顺序](#n-0843f43438c1c4a1)、[位置定位到哪里](records.md#n-d75a21e927a755bb)、[共享怎样授权](access.md#n-4b3c6032607d1b5c)、[分块策略与版本](storage.md#n-044919fef0bfc086)、[删除记录与回收](storage.md#n-0350116e746cba2c)、[压缩与存放表示](storage.md#n-d00cf82ac296b520)、[原件存成块](storage.md#n-1e55971a7ab3ff58)、[取得权限与资源条件](#n-55c7589ea4cd33f0)、[各处原样都存](records.md#n-8e446efeb629f847)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[导出与恢复](storage.md#n-da66683208852205)、[屏幕观测粒度](sources-live.md#n-e5a27649574fb74b)、[接口全量与增量](#n-76b9927e1c8393d5)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[新旧理解怎样评测](delivery.md#n-cbfb97254da427c8)、[来源原生增量怎样保存](storage.md#n-95be81155ce3d6b5)、[模型调用留下什么](understanding.md#n-97745ff5030f65f3)、[派生结果遇到删除或撤权](access.md#n-183194894919be77)、[浏览器事件传输](#n-b75cd5e6c6494099)、[浏览器回填怎样并行](#n-c1ef0a692ec80384)、[浏览器超大原响应怎样交付](#n-8dbe7245f6450587)、[浏览器页面内容范围](sources-live.md#n-a7ffdec9fe8bb5c3)、[理解版本怎样使用](understanding.md#n-be7944dd96e1f491)、[瞬时事件接收方式](#n-359653aed5ab9c59)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[读出引用到哪里](understanding.md#n-fe26af63a38ee976)、[调度频率与触发](#n-4804bedf60d73204)、[连续媒体分段与编码](#n-84f109ff78f86572)、[连续录制怎样分段](#n-fd5e4f2373611f18)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集幂等](storage.md#n-cbc00cff523393ab)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)、[重复位置怎样归并](records.md#n-9034dc9f63983316)、[附件与依赖的收集边界](sources.md#n-128cbd6f1a6dfa45)
 
 </details>
 
@@ -865,9 +873,9 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
-<details><summary>可能需要回看：11 个下游节点（含所有候选路线）</summary>
+<details><summary>可能需要回看：12 个下游节点（含所有候选路线）</summary>
 
-[事件时间与顺序](#n-0843f43438c1c4a1)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[调度频率与触发](#n-4804bedf60d73204)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)
+[事件时间与顺序](#n-0843f43438c1c4a1)、[同步交换与提交](availability.md#n-da173cb6e04759f8)、[多副本删除与离线节点](availability.md#n-19ed3ea2239e62f9)、[文件变化取得策略](#n-6de65500ebbea77b)、[文件读取一致性](#n-a6463ad095322f24)、[浏览器回填怎样并行](#n-c1ef0a692ec80384)、[离线与历史补取](#n-f116b26a22aa88eb)、[设备角色与离线工作](availability.md#n-e56d1b0735fb0084)、[调度频率与触发](#n-4804bedf60d73204)、[采集单次结果与保障边界](#n-5c39e84c8ee42507)、[采集启动与执行位置](#n-f47170f9f44e3fc5)、[采集设备怎样缓冲](availability.md#n-358b28d323bdbb8b)
 
 </details>
 
@@ -1453,3 +1461,209 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 实现现状：仅展开候选和检验，尚未实现此能力。
 
 审阅重点：选择新录制的短段还是一次会话长文件；用真实样本验证边界损失和异常尾段行为。
+
+<a id="n-8dbe7245f6450587"></a>
+
+## 浏览器超大原响应怎样交付
+
+**助手推论** · 已选bookmarks API实际返回过超过64MiB的完整内容；Native限制单条消息，原件完整边界另行选择。
+
+**Agent采用 · 当前**
+
+候选：传输分片，完整原件才确认。
+
+理由与代价：真实API压力样本已超过Native上限；完整本地暂存与重放已有基础，传输分片能保持原件边界，接受重传与编码成本。
+
+启动或重审条件：固定响应编码、身份、长度/hash和完整ACK；实际重传成本或内存成为问题时再比较分片根。
+
+依据：
+
+- [浏览器事件传输](#n-b75cd5e6c6494099)（选择依据）：已采用Native连接，需要尊重其真实单帧上限。
+- [完整内容的边界](records.md#n-26854bffbe13f18e)（选择依据）：API完整返回是一份内容，传输片段与原件身份分别确定。
+- [留最原始的一层](roots.md#n-760744617270b5ce)（选择依据）：传输之后仍须恢复原始完整响应。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)。明确API原件、双通道、查询计划、回执与Worker中断范围。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)。真实70MiB API返回触发Native上限；精确分片格式、完整ACK与失败前缀留证。
+
+### 传输分片，完整原件才确认 · 助手推荐
+
+大响应按固定编码分片；接收端重组、校验并保存完整observation.json后才ACK。
+
+收益：复用现有原件与恢复格式，片段不增加业务身份。
+
+代价：重连需重发整份已暂存原件，base64增大传输量；完整校验的成本需实测。
+
+适用条件：Native交付单份大响应，来源已有完整本地暂存。
+
+分支终点：对已取得的70MiB原返回完成持久化、分片、断连重放和独立恢复。
+
+检验：逐字节恢复；完整发布前无ACK；失败前缀可取回；帧均在上限内。
+
+### 每片成为独立原件并逐片确认 · 可选路线
+
+各片先发布根，再由完整清单组织它们并表达结束。
+
+收益：能把已确认片作为断点，减少重发。
+
+代价：增加片段身份、完整标记及跨进程恢复关系；原API返回需再组装。
+
+适用条件：实际巨大原件重发成本已形成问题。
+
+分支终点：用同一真实输入比较断点收益、保存集大小和实现状态。
+
+检验：只有取得全部关联及完成事实后才可声称响应完整；缺片准确显示。
+
+### 超限只留下未取得说明 · 与当前前提冲突
+
+保留超限事实，响应正文留在来源等待其他取得方式。
+
+收益：暂时维持原传输实现。
+
+代价：会漏掉已经能从API取得的完整材料。
+
+适用条件：接收端确实无法更新时仅作为明确缺口。
+
+分支终点：本轮已有可实施分片路线，不采用主动舍弃正文。
+
+检验：不得把失败说明计作完整响应原件。
+
+实现现状：实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。（[src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E4%B9%85%E8%AE%B0%E5%BD%95%E4%B8%8E%E9%87%8D%E5%90%AF)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%A4%A7%E5%93%8D%E5%BA%94%E4%B8%8E%E7%8B%AC%E7%AB%8B%E5%8F%91%E9%80%81)）
+
+审阅重点：按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。
+
+<a id="n-c1ef0a692ec80384"></a>
+
+## 浏览器回填怎样并行
+
+**助手推论** · 持久API回填会产生大响应和大量请求，必须与已有tabs/windows观测区分发送阻塞和持久化结果。
+
+**Agent采用 · 当前**
+
+候选：两个固定发送通道。
+
+理由与代价：两个固定通道以额外host换取较少的ACK与调度状态，避免一个回填项堵住现有live；不引入通道注册平台。
+
+启动或重审条件：实测进程成本、共享事件循环延后和写盘失败；若成本成为问题，再比较单连接交错。
+
+依据：
+
+- [浏览器持久记录取得](sources-live.md#n-0a1e75558e92bd10)（选择依据）：新增持久API视图需要回填与变化取得。
+- [瞬时事件接收方式](#n-359653aed5ab9c59)（选择依据）：已有瞬时观测继续即时暂存，等待回填不能代替收集。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)。明确API原件、双通道、查询计划、回执与Worker中断范围。
+
+### 两个固定发送通道 · 助手推荐
+
+live与persistent各用一个Native连接和单inFlight，共享安装instance；回填逐份等完整ACK。
+
+收益：隔离发送阻塞，接收端仍是顺序单原件状态。
+
+代价：多一个host进程；Worker事件循环与storage仍共享。
+
+适用条件：当前实时观测和持久回填并行。
+
+分支终点：在persistent超大响应/断连/写盘失败期间继续产生live观测。
+
+检验：live落盘与ACK继续；共同instance唯一初始化；旧暂存可恢复；内存与延迟实测。
+
+### 一个连接交错两类消息 · 可选路线
+
+在传输片之间插入live消息，匹配多份同时待确认的身份。
+
+收益：少一个host进程。
+
+代价：增加交错调度、多个ACK及传输中断的关系。
+
+适用条件：额外host的实际成本值得换取更多状态时。
+
+分支终点：与双通道在相同压力和中断序列下比较成本。
+
+检验：任何ACK都不能删除另一份原件，实时消息与分片身份可独立追溯。
+
+### 继续单队列顺序发送 · 可选路线
+
+所有响应和观测使用原来的一个inFlight。
+
+收益：状态最少。
+
+代价：实际超限或被拒项会挡后续live发送；回填产生等待。
+
+适用条件：来源已明确没有大响应或愿意接受这项延迟时。
+
+分支终点：用已证实的巨大响应与失败项说明队头行为。
+
+检验：原件仍暂存且缺口/延迟明确，不能称为实时发送持续通畅。
+
+实现现状：实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。（[src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E4%B9%85%E8%AE%B0%E5%BD%95%E4%B8%8E%E9%87%8D%E5%90%AF)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%A4%A7%E5%93%8D%E5%BA%94%E4%B8%8E%E7%8B%AC%E7%AB%8B%E5%8F%91%E9%80%81)）
+
+审阅重点：按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。
+
+<a id="n-aa199b18276f22a3"></a>
+
+## 浏览器历史回填怎样遍历
+
+**助手推论** · search按请求时间筛选，但返回lastVisitTime可在区间外；同一时刻多项与隐藏重定向使覆盖必须按实际查询解释。
+
+**Agent采用 · 当前**
+
+候选：固定时间区间逐步细分。
+
+理由与代价：真实边界实验与固定版源码支持请求区间细分；逐份确认后推进，接受重复查询和非原子视图，不把搜索当完整数据库。
+
+启动或重审条件：新版本接口变化、反复Worker中断或真实成本显著时重审；finished只表示计划结束并附缺口。
+
+依据：
+
+- [浏览器持久记录取得](sources-live.md#n-0a1e75558e92bd10)（选择依据）：采用API可见历史视图，需要说明搜索与访问查询覆盖。
+- [出处一起保存](roots.md#n-2ce85769c25073e7)（选择依据）：每次真实参数、返回、错误及本轮过程状态分别留下。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)。明确API原件、双通道、查询计划、回执与Worker中断范围。
+
+依据材料：[.scratch/requirements/survey-browser-persistent.md](../../../../requirements/survey-browser-persistent.md)。API视图与数据库的字段、重定向、版本及真实权限边界。
+
+### 固定时间区间逐步细分 · 助手推荐
+
+固定整数毫秒[0,T)，按原数组长度判饱和；二分区间，单毫秒桶扩大limit，已发现URL查询全部visits。
+
+收益：逐批保存已取得返回，同时间戳项有明确处理方式。
+
+代价：增加请求和Worker内工作表；不是共同事务，隐藏/404记录仍可能不可得。
+
+适用条件：接口只有时间筛选与maxResults，没有稳定页游标。
+
+分支终点：复用同微秒/同毫秒、窗口外lastVisitTime、同URL多项和来源错误反例。
+
+检验：不减一毫秒跳项，不按去重数量判饱和；结束记录列真实未解决区间与错误。
+
+### 一次请求最大结果数 · 可选路线
+
+固定时间范围，直接申请接口可表达的最大maxResults，然后逐URL取得visits。
+
+收益：查询计划简单、请求少。
+
+代价：完整返回前没有部分结果，大返回及来源失败的代价需实测；仍不等于全库。
+
+适用条件：真实规模和单次成本已经证明适合。
+
+分支终点：对同一受控和真实来源比较结果、内存、耗时与中途停止后的已保存覆盖。
+
+检验：返回原样保存，最大参数不被称为无限，隐藏记录边界保持。
+
+### 用返回的lastVisitTime作游标 · 与当前前提冲突
+
+每页取最早返回时间后向前跳。
+
+收益：表面上请求计划简单。
+
+代价：真实反例表明返回时间可在查询窗外；同时间戳跳转也会漏项。
+
+适用条件：本次接口语义不支持。
+
+分支终点：保留窗口内旧访问、窗口外新访问的来源反例。
+
+检验：算法不得用此字段证明分页推进或完整。
+
+实现现状：实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。（[src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx)、[.scratch/requirements/survey-browser-persistent.md](../../../../requirements/survey-browser-persistent.md)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E4%B9%85%E8%AE%B0%E5%BD%95%E4%B8%8E%E9%87%8D%E5%90%AF)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%A4%A7%E5%93%8D%E5%BA%94%E4%B8%8E%E7%8B%AC%E7%AB%8B%E5%8F%91%E9%80%81)）
+
+审阅重点：按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。

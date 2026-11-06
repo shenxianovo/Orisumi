@@ -1,0 +1,47 @@
+---
+title: "浏览器持久记录"
+description: "按接口原样留下历史、书签与下载记录，说明遍历条件和缺口"
+---
+
+例如，在扩展启用前访问过一个页面，之后又修改了书签：启动回填取得浏览器还保留的历史与当前书签树，新的书签回调同时保存；后续查询再取得修改后的树。原回调、每次查询及其结果各自成为一份[浏览器观测](./browser.mdx)，查询观测收到完整原件回执后继续下一步。
+
+采用 `history`、`bookmarks`、`downloads` 三组接口，依据[尽量完整留下](../requirements/belief.mdx#尽量完整留下)、[各处原样都存](../requirements/belief.mdx#各处原样都存)与[出处一起保存](../requirements/belief.mdx#出处一起保存)。来源勘探比较了实际接口和隔离 Profile 数据库：接口可取得现存记录，但字段、可见行和查询时间窗口各有限制。本机日常 History 文件读取受系统权限限制，当前从扩展取得 API 视图；这项方案由 Agent 按自主授权采用。
+
+## 取得范围
+
+| 来源 | 原回调 | 查询 |
+| --- | --- | --- |
+| 历史 | `onVisited`、`onVisitRemoved` 的全部参数 | 按时间区间 `search`，对发现的每个精确 URL 取得 `getVisits`；新访问也安排查询 |
+| 书签 | 创建、删除、修改、移动、子项重排、导入开始与结束的全部参数 | 每轮 `getTree`；变化后重读整棵树，导入期间保留回调并在导入结束后合并重读 |
+| 下载 | `onCreated`、`onChanged`、`onErased` 的全部参数 | 每轮 `search({limit:0,orderBy:["startTime"],startedBefore:T})`；创建、变化后按实际 ID 查询 |
+
+`T` 为本轮开始的 UTC 时间；下载参数使用 ISO 字符串，历史参数使用 Unix 毫秒。URL、标题、时间、标识、空值及未知属性保持接口原样。下载保存接口记录，文件正文属于另外的来源；本次权限与范围也不含最近关闭会话、页面正文和截图。[History 接口](https://developer.chrome.com/docs/extensions/reference/api/history)、[Bookmarks 接口](https://developer.chrome.com/docs/extensions/reference/api/bookmarks)、[Downloads 接口](https://developer.chrome.com/docs/extensions/reference/api/downloads)。
+
+## 轮次与回调
+
+Worker 顶层同步注册全部监听。旧的 persistent 暂存集合取得完整回执后开始新轮，先保存轮次开始、书签树与下载视图，再遍历历史。等待的是启动时已有的固定集合，后来持续到来的事件不会让启动条件永久无法满足。
+
+每份查询保留调用参数、请求与返回时刻、完整 `callbackArgs`，以及触发它的观测序号。接口返回错误时保留 `error`；调用同步抛错另记 `failurePhase:"invoke"`。一次查询收到完整原件回执后，再发起下一次。回填步骤之间给事件触发的查询一次机会；多个相同 URL、下载 ID 或书签变化可以合并待查询意图，已经收到的原回调逐条保存。
+
+轮次使用 `kind:"status"`、`operation:"orisumi.persistentRound"` 和随机 `round` 身份。开始记录带 `historyRange`；结束记录带实际查询数、已发现 URL 数、未解决区间及错误观测的序号、接口名和采集根。结束表示本轮计划请求已保存，已知错误仍随结束记录留下；缺少结束记录的轮次完成状态未知。
+
+一轮结束并取得回执后，安排五分钟后的单次 alarm，不重叠执行。Worker 重启会重放已落盘响应，随后以新的 `round` 和 `T` 重新取得；当前工作区间和待查询集合只存在内存中。新一轮的查询是另一次来源观测。频率以实际取得成本继续校验，浏览器可以推迟 alarm。
+
+## 历史怎样遍历
+
+初始请求为 `search({text:"",startTime:0,endTime:T,maxResults:100})`，遍历 `[0,T)`。100 是单次请求的初始数量，不限制整轮取得量。
+
+1. 保存完整返回并等待回执，用原数组长度判断是否达到本次 `maxResults`。同一 URL 可能占多条，判断之前保留这些条目。
+2. 返回达到限量时，将宽于一毫秒的区间对半分成 `[start,mid)` 和 `[mid,end)`，先处理较新区间。只剩一毫秒时加倍正整数限量，最高到 `2147483647`；仍饱和或报错的区间记录为未解决。
+3. 对本轮新发现的精确 URL 调用 `getVisits`，触发序号指向首次发现它的查询。不同 search 的原返回全部保存；取得 visits 的请求按精确 URL 合并一次。
+4. 返回短于限量时，结束该区间的细分；这只说明这次返回未观察到限量截断。`getVisits` 里的全部访问照存，包括发生在固定 `T` 之后的访问。
+
+勘探中，同一时间戳的三个 URL 在限量为二时只能取得两个，扩大限量才能取得第三个；一个 URL 的窗口内旧访问还会带出窗口外的 `lastVisitTime`。因此采用区间细分，取舍见[历史遍历决定](./adr/0009-history-api-ranges.mdx)。
+
+## 证据能说明什么
+
+隔离 Profile 的 search 没有列出一次重定向中间 URL，已知该 URL 后 getVisits 却能返回访问。固定 Chrome 156 源码还显示可见访问查询排除 404，数据库错误或没有结果可能折叠为空返回。接口覆盖程度需要来源证据另行核对。[History 实现](https://github.com/chromium/chromium/blob/156.0.8078.4/chrome/browser/extensions/api/history/history_api.cc#L268)、[访问查询实现](https://github.com/chromium/chromium/blob/156.0.8078.4/components/history/core/browser/visit_database.cc#L585)。
+
+查询期间浏览器仍在变化，固定 `T` 只限定查询条件，无法把多个请求变成同一数据库快照。新同步、删除和回填访问都可能改变后续返回；每次返回的取得窗口和原字节因此一起保存。书签文件的额外字段、完整下载重定向链和历史库字段仍属于文件路线的后续范围。
+
+取得与传输分别由 `PersistentCapture` 和 `Delivery` 承担：前者只需登记原回调与等待查询原件回执，后者集中处理暂存、两条连接、超大响应和重试。保存仍用现有 RawStore，每个完整观测单独成为原件；具体传输规则见[浏览器观测](./browser.mdx#进入原件)。
