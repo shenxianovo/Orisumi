@@ -406,15 +406,15 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 ## 旧Heartbeat历史材料
 
-**助手推论** · 旧库包含本人的活动、设备、应用身份和丢失记录，也含另一人的设备与数据；当前能取得的最原始层是库中保存的行。
+**助手推论** · 旧库保存本人的活动、设备、应用身份与缺口，也包含其他所有者。采用本人历史及关联的同一只读快照原生文本导出，再交现有文件采集保存。
 
-**条件成立再做 · 下一步**
+**Agent采用 · 当前**
 
 候选：本人数据及关联表的一致导出。
 
-理由与代价：旧库有本人不可追回历史，也有他人数据；本人及必要关联行的一致导出能界定实际范围，接受跨表筛选和类型编码工作。
+理由与代价：本人一天快照与关联已验证，原生文本保持全部已确认类型且降低二进制布局依赖。接受样本20.27%正文增长，以一次完整历史导出先留下资料；全本人关联表独立保留，避免只沿某天事实漏取。
 
-启动或重审条件：读取当前模式与本人标识，在一个一致只读事务导出一天样本及关联行，核对不混入他人记录后扩全历史。
+启动或重审条件：所有者和关联闭包、同一快照、模式及原字节往返逐项通过后才认定完整。新增类型、持续修订需求或实际整轮成本出现时重审；其他表另行勘探。
 
 依据：
 
@@ -422,9 +422,13 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 - [留最原始的一层](roots.md#n-760744617270b5ce)（选择依据）：保留来源交来的材料后再解释，此处明确来源交付层及取得是否改变内容。
 - [出处一起保存](roots.md#n-2ce85769c25073e7)（选择依据）：材料需连同直接知道的取得事实保存，此处确定可证明的来源与取得条件。
 
-依据材料：[.scratch/requirements/survey-heartbeat.md](../../../../requirements/survey-heartbeat.md)。实际查询 2.1 GB 数据库，既有材料、缺口与另一人记录。
+依据材料：[.scratch/requirements/survey-heartbeat.md](../../../../requirements/survey-heartbeat.md)。实际本人一天的10表69,972行与74约束已独立恢复；text COPY往返与来源binary值全部一致。
 
-依据材料：[src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#旧-heartbeat](../../../../../src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#%E6%97%A7-heartbeat)。既有只读导出设计；正式采集端待重写。
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx)。全本人设备/主体/流和三事实历史、必要共享应用、模式及两层出处已取得，并完成受限独立恢复。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/adr/0007-native-postgresql-export.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/adr/0007-native-postgresql-export.mdx)。接受文本样本增加20.27%的正文，保留来源原生格式与恢复条件；当前不引入永久数据库采集器。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#旧-heartbeat-完整历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%97%A7-heartbeat-%E5%AE%8C%E6%95%B4%E5%8E%86%E5%8F%B2)。全本人关联独立留存，共享应用仅取引用；COPY正文约961MB，经原件保存后独立恢复全部原值。
 
 ### 本人数据及关联表的一致导出 · 助手推荐
 
@@ -472,7 +476,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：导洞校验其他主体的行未进入个人材料。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：本人现存历史10表3,748,506行已在同一只读快照导出，经现有files来源保存53文件；禁止原导出与IP访问的环境中独立PG恢复、十表原字节及74约束核对通过。当前为一次历史取得，持续更新另按实际需要决定。（[src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#旧-heartbeat-完整历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%97%A7-heartbeat-%E5%AE%8C%E6%95%B4%E5%8E%86%E5%8F%B2)、[.scratch/requirements/survey-heartbeat.md](../../../../requirements/survey-heartbeat.md)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -888,7 +892,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：快照能独立打开；实际含哪些独有字段及已知可重建部分列清；不可读库明确标缺口，不以裸主文件复制代替快照。
 
-实现现状：八个新增库使用固定可选路径与SQLite online backup；每轮重新检查，存在但不可读仍记缺口。真实两轮9库恢复通过，日常固定程序更新另验。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[tests/Orisumi.Capturing.Tests/CodexSourceTests.cs](../../../../../tests/Orisumi.Capturing.Tests/CodexSourceTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
+实现现状：八个新增库使用固定可选路径与SQLite online backup，每轮重新检查，存在但不可读仍记缺口。真实两轮九库恢复通过；更新日常程序后采到的九库和新增文件也完成独立恢复。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[tests/Orisumi.Capturing.Tests/CodexSourceTests.cs](../../../../../tests/Orisumi.Capturing.Tests/CodexSourceTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
 
 审阅重点：判断是否先核验其他库的独有信息，还是先保住可取得整库；这是独立于 state_5 保存方式的范围取舍。
 

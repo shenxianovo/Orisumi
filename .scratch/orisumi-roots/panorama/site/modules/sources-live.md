@@ -266,15 +266,15 @@ URL 相同就延长时段，直接保留汇总结果。
 
 ## 浏览器持久记录取得
 
-**助手推论** · History 文件、扩展历史接口和账号同步可能提供不同字段；旧勘探中的“90 天”未通过本机实测，不作为统一保留保证。
+**助手推论** · 日常Chrome的History只读打开仍被系统拒绝；CFT156受控样本证明API搜索遗漏重定向中间URL，书签与下载也少于文件字段。先对API实际可见视图做生产导洞，完整文件路线保留读取条件。
 
-**条件成立再做 · 以后**
+**条件成立再做 · 下一步**
 
-候选：读取获准的浏览器数据库。
+候选：扩展/API 全量首取再跟变化。
 
-理由与代价：本机已发现浏览器持久库；获准后取一致副本有望保留 API 未返回的字段，接受系统权限与格式变化需实测。
+理由与代价：日常库实际无法读取，扩展接口可先留下它能交付的视图。接受搜索未列出的中间重定向、文件独有字段和API各次时刻不同的范围；完整库仍待明确可读来源。
 
-启动或重审条件：先复核实际读取权限，取一份测试 Profile 的 History 一致副本，对照访问/下载/书签界面与 API；不可读则改走 api。
+启动或重审条件：先实测同时间戳/限量边界、Worker中断、大响应和暂存回执；真实Profile再验收。保持tabs/windows持续取得，原返回与覆盖缺口分别保留。
 
 候选可组合。扩展接口和本地数据库可并取，用样本证明字段差异；同一 Profile 的两份表示保留各自出处。
 
@@ -283,9 +283,9 @@ URL 相同就延长时段，直接保留汇总结果。
 - [首先收集数据](roots.md#n-2c3dfbca22881d81)（选择依据）：先让材料存在并留下，此处展开取得材料的可执行方式。
 - [尽量完整留下](roots.md#n-77e7f6f84727e69e)（选择依据）：默认尽量留下选定范围内可得的信息，此处比较哪些材料会留下或丢失及实际代价。
 
-依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。数据库读取被拒；扩展能力尚未采样。
+依据材料：[.scratch/requirements/survey-browser-persistent.md](../../../../requirements/survey-browser-persistent.md)。当前已知Default/History可stat但打开EPERM，Default/Bookmarks未取得；未能列举Profile。CFT156的45份原件/响应核对通过，实际库与API字段、重启和删除差异分别留证。
 
-依据材料：[.scratch/requirements/survey-local.md](../../../../requirements/survey-local.md)。多浏览器目录与受保护状态只在 11 月 3 日核对。
+依据材料：[.scratch/browser-persistent/contract.md](../../../../browser-persistent/contract.md)。文件和API各自保留出处与覆盖边界；API搜索加逐URL访问查询不等于完整History。生产接入与真实Profile验收另行进行。
 
 ### 扩展/API 全量首取再跟变化 · 助手推荐
 
@@ -319,7 +319,7 @@ URL 相同就延长时段，直接保留汇总结果。
 
 检验：只保留样本证明存在的字段；副本含 WAL 已提交内容且可独立打开。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：独立受控勘探及审阅已完成；日常History文件读取仍受限。正式API回填、周期与大响应处理尚在设计，日常扩展权限未改变。（[.scratch/requirements/survey-browser-persistent.md](../../../../requirements/survey-browser-persistent.md)、[.scratch/browser-persistent/contract.md](../../../../browser-persistent/contract.md)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 

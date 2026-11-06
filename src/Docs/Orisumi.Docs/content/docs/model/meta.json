@@ -10,6 +10,7 @@
     "foreground",
     "browser",
     "git",
+    "heartbeat",
     "continuous-capture",
     "sources",
     "nodes",

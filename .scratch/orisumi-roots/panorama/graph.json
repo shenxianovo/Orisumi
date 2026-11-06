@@ -2,7 +2,7 @@
   "schema_version": 1,
   "title": "Orisumi 决策全景",
   "summary": "先让数据存在并留下。沿目标、来源、取得、保存、理解和使用查看依据、候选与影响。✓ 表示用户实际确认；Agent 在授权内采用方案，当前路线、条件性安排和后置项分别展示。",
-  "scope": "覆盖当前39条需求、6份架构决定、全部来源清单、现有模型与实现，以及本轮展开的实质候选。119个决策均有授权内的 Agent 采用、条件性或后置记录，并给出理由、代价与重审条件。候选继续到共享下游或具体实施、试验、勘探终点；实施与验证范围按独立交付推进。",
+  "scope": "覆盖当前39条需求、7份架构决定、全部来源清单、现有模型与实现，以及本轮展开的实质候选。119个决策均有授权内的 Agent 采用、条件性或后置记录，并给出理由、代价与重审条件。候选继续到共享下游或具体实施、试验、勘探终点；实施与验证范围按独立交付推进。",
   "project_root": "../../..",
   "modules": [
     {
@@ -1630,7 +1630,7 @@
       "module": "sources-local",
       "type": "decision",
       "status": "proposed",
-      "summary": "旧库包含本人的活动、设备、应用身份和丢失记录，也含另一人的设备与数据；当前能取得的最原始层是库中保存的行。",
+      "summary": "旧库保存本人的活动、设备、应用身份与缺口，也包含其他所有者。采用本人历史及关联的同一只读快照原生文本导出，再交现有文件采集保存。",
       "basis": [
         {
           "id": "尽量收集一切",
@@ -1652,12 +1652,22 @@
         {
           "kind": "file",
           "ref": ".scratch/requirements/survey-heartbeat.md",
-          "note": "实际查询 2.1 GB 数据库，既有材料、缺口与另一人记录。"
+          "note": "实际本人一天的10表69,972行与74约束已独立恢复；text COPY往返与来源binary值全部一致。"
         },
         {
           "kind": "file",
-          "ref": "src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#旧-heartbeat",
-          "note": "既有只读导出设计；正式采集端待重写。"
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx",
+          "note": "全本人设备/主体/流和三事实历史、必要共享应用、模式及两层出处已取得，并完成受限独立恢复。"
+        },
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/adr/0007-native-postgresql-export.mdx",
+          "note": "接受文本样本增加20.27%的正文，保留来源原生格式与恢复条件；当前不引入永久数据库采集器。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#旧-heartbeat-完整历史",
+          "note": "全本人关联独立留存，共享应用仅取引用；COPY正文约961MB，经原件保存后独立恢复全部原值。"
         }
       ],
       "options": [
@@ -1716,19 +1726,23 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "implemented",
+        "note": "本人现存历史10表3,748,506行已在同一只读快照导出，经现有files来源保存53文件；禁止原导出与IP访问的环境中独立PG恢复、十表原字节及74约束核对通过。当前为一次历史取得，持续更新另按实际需要决定。",
+        "refs": [
+          "src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#旧-heartbeat-完整历史",
+          ".scratch/requirements/survey-heartbeat.md"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "user-export"
         ],
-        "reason": "旧库有本人不可追回历史，也有他人数据；本人及必要关联行的一致导出能界定实际范围，接受跨表筛选和类型编码工作。",
-        "trigger": "读取当前模式与本人标识，在一个一致只读事务导出一天样本及关联行，核对不混入他人记录后扩全历史。",
-        "stage": "next"
+        "reason": "本人一天快照与关联已验证，原生文本保持全部已确认类型且降低二进制布局依赖。接受样本20.27%正文增长，以一次完整历史导出先留下资料；全本人关联表独立保留，避免只沿某天事实漏取。",
+        "trigger": "所有者和关联闭包、同一快照、模式及原字节往返逐项通过后才认定完整。新增类型、持续修订需求或实际整轮成本出现时重审；其他表另行勘探。",
+        "stage": "now"
       }
     },
     {
@@ -3315,7 +3329,7 @@
       "module": "sources-live",
       "type": "decision",
       "status": "proposed",
-      "summary": "History 文件、扩展历史接口和账号同步可能提供不同字段；旧勘探中的“90 天”未通过本机实测，不作为统一保留保证。",
+      "summary": "日常Chrome的History只读打开仍被系统拒绝；CFT156受控样本证明API搜索遗漏重定向中间URL，书签与下载也少于文件字段。先对API实际可见视图做生产导洞，完整文件路线保留读取条件。",
       "basis": [
         {
           "id": "首先收集数据",
@@ -3331,13 +3345,13 @@
       "evidence": [
         {
           "kind": "file",
-          "ref": ".scratch/requirements/survey-browser.md",
-          "note": "数据库读取被拒；扩展能力尚未采样。"
+          "ref": ".scratch/requirements/survey-browser-persistent.md",
+          "note": "当前已知Default/History可stat但打开EPERM，Default/Bookmarks未取得；未能列举Profile。CFT156的45份原件/响应核对通过，实际库与API字段、重启和删除差异分别留证。"
         },
         {
           "kind": "file",
-          "ref": ".scratch/requirements/survey-local.md",
-          "note": "多浏览器目录与受保护状态只在 11 月 3 日核对。"
+          "ref": ".scratch/browser-persistent/contract.md",
+          "note": "文件和API各自保留出处与覆盖边界；API搜索加逐URL访问查询不等于完整History。生产接入与真实Profile验收另行进行。"
         }
       ],
       "options": [
@@ -3381,8 +3395,11 @@
       ],
       "implementation": {
         "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "note": "独立受控勘探及审阅已完成；日常History文件读取仍受限。正式API回填、周期与大响应处理尚在设计，日常扩展权限未改变。",
+        "refs": [
+          ".scratch/requirements/survey-browser-persistent.md",
+          ".scratch/browser-persistent/contract.md"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "many",
@@ -3390,11 +3407,11 @@
       "resolution": {
         "state": "conditional",
         "choices": [
-          "database"
+          "api"
         ],
-        "reason": "本机已发现浏览器持久库；获准后取一致副本有望保留 API 未返回的字段，接受系统权限与格式变化需实测。",
-        "trigger": "先复核实际读取权限，取一份测试 Profile 的 History 一致副本，对照访问/下载/书签界面与 API；不可读则改走 api。",
-        "stage": "later"
+        "reason": "日常库实际无法读取，扩展接口可先留下它能交付的视图。接受搜索未列出的中间重定向、文件独有字段和API各次时刻不同的范围；完整库仍待明确可读来源。",
+        "trigger": "先实测同时间戳/限量边界、Worker中断、大响应和暂存回执；真实Profile再验收。保持tabs/windows持续取得，原返回与覆盖缺口分别保留。",
+        "stage": "next"
       }
     },
     {
@@ -6095,7 +6112,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "八个新增库使用固定可选路径与SQLite online backup；每轮重新检查，存在但不可读仍记缺口。真实两轮9库恢复通过，日常固定程序更新另验。",
+        "note": "八个新增库使用固定可选路径与SQLite online backup，每轮重新检查，存在但不可读仍记缺口。真实两轮九库恢复通过；更新日常程序后采到的九库和新增文件也完成独立恢复。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Capturing/Collector.cs",
@@ -13685,6 +13702,34 @@
         "第一阶段怎样验收"
       ],
       "note": "真实两仓库各两轮，禁止访问来源目录和网络的Git恢复；30/23936对象逐字节通过，独立架构审阅和环境干扰另验。 单线程打包后相同包全部复用，第二轮大仓仅新增13,661字节出处。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx",
+      "nodes": [
+        "旧Heartbeat历史材料",
+        "数据库取得一致性",
+        "内容取得与来源身份"
+      ],
+      "note": "本人历史的取得范围、原生文本、模式、两次取得的身份与独立恢复。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/adr/0007-native-postgresql-export.mdx",
+      "nodes": [
+        "旧Heartbeat历史材料",
+        "完整内容的边界",
+        "导出与恢复"
+      ],
+      "note": "比较原生binary与text的实际恢复和成本，采用显式本人查询及现有文件保存。"
+    },
+    {
+      "ref": ".scratch/requirements/survey-browser-persistent.md",
+      "nodes": [
+        "浏览器持久记录取得",
+        "数据库取得一致性",
+        "来源版本与观测条件",
+        "事件时间与顺序"
+      ],
+      "note": "当前系统读取失败与CFT受控证据分别记录；API与数据库字段不互称完整重建，生产路线继续具体验证。"
     }
   ],
   "limitations": [
@@ -13701,8 +13746,8 @@
   "routes": [
     {
       "title": "当前交付：留下材料并能取回",
-      "summary": "Claude Code与Codex已选材料可独立恢复；Codex已扩到九库、草稿和语音等文件。日常149根的Linux副本验证完成，新增范围等下一次副本。",
-      "when": "每个来源范围均显式声明；新增Codex范围的两轮本机恢复与来源不可读验证通过，日常固定版本更新和新范围外部备份分别验收。",
+      "summary": "Claude Code与Codex已选材料可独立恢复；Codex扩到九库、草稿和语音。新Linux固定副本含267根及全部引用内容，新增浏览器与两个Git仓库也已独立恢复。",
+      "when": "每个来源范围显式声明；Codex新增范围已在受控实验和日常采集中分别通过验收。267根固定后新增材料单独备份；外部副本仍按需手动取得。",
       "choices": {
         "交付路线怎样排序": "independent",
         "来源接入顺序": "loss-cost",
@@ -13758,6 +13803,17 @@
         "Git当前工作与历史边界": "committed",
         "内容取得与来源身份": "separate-three",
         "第一阶段怎样验收": "recovery"
+      }
+    },
+    {
+      "title": "当前交付：旧Heartbeat本人历史",
+      "summary": "同一只读事务取得本人完整现存事实与关联，保留COPY文本、模式和命令出处，经现有文件采集保存后在受限环境独立PG恢复。",
+      "when": "已验证10表3,748,506行及74约束；文件采集与原数据库取得时间分别记录。当前一次取得，其他表、旧修订与持续更新按实际需要另验。",
+      "choices": {
+        "旧Heartbeat历史材料": "user-export",
+        "内容取得与来源身份": "separate-three",
+        "第一阶段怎样验收": "recovery",
+        "导出与恢复": "portable-full"
       }
     },
     {

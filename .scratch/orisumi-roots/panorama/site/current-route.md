@@ -132,6 +132,20 @@
 
 所选候选的后续：[附件与依赖的收集边界](modules/sources.md#n-128cbd6f1a6dfa45)、[文件变化取得策略](modules/capture.md#n-6de65500ebbea77b)
 
+#### [旧Heartbeat历史材料](modules/sources-local.md#n-32da8b7037cad0ce)
+
+**Agent采用 · 当前**
+
+候选：本人数据及关联表的一致导出。
+
+理由与代价：本人一天快照与关联已验证，原生文本保持全部已确认类型且降低二进制布局依赖。接受样本20.27%正文增长，以一次完整历史导出先留下资料；全本人关联表独立保留，避免只沿某天事实漏取。
+
+启动或重审条件：所有者和关联闭包、同一快照、模式及原字节往返逐项通过后才认定完整。新增类型、持续修订需求或实际整轮成本出现时重审；其他表另行勘探。
+
+依据：[尽量收集一切](modules/roots.md#n-c3c6e7607f2c9805)、[留最原始的一层](modules/roots.md#n-760744617270b5ce)、[出处一起保存](modules/roots.md#n-2ce85769c25073e7)
+
+所选候选的后续：[数据库取得一致性](modules/capture.md#n-cba810bb05a18834)、[离线与历史补取](modules/capture.md#n-f116b26a22aa88eb)
+
 #### [Git保存内容层次](modules/sources-local.md#n-4b833bed1e02c780)
 
 **Agent采用 · 当前**
@@ -914,20 +928,6 @@
 
 所选候选的后续：[附件与依赖的收集边界](modules/sources.md#n-128cbd6f1a6dfa45)、[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)
 
-#### [旧Heartbeat历史材料](modules/sources-local.md#n-32da8b7037cad0ce)
-
-**条件成立再做 · 下一步**
-
-候选：本人数据及关联表的一致导出。
-
-理由与代价：旧库有本人不可追回历史，也有他人数据；本人及必要关联行的一致导出能界定实际范围，接受跨表筛选和类型编码工作。
-
-启动或重审条件：读取当前模式与本人标识，在一个一致只读事务导出一天样本及关联行，核对不混入他人记录后扩全历史。
-
-依据：[尽量收集一切](modules/roots.md#n-c3c6e7607f2c9805)、[留最原始的一层](modules/roots.md#n-760744617270b5ce)、[出处一起保存](modules/roots.md#n-2ce85769c25073e7)
-
-所选候选的后续：[数据库取得一致性](modules/capture.md#n-cba810bb05a18834)、[离线与历史补取](modules/capture.md#n-f116b26a22aa88eb)
-
 #### [Shell历史与执行事件](modules/sources-local.md#n-118a4b0d856abce8)
 
 **条件成立再做 · 下一步**
@@ -955,6 +955,20 @@
 依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
 
 所选候选的后续：[文件变化取得策略](modules/capture.md#n-6de65500ebbea77b)
+
+#### [浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)
+
+**条件成立再做 · 下一步**
+
+候选：扩展/API 全量首取再跟变化。
+
+理由与代价：日常库实际无法读取，扩展接口可先留下它能交付的视图。接受搜索未列出的中间重定向、文件独有字段和API各次时刻不同的范围；完整库仍待明确可读来源。
+
+启动或重审条件：先实测同时间戳/限量边界、Worker中断、大响应和暂存回执；真实Profile再验收。保持tabs/windows持续取得，原返回与覆盖缺口分别保留。
+
+依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
+
+所选候选的后续：[接口与导出取得方式](modules/capture.md#n-c68c6175d29abc5e)
 
 ### 以后
 
@@ -1097,20 +1111,6 @@
 依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
 
 所选候选的后续：[本地文件选择边界](modules/sources-local.md#n-8448d9854b79d7b9)、[接口与导出取得方式](modules/capture.md#n-c68c6175d29abc5e)
-
-#### [浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)
-
-**条件成立再做 · 以后**
-
-候选：读取获准的浏览器数据库。
-
-理由与代价：本机已发现浏览器持久库；获准后取一致副本有望保留 API 未返回的字段，接受系统权限与格式变化需实测。
-
-启动或重审条件：先复核实际读取权限，取一份测试 Profile 的 History 一致副本，对照访问/下载/书签界面与 API；不可读则改走 api。
-
-依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
-
-所选候选的后续：[数据库取得一致性](modules/capture.md#n-cba810bb05a18834)、[取得权限与资源条件](modules/capture.md#n-55c7589ea4cd33f0)
 
 #### [浏览器页面内容范围](modules/sources-live.md#n-a7ffdec9fe8bb5c3)
 
