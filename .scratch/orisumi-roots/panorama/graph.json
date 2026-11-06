@@ -1788,6 +1788,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
           "note": "真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。"
+        },
+        {
+          "kind": "file",
+          "ref": ".scratch/requirements/survey-git-working.md",
+          "note": "工作区/index/HEAD原字节、旧stash与不可达对象、多worktree已完成合成恢复勘探；实际两仓只读成本盘点，ignored并非可丢弃依据。"
         }
       ],
       "options": [
@@ -1848,12 +1853,13 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。",
+        "note": "显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，本轮更新后均产生成功采集记录。 工作状态扩展已完成勘探，生产范围仍为引用可达历史；bundle加index缺暂存blob、patch缺untracked/ignored均有实际反例。",
         "refs": [
           "src/Orisumi.Capturing/GitCollector.cs",
           "tests/Orisumi.Capturing.Tests/GitCollectorTests.cs",
           "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
+          ".scratch/requirements/survey-git-working.md"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
@@ -1905,6 +1911,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
           "note": "真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。"
+        },
+        {
+          "kind": "file",
+          "ref": ".scratch/requirements/survey-git-working.md",
+          "note": "工作区/index/HEAD原字节、旧stash与不可达对象、多worktree已完成合成恢复勘探；实际两仓只读成本盘点，ignored并非可丢弃依据。"
         }
       ],
       "options": [
@@ -1930,30 +1941,31 @@
           "id": "working",
           "title": "提交历史加工作区、暂存与短期历史",
           "status": "alternative",
-          "summary": "先保留已选的提交历史，再把未提交文件与索引作为当前状态，勘探 reflog、stash 和不可达对象的可取窗口。",
+          "summary": "提交历史之外，原工作文件、index/共享index、日志与依赖对象分别保存。合成恢复已证实这些材料各自必要，完整目录与明确选取范围继续比较。",
           "benefit": "能留下 commit 之前的修改过程。",
-          "cost": "采样频率影响可见中间变化，Git 扫描成本增加。",
-          "when": "取得能力或范围尚未测清时，先取得一个可核验样本。",
+          "cost": "Heartbeat当前目录约22.55 GB，ignored包含独有样本与派生内容；正文读取、编码与连续变化成本待测。工作区和元数据分次读取保留时间窗。",
+          "when": "对一个明确仓库和范围接成产品单轮，再实测首次与连续取得成本。",
           "next": [
             "本地文件选择边界",
             "文件变化取得策略"
           ],
           "conflicts_with": [],
           "terminal": {
-            "kind": "survey",
-            "detail": "在专用测试仓库执行改写、stash、重置与清理前后观测，原样留样本；不在真实仓库运行破坏操作。",
-            "check": "列出每种状态可取得的字段、丢失窗口与恢复方法。"
+            "kind": "experiment",
+            "detail": "勘探已完成；把已验证的原工作字节、index/日志/状态与对象依赖接入单轮原件，从产品恢复输出重建。候选比较与范围缺口见勘探记录。",
+            "check": "来源不可读时恢复五种正文、旧stash、split index、冲突与两worktree；缺共享index或暂存blob必须失败，单独测ignored材料实际读取成本。"
           }
         }
       ],
       "implementation": {
         "state": "implemented",
-        "note": "显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。",
+        "note": "显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，本轮更新后均产生成功采集记录。 工作状态扩展已完成勘探，生产范围仍为引用可达历史；bundle加index缺暂存blob、patch缺untracked/ignored均有实际反例。",
         "refs": [
           "src/Orisumi.Capturing/GitCollector.cs",
           "tests/Orisumi.Capturing.Tests/GitCollectorTests.cs",
           "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
+          ".scratch/requirements/survey-git-working.md"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
@@ -3398,12 +3410,13 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "note": "实现与行为测试通过；受控Profile重启、大响应断连重传与独立恢复已验。用户确认后日常三API已启用，首轮19,549份原件完整性通过、18,319个历史URL逐个取得访问记录，19,487次查询无已知区间缺口；首轮72.607秒。API视图边界与长期成本另记。",
         "refs": [
           ".scratch/requirements/survey-browser-persistent.md",
           "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#日常持久记录"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
@@ -8549,7 +8562,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "已有一次手动异机副本：2,888 个存储文件、1,159,911,553 字节与源库逐项 SHA-256 一致；Linux 独立恢复 1,981 个文件和 142 个链接。新采集仍等下一次备份，未配置计划任务。",
+        "note": "已完成手动异机副本：当前固定481根、10,506存储文件、2,339,534,554编码字节。Linux全对象与引用核对通过，297个最新来源组实际恢复后重读5,667,166,836字节；复用旧版6,763块。固定之后的新采集仍等后续副本，未配置计划任务。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx",
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx"
@@ -12742,12 +12755,13 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "note": "实现与行为测试通过；受控Profile重启、大响应断连重传与独立恢复已验。用户确认后日常三API已启用，首轮19,549份原件完整性通过、18,319个历史URL逐个取得访问记录，19,487次查询无已知区间缺口；首轮72.607秒。API视图边界与长期成本另记。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
           "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#日常持久记录"
         ]
       },
       "review": "按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。",
@@ -12840,11 +12854,12 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "note": "实现与行为测试通过；受控Profile重启、大响应断连重传与独立恢复已验。用户确认后日常三API已启用，首轮19,549份原件完整性通过、18,319个历史URL逐个取得访问记录，19,487次查询无已知区间缺口；首轮72.607秒。API视图边界与长期成本另记。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#日常持久记录"
         ]
       },
       "review": "按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。",
@@ -12942,12 +12957,13 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "实现与行为测试通过。未改发布扩展的三API/Worker重启70份原件全恢复；另以70MiB原响应验证中断重传、live继续发送与31份完整原件。日常加载尚待执行。",
+        "note": "实现与行为测试通过；受控Profile重启、大响应断连重传与独立恢复已验。用户确认后日常三API已启用，首轮19,549份原件完整性通过、18,319个历史URL逐个取得访问记录，19,487次查询无已知区间缺口；首轮72.607秒。API视图边界与长期成本另记。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx",
           ".scratch/requirements/survey-browser-persistent.md",
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持久记录与重启",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#大响应与独立发送",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#日常持久记录"
         ]
       },
       "review": "按真实来源和恢复证据核对范围、成本与失效条件；采用与实现分别记录。",

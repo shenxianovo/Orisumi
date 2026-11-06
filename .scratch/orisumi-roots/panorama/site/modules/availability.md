@@ -105,7 +105,7 @@ flowchart TD
 
 检验：不把本机同盘另一目录当独立故障副本，不宣称已经满足异机恢复。
 
-实现现状：已有一次手动异机副本：2,888 个存储文件、1,159,911,553 字节与源库逐项 SHA-256 一致；Linux 独立恢复 1,981 个文件和 142 个链接。新采集仍等下一次备份，未配置计划任务。（[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
+实现现状：已完成手动异机副本：当前固定481根、10,506存储文件、2,339,534,554编码字节。Linux全对象与引用核对通过，297个最新来源组实际恢复后重读5,667,166,836字节；复用旧版6,763块。固定之后的新采集仍等后续副本，未配置计划任务。（[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
 
 审阅重点：建议先用外部有版本备份并验证恢复；内建交换等真实需求出现再选，网状不是长期保存的必然结果。
 

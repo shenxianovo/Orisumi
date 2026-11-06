@@ -5,7 +5,7 @@ description: "固定发布程序、五个用户级系统任务与浏览器按需
 
 例如，登录 Mac 后，系统启动前台观察、Codex、Claude Code，以及 Orisumi、qstack 两个显式仓库的 Git 采集。前台通知到达就保存；另外四项立即采一轮，随后每轮完成后等待 300 秒。五项任务共用同一个原件目录，新的材料与出处持续留下，读取和理解随后进行。
 
-[浏览器扩展](./browser.mdx)也已在日常 Chrome Profile 启用。它由浏览器运行，并通过 Native Messaging 按需启动接收器，写入同一个原件目录；运行与停止方式随浏览器和扩展管理。
+[浏览器扩展](./browser.mdx)也已在日常 Chrome Profile 启用，采集标签、窗口、历史、书签和下载记录。它由浏览器运行，并通过 Native Messaging 按需启动接收器，写入同一个原件目录；运行与停止方式随浏览器和扩展管理。
 
 依据：[收集不靠自觉](../requirements/belief.mdx#收集不靠自觉)、[能补的也定期采](../requirements/belief.mdx#能补的也定期采)、[先采错过就没的](../requirements/belief.mdx#先采错过就没的)与[采集保障先从简](../requirements/belief.mdx#采集保障先从简)。当前采用 macOS 用户级 LaunchAgent，直接复用既有采集命令。系统负责进程启动与重启，采集器负责来源取得、保存和结果。
 

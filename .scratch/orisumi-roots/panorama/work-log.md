@@ -14,13 +14,13 @@
 | Codex | 当前包括9库、日志、附件、听写、自动化、语音连续文件和桌面全局状态。两轮真实采集与全量恢复通过，禁止读取来源仍能恢复；见[扩展材料](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#扩展数据库草稿与语音材料) |
 | Claude Code | 会话、索引、附件及桌面文件按明确范围取得；日常循环持续运行 |
 | 前台 | 22次受控应用切换、49份原件、应用级通知范围、受限IP网络及进程重启分别核验；见[前台验收](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测) |
-| Git | 两个显式仓库bundle与分次命令出处持续取得。真实两仓库各两轮，来源隔离后逐对象恢复；见[Git验收](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史) |
+| Git | 两个显式仓库bundle与分次命令出处持续取得。真实两仓库各两轮，来源隔离后逐对象恢复；工作状态扩展已完成[勘探](../../requirements/survey-git-working.md)，生产仍保存引用可达历史；见[Git验收](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史) |
 | 旧Heartbeat | 本人历史10表3,748,506行在一次只读快照中取得，文本COPY、模式及出处一同保存；受限环境恢复后逐表原字节与74约束通过。沿用文件采集，见[旧库](../../../src/Docs/Orisumi.Docs/content/docs/model/heartbeat.mdx) |
-| 外部副本 | Linux上独立版本已包含日常267根、7031存储文件、1,899,823,935编码字节；另有旧Heartbeat单根完整副本。全部对象与引用核对、代表最新根恢复通过；见[外部副本](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#外部副本) |
+| 外部副本 | Linux上独立版本已包含日常481根（含旧Heartbeat导出）、10,506存储文件、2,339,534,554编码字节。全对象与引用核对通过，297个最新来源组实际恢复后重读5,667,166,836字节；复用旧版6,763块；见[外部副本](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#外部副本) |
 | 浏览器实时观测 | 日常Chrome已启用tabs/windows，受控双Profile、断连、Worker重启、原件恢复通过；见[浏览器验收](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测) |
-| 浏览器持久记录 | history/bookmarks/downloads原回调与查询已实现，加入双发送队列和完整响应分片。59项接收测试、27项JS测试与70MiB来源样本Native恢复通过；未改发布扩展的70份原件与大响应实验31份原件全部恢复，日常尚未加载这部分；见[范围](../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx) |
+| 浏览器持久记录 | history/bookmarks/downloads原回调与查询已实现，加入双发送队列和完整响应分片。59项接收测试、27项JS测试与70MiB来源样本Native恢复通过；未改发布扩展的70份原件与大响应实验31份原件全部恢复。日常三API已启用，首轮19,549根完整性核对通过，19,487次查询、18,319个历史URL无已知区间缺口；见[范围](../../../src/Docs/Orisumi.Docs/content/docs/model/browser-persistent.mdx) |
 
-五项用户级任务在工作区外持续运行。五项任务已更新，日常浏览器接收器继续运行上次发布的程序，持久 API 验收已通过，新版独立发布就绪；普通Chrome新增三项访问权限的界面操作待当次确认，收到后先更新程序、再重新加载扩展。原件、旧程序与旧副本全部保留；本轮不推送。
+五项用户级任务在工作区外持续运行，更新后均产生成功采集记录。用户明确批准后，日常Chrome已加载历史、书签和下载权限；两个Native host映射同版程序。首轮回填72.607秒，原件与查询计划独立核对通过，来源范围见[日常持久记录](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#日常持久记录)。原件、旧程序与旧副本全部保留；本轮不推送。
 
 存储方案的比较包含真实静态集和标明的历史回放；静态集整文件压缩更省，大日志中部插入回放CDC更省，不能据此代替真实连续来源成本。聚合结果见[存储对照](../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#整文件与分块对照)。
 
@@ -59,6 +59,8 @@
 | 删除历史后紧接新访问可能漏唤醒查询意图 | 最小事件顺序复现后修复调度，原回调逐条保留，待查询意图继续执行 |
 | API视图和浏览器库并不等价 | 受控样本发现重定向中间URL、404及额外数据库字段；日常文件读取受系统限制，保存API实际视图及查询条件 |
 | 新模块只在源码存在、发布物可能缺文件 | CLI显式纳入persistent.js，发布四份运行文件逐字节对照源码 |
+| bundle加原index仍恢复不了暂存正文 | 合成源移走后复现缺blob；完整对象与管理材料各自保留，五种原内容恢复通过 |
+| ignored被误当作可丢弃生成物 | 两仓只读盘点显示Heartbeat ignored约22.44 GB，其中既有样本原件也有派生副本；按实际材料范围选取，存量与日增量另测 |
 
 ## 图与方法检查
 
@@ -69,7 +71,7 @@ qstack的自主展开已有有限场景试跑，新增“授权后自主采用�
 ## 尚待补充的证据
 
 - 前台其他平台、更短间隔、全天和睡眠/用户会话组合；来源启动前和未落盘尾部仍有缺口。
-- 浏览器新持久API的日常首轮覆盖、耗时与资源成本；固定完成时间不是跨查询快照。
+- 浏览器首轮已取得实际覆盖与成本；后续连续多轮、全天CPU/内存与磁盘增长另测，固定完成时间不是跨查询快照。
 - 日常重新登录和长期资源成本；副本当前手动，定期取得按新增材料的实际备份窗口安排。
 - 长期保存的定期恢复演练、断电和介质寿命；当前异机恢复只证明本次保存集可解释。
 - 后续语义读出、行定位、跨源身份和模型调用按真实问题进入；共享按实际受众和范围判断。

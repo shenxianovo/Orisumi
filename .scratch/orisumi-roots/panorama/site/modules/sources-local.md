@@ -515,6 +515,8 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)。真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。
 
+依据材料：[.scratch/requirements/survey-git-working.md](../../../../requirements/survey-git-working.md)。工作区/index/HEAD原字节、旧stash与不可达对象、多worktree已完成合成恢复勘探；实际两仓只读成本盘点，ignored并非可丢弃依据。
+
 ### 提交引用及可达对象归档 · 助手推荐
 
 保留可取得 refs 和所需 commit/tree/blob 对象，优先试自包含 bundle；把取得时的引用状态一起存。
@@ -561,7 +563,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：每个依赖都可在离开原目录后解析，裸递归副本不因通过文件校验就被称一致仓库。
 
-实现现状：显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。（[src/Orisumi.Capturing/GitCollector.cs](../../../../../src/Orisumi.Capturing/GitCollector.cs)、[tests/Orisumi.Capturing.Tests/GitCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/GitCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)）
+实现现状：显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，本轮更新后均产生成功采集记录。 工作状态扩展已完成勘探，生产范围仍为引用可达历史；bundle加index缺暂存blob、patch缺untracked/ignored均有实际反例。（[src/Orisumi.Capturing/GitCollector.cs](../../../../../src/Orisumi.Capturing/GitCollector.cs)、[tests/Orisumi.Capturing.Tests/GitCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/GitCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)、[.scratch/requirements/survey-git-working.md](../../../../requirements/survey-git-working.md)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -598,6 +600,8 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)。真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。
 
+依据材料：[.scratch/requirements/survey-git-working.md](../../../../requirements/survey-git-working.md)。工作区/index/HEAD原字节、旧stash与不可达对象、多worktree已完成合成恢复勘探；实际两仓只读成本盘点，ignored并非可丢弃依据。
+
 ### 先保存HEAD、refs与可达对象 · 助手推荐
 
 每轮由Git枚举HEAD和refs并输出bundle，另存分次取得的符号关系与配置；包含最新stash可达对象。
@@ -616,21 +620,21 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 ### 提交历史加工作区、暂存与短期历史 · 可选路线
 
-先保留已选的提交历史，再把未提交文件与索引作为当前状态，勘探 reflog、stash 和不可达对象的可取窗口。
+提交历史之外，原工作文件、index/共享index、日志与依赖对象分别保存。合成恢复已证实这些材料各自必要，完整目录与明确选取范围继续比较。
 
 收益：能留下 commit 之前的修改过程。
 
-代价：采样频率影响可见中间变化，Git 扫描成本增加。
+代价：Heartbeat当前目录约22.55 GB，ignored包含独有样本与派生内容；正文读取、编码与连续变化成本待测。工作区和元数据分次读取保留时间窗。
 
-适用条件：取得能力或范围尚未测清时，先取得一个可核验样本。
+适用条件：对一个明确仓库和范围接成产品单轮，再实测首次与连续取得成本。
 
 继续展开：[本地文件选择边界](#n-8448d9854b79d7b9)、[文件变化取得策略](capture.md#n-6de65500ebbea77b)
 
-分支终点：在专用测试仓库执行改写、stash、重置与清理前后观测，原样留样本；不在真实仓库运行破坏操作。
+分支终点：勘探已完成；把已验证的原工作字节、index/日志/状态与对象依赖接入单轮原件，从产品恢复输出重建。候选比较与范围缺口见勘探记录。
 
-检验：列出每种状态可取得的字段、丢失窗口与恢复方法。
+检验：来源不可读时恢复五种正文、旧stash、split index、冲突与两worktree；缺共享index或暂存blob必须失败，单独测ignored材料实际读取成本。
 
-实现现状：显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。（[src/Orisumi.Capturing/GitCollector.cs](../../../../../src/Orisumi.Capturing/GitCollector.cs)、[tests/Orisumi.Capturing.Tests/GitCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/GitCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)）
+实现现状：显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，本轮更新后均产生成功采集记录。 工作状态扩展已完成勘探，生产范围仍为引用可达历史；bundle加index缺暂存blob、patch缺untracked/ignored均有实际反例。（[src/Orisumi.Capturing/GitCollector.cs](../../../../../src/Orisumi.Capturing/GitCollector.cs)、[tests/Orisumi.Capturing.Tests/GitCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/GitCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)、[.scratch/requirements/survey-git-working.md](../../../../requirements/survey-git-working.md)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
