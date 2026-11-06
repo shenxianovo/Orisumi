@@ -6,7 +6,8 @@ internal sealed record ProcessCommand(
     string FileName,
     IReadOnlyList<string> Arguments,
     string? WorkingDirectory = null,
-    IReadOnlyDictionary<string, string?>? Environment = null)
+    IReadOnlyDictionary<string, string?>? Environment = null,
+    TimeSpan? CancellationGracePeriod = null)
 {
     public override string ToString() =>
         string.Join(' ', [FileName, .. Arguments.Select(argument => argument.Contains(' ', StringComparison.Ordinal) ? $"\"{argument}\"" : argument)]);
@@ -55,6 +56,11 @@ internal sealed class ProcessRunner(string workingDirectory) : IProcessRunner
         try { await process.WaitForExitAsync(cancellationToken); }
         catch (OperationCanceledException)
         {
+            if (command.CancellationGracePeriod is { } grace)
+            {
+                try { await process.WaitForExitAsync(CancellationToken.None).WaitAsync(grace, CancellationToken.None); }
+                catch (TimeoutException) { }
+            }
             Kill(process);
             await process.WaitForExitAsync(CancellationToken.None);
             throw;

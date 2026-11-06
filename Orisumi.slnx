@@ -1,7 +1,14 @@
 <Solution>
   <Folder Name="/src/">
     <File Path="src/Docs/Orisumi.Docs/package.json" />
-    <Project Path="src/Orisumi/Orisumi.csproj" />
+    <Project Path="src/Orisumi.Cli/Orisumi.Cli.csproj" />
+    <Project Path="src/Orisumi.Capturing/Orisumi.Capturing.csproj" />
+    <Project Path="src/Orisumi.Raw/Orisumi.Raw.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Orisumi.Raw.Tests/Orisumi.Raw.Tests.csproj" />
+    <Project Path="tests/Orisumi.Capturing.Tests/Orisumi.Capturing.Tests.csproj" />
+    <Project Path="tests/Orisumi.Dev.Tests/Orisumi.Dev.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Orisumi.Dev/Orisumi.Dev.csproj" />

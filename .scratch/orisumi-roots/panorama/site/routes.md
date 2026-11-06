@@ -1,0 +1,97 @@
+# 建议路线与阶段
+
+[返回全景](README.md)
+
+以下组合用于比较替代方案。每条路线只列本阶段关键取舍，全部候选在对应节点；试选独立于用户确认和 Agent 采用记录。
+
+## 当前交付：留下材料并能取回
+
+Claude Code 与 Codex 已选材料的采集、完整出处、本机恢复，以及一次 Linux 手动副本与独立恢复已经完成；继续按来源损失窗口扩展。
+
+当前已选目录与 state_5 范围；Codex 其他库仍待核对。手动副本之后的新采集等下一次备份，定时任务尚未建立。
+
+- [交付路线怎样排序](modules/delivery.md#n-e93627fc1fab2325)：按可独立使用的能力推进
+- [来源接入顺序](modules/sources.md#n-821855273f39bc59)：丢失窗口与接入成本共同排序
+- [Codex日志表示](modules/sources-local.md#n-654ef3908ee1adec)：枚举两处日志并保留原字节
+- [Codex状态数据库范围](modules/sources-local.md#n-bb8086babda89015)：状态库一致快照
+- [Codex附件与产物范围](modules/sources-local.md#n-c8cf6296fafacb06)：已知附件目录与可视化目录整体收
+- [数据库取得一致性](modules/capture.md#n-cba810bb05a18834)：引擎提供一致快照
+- [采集记录与文件清单](modules/records.md#n-1d8f2faf261d23a6)：小采集记录加可复用清单
+- [内容取得与来源身份](modules/records.md#n-15c7ee1513e29577)：分开内容标识、取得标识与来源标识
+- [原件存成块](modules/storage.md#n-1e55971a7ab3ff58)：内容定义块复用
+- [多处都有一份](modules/availability.md#n-ae9194edde188509)：本地保存加外部有版本备份
+- [整理何时计算](modules/understanding.md#n-922a57e91c6742aa)：先只留下材料
+- [运行保障怎样安排](modules/delivery.md#n-19250ebbdde649cf)：先保留单次结果，需要时外部探活
+- [第一阶段怎样验收](modules/delivery.md#n-ae87acd40d922614)：用可重复的小来源验证留下与取回
+- [同步交换与提交](modules/availability.md#n-da173cb6e04759f8)：外部完整保存集复制
+- [导出与恢复](modules/storage.md#n-da66683208852205)：导出完整记录与内容闭包
+
+## 当前交付：macOS 手动前台观测
+
+当前 macOS 手动应用级路线已采用并实现：22 次受控正常/快速切换分别与应用自身回调对账，49 条原件全部恢复；初始查询、逐条保存、定时结束和 Ctrl+C 另有验证。
+
+当前图形用户会话与既有权限身份；快速样本实际请求间隔约 201–203 毫秒。同应用 4 次切窗、1 次改标题期间无应用级通知。当前手动启动，断网验证、系统状态组合、全天覆盖、其他平台及新来源范围分别处理。
+
+- [来源接入顺序](modules/sources.md#n-821855273f39bc59)：丢失窗口与接入成本共同排序
+- [前台应用与键鼠观测](modules/sources-live.md#n-356bb4ec11f181f1)：第一条导洞只观察前台应用
+- [瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)：设备上尽快持久记录
+- [事件时间与顺序](modules/capture.md#n-0843f43438c1c4a1)：原时间和取得时间分别保留
+- [采集启动与执行位置](modules/capture.md#n-f47170f9f44e3fc5)：暂时手动运行
+- [第一阶段怎样验收](modules/delivery.md#n-ae87acd40d922614)：用可重复的小来源验证留下与取回
+
+## 技术替代：整文件保存
+
+相同的原样保存目标，用整文件哈希对象和出处记录实现。静态资料、小文件或低频变化时更值得比较。
+
+在同一真实历史样本上比较恢复、总存储和运行代价后选用；大日志多版本可能比已有分块明显更贵。
+
+- [原件存成块](modules/storage.md#n-1e55971a7ab3ff58)：完整内容按哈希复用
+- [采集记录与文件清单](modules/records.md#n-1d8f2faf261d23a6)：小采集记录加可复用清单
+- [压缩与存放表示](modules/storage.md#n-d00cf82ac296b520)：逐内容对象使用标准无损编码
+- [导出与恢复](modules/storage.md#n-da66683208852205)：导出完整记录与内容闭包
+- [多处都有一份](modules/availability.md#n-ae9194edde188509)：本地保存加外部有版本备份
+- [第一阶段怎样验收](modules/delivery.md#n-ae87acd40d922614)：用可重复的小来源验证留下与取回
+
+## 后续阶段：先让 Agent 找到原文
+
+收集能独立使用后，逐项增加确定性读出、检索和引用。遇到实际答不好的问题，再决定模型理解形态。
+
+依赖相关原件及定位能力已经可用。重跑已有基准，不能沿用旧导洞的结果当新实现验收。
+
+- [整理何时计算](modules/understanding.md#n-922a57e91c6742aa)：需要时解析并缓存
+- [程序和模型怎样分工](modules/understanding.md#n-9b5d1c252325594d)：先只用确定性读法
+- [基本读出怎样重写](modules/understanding.md#n-d34b5c062cf781c5)：逐个重写最小读出
+- [投影库怎样选择](modules/understanding.md#n-929aa0a735a703a6)：第一次读出先用单一本地投影
+- [索引怎样增长](modules/understanding.md#n-f3ee89d07892466b)：先结构和全文，再按缺题加索引
+- [Agent入口怎样提供](modules/access.md#n-da5b4169050995d4)：先命令行，按需加MCP
+- [查询输出怎样组织](modules/access.md#n-83096b85d1cbe387)：结构化结果加简洁文本呈现
+- [后续读取怎样验收](modules/delivery.md#n-9e39e29694bbe145)：用新实现重跑既有题并抽查证据、先验证确定性行为
+
+## 需要多设备时：中心汇聚
+
+已有外部备份不能满足实际跨设备读取或交换时，再建设一个明确保存点与采集端之间的交换。
+
+仅在真实多设备需求出现时启用；传感器缓冲能力、保存地信任和分享权限分别决定。
+
+- [多处都有一份](modules/availability.md#n-ae9194edde188509)：Orisumi内建副本交换
+- [网状拓扑和完整节点](modules/availability.md#n-561838d4e083830d)：有明确中心的汇聚
+- [设备角色与离线工作](modules/availability.md#n-e56d1b0735fb0084)：长期完整保存点加本地采集/缓存
+- [采集设备怎样缓冲](modules/availability.md#n-358b28d323bdbb8b)：设备上先保存原件，再交长期保存点
+- [同步交换与提交](modules/availability.md#n-da173cb6e04759f8)：清单对比加缺失对象复制
+- [连接信任与访问边界](modules/availability.md#n-ca03d6309f6b9fd6)：自己的可信设备先经私有网络连接
+- [多副本删除与离线节点](modules/availability.md#n-19ed3ea2239e62f9)：保存删除事实并阻止旧记录复活
+- [长期恢复怎样验证](modules/delivery.md#n-254f30d6e194be24)：定期在干净目录读回一份保存集、提供通用导出作为恢复入口
+
+## 需要理解与分享时：可追溯产物
+
+保留模型调用与理解版本；先用一个真实问题验收，再以可审阅的静态范围分享。
+
+属于后续条件路线。静态导出交给别人后不能保证收回；持续撤权需要另选受控查询方案。
+
+- [程序和模型怎样分工](modules/understanding.md#n-9b5d1c252325594d)：结构由程序读，解释按需用模型
+- [模型调用留下什么](modules/understanding.md#n-97745ff5030f65f3)：保留实际可取得的调用包
+- [理解版本怎样使用](modules/understanding.md#n-be7944dd96e1f491)：版本并存，显式采用一版
+- [新旧理解怎样评测](modules/delivery.md#n-cbfb97254da427c8)：展示实质差异和对应证据
+- [共享怎样授权](modules/access.md#n-4b3c6032607d1b5c)：先按明确范围生成共享副本
+- [多人怎样使用](modules/access.md#n-533f290602f41d06)：每个人独立资料库
+- [派生结果遇到删除或撤权](modules/access.md#n-183194894919be77)：按引用依赖处理可见性与重建

@@ -1,14 +1,20 @@
 {
   "title": "Model",
-  "description": "导洞的模型：原件、读出和给 Agent 的命令",
+  "description": "采集、保存与恢复，以及后续能力的触发条件",
   "icon": "Layers",
   "root": true,
   "pages": [
     "index",
     "raw",
+    "file-capture",
+    "foreground",
+    "sources",
+    "nodes",
+    "validation",
     "readings",
     "context",
-    "sources",
+    "prior-art",
+    "adr",
     "..."
   ]
 }

@@ -34,9 +34,13 @@ internal sealed partial class Formatter(RepositoryContext repository, IProcessRu
             if (result.ExitCode != 0) throw new InvalidOperationException($"dotnet format failed: {result.LastLine}");
             return [];
         }
-        return Unformatted().Matches(result.Output)
+        var unformatted = Unformatted().Matches(result.Output)
             .Select(match => Path.GetRelativePath(repository.Root, match.Groups["path"].Value).Replace('\\', '/'))
-            .Distinct(StringComparer.Ordinal);
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (result.ExitCode != 0 && unformatted.Length == 0)
+            throw new InvalidOperationException($"dotnet format failed: {result.LastLine}");
+        return unformatted;
     }
 
     private async Task<IEnumerable<string>> ScriptsAsync(string[] files, bool write, CancellationToken cancellationToken)

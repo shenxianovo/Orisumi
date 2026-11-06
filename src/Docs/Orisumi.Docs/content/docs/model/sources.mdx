@@ -1,52 +1,146 @@
 ---
-title: "四个来源怎么采"
-description: "导洞接的四个来源各自存下什么"
+title: "来源怎么采"
+description: "已接入的会话和前台观测，以及旧 Heartbeat 和 Git 的来源设计"
 ---
 
-`orisumi run capture <来源> --from <本地时间> --to <本地时间>` 采一个来源的一段时间。每个来源一个采集程序，存下的东西和采集记录见[原件](./raw.mdx)。
+这一页记录已接入来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 已接入[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；旧 Heartbeat 和 Git 先验证各自的一条取得与恢复路径。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
+
+## macOS 前台应用
+
+`orisumi run capture foreground` 保存 AppKit 的初始前台查询及实际收到的激活、失活、睡眠唤醒和用户会话通知。每条观察立即独立写成原件；`--duration <秒>` 限定运行时间，省略时持续到 Ctrl+C。
+
+保存的是通知名称、实际对象的公开属性和取得条件，没有窗口标题、键鼠或输入文字。格式、运行要求、失败行为与当前平台验收限制见[前台应用观测](./foreground.mdx)。应用切换与人的注意力分别解释。
 
 ## Claude Code
 
-`capture claude-code [--dir]` 把目录下的所有文件原样复制，保留相对路径。目录里放着两处：
+### 保存范围
 
-- `projects/`：主会话日志、子 Agent 日志和 `tool-results/`，来自 `~/.claude/projects/`。
-- `desktop-sessions/`：桌面应用的会话索引，来自 `~/Library/Application Support/Claude/claude-code-sessions/`。
+`orisumi run capture claude-code` 直接读取本机两处目录，普通文件按原始字节保存，符号链接保存目标原字符串，保留各自的相对路径：
 
-导洞读的是事先另存的一份副本，默认位置是 `.local/benchmark/claude-code`。日志的每条记录自带写它的 Claude Code 版本。
+- `projects/`：来自 `~/.claude/projects/`，包含主会话日志、子 Agent 日志、`tool-results/`、图片和记忆等文件。
+- `desktop-sessions/`：来自 `~/Library/Application Support/Claude/claude-code-sessions/`，包含桌面应用的会话索引文件。
+
+来源名为 `claude-code`，采集身份仍是采集记录根的内容哈希。文件用采集记录及其保存路径定位，例子是 `projects/<项目>/<会话>.jsonl`。日志里的来源版本和消息身份随原始字节保存，由读出解释。
+
+### 来源目录与出处
+
+启动立即采一轮，之后默认每轮结束等待 300 秒再采。`--once` 采一轮后退出，`--interval` 和 `--retries` 分别设置等待秒数与本轮读取重试次数，语义见[文件采集](./file-capture.mdx)。
+
+`--projects` 和 `--desktop-sessions` 可以分别覆盖两处目录，例如采集事先另存的副本：
+
+```sh
+orisumi run capture claude-code \
+  --projects .local/benchmark/claude-code/projects \
+  --desktop-sessions .local/benchmark/claude-code/desktop-sessions
+```
+
+默认直读真实目录，让自动采集直接跟随来源变化；路径覆盖让副本使用同一条采集路径。两个固定前缀保持日志和索引各自的相对路径，也让两处同名文件各有位置。
+
+采集记录的 `origin` 是两行文字，写出本轮配置的两处绝对路径：
+
+```text
+projects: <会话文件目录的绝对路径>
+desktop-sessions: <桌面会话索引目录的绝对路径>
+```
+
+每个文件的 `origin` 仍是实际读取的绝对路径。某处目录缺失或某个文件读不到时，已采到的文件照常保存，缺口按[部分完成的规则](./file-capture.mdx#结果和失败)记入采集记录。
+
+### 决策依据与验证
+
+箭头表示上游需求或来源发现对下游选择的支持和约束。目录及路径映射由 `Orisumi.Capturing/ClaudeCodeSource.cs` 实现；扫描、读取和重采由共用的 `Collector` 实现。
+
+```mermaid
+flowchart TD
+  scattered["来源发现：会话信息散在日志、索引和附件中"] --> both["保存两处目录的全部文件"]
+  raw["需求：各处原样都存"] --> both
+  automatic["需求：收集不靠自觉"] --> direct["默认直读真实目录"]
+  automatic --> watch["共用通用文件自动采集"]
+  both --> mapping["两个固定前缀，保留相对路径"]
+  direct --> origin["采集出处列出两处绝对路径"]
+  mapping --> adapter["Claude Code 来源适配"]
+  origin --> adapter
+  adapter --> watch
+  click scattered href "#保存范围"
+  click raw href "../requirements/belief.mdx#各处原样都存"
+  click automatic href "../requirements/belief.mdx#收集不靠自觉"
+  click both href "#保存范围"
+  click direct href "#来源目录与出处"
+  click mapping href "#来源目录与出处"
+  click origin href "#来源目录与出处"
+  click adapter href "#决策依据与验证"
+  click watch href "./file-capture.mdx"
+```
+
+`ClaudeCodeSourceTests` 通过实际采集和读回验证两处文件的路径、出处与字节保持原样，覆盖子 Agent、二进制附件和同名文件；重采验证文件块复用，目录缺失验证另一处的文件仍能保存。读取与周期循环的行为由 `CollectorTests` 和 `StableFileReaderTests` 验证。
 
 依据：
 
 - [一件事散在多处](../requirements/belief.mdx#一件事散在多处)、[各处原样都存](../requirements/belief.mdx#各处原样都存)：勘探发现会话的标题、归档、rewind 和派生关系只记在桌面应用的索引里，两处都存才留得住这些关系。
 - [存下的也会消失](../requirements/belief.mdx#存下的也会消失)：Claude Code 按保留期删掉旧会话，所以要用的那段先另存一份。
+- [收集不靠自觉](../requirements/belief.mdx#收集不靠自觉)、[能补的也定期采](../requirements/belief.mdx#能补的也定期采)：直接从真实目录启动自动采集。
 
 ## Codex
 
-`capture codex [--home]`，`--home` 默认是 `~/.codex`。存下三样：
+### 采集与恢复
 
-- `sessions/` 和 `archived_sessions/` 下的 rollout 文件：修改时间在范围开始之后、并且有记录的时间落在范围内的，整个文件复制。采的是明文的 `.jsonl`；Codex 会把旧文件压缩成 `.jsonl.zst`，采更早的范围时要把压缩的也采上。
-- `session_index.jsonl` 整个文件：线程标题，改名时追加一行。
-- `state_5.sqlite` 里 `threads` 和 `thread_spawn_edges` 两张表的全部行，用 `sqlite3 -readonly -json` 导成 JSON：线程的来源、工作目录、归档状态和父子边。
+```sh
+orisumi run capture codex --once
+orisumi run raw show <采集>
+orisumi run raw restore <采集> <新目录>
+```
+
+`capture codex` 默认从 `~/.codex` 采集，`--home <目录>` 可以指定另一份来源。省略 `--once` 时启动后立即采一轮，之后每轮结束默认等待 300 秒。`--interval`、`--retries` 和部分完成规则与其他来源共用。
+
+来源名是 `codex`，采集身份是根的内容哈希。采集根的 `origin` 是本轮 Codex 目录的绝对路径；每份材料的 `origin` 是它自己的绝对路径，清单中的保存路径保留相对 Codex 目录的位置。
+
+### 保存范围
+
+| 保存路径 | 取得内容 |
+| --- | --- |
+| `sessions/`、`archived_sessions/` | 递归选择 `.jsonl` 与 `.jsonl.zst`，整份文件按字节保存 |
+| `session_index.jsonl` | 完整文件，包括追加的线程标题记录 |
+| `state_5.sqlite` | 整个数据库的 SQLite online backup 快照 |
+| `attachments/` | 全部文件，例如长文本附件 |
+| `generated_images/` | 全部文件，例如生成的图片 |
+| `visualizations/` | 全部文件，包括页面及其本地脚本等资源 |
+
+每轮按这份范围重新枚举材料。日志按路径和扩展名选择，内容与记录时间由后续读出解释；未知记录类型、末尾半行、子 Agent 和续接文件里的重复内容都随文件保存。`.jsonl.zst` 保留压缩文件的原始字节，损坏的压缩文件也照存。
+
+`sessions/`、`session_index.jsonl` 和 `state_5.sqlite` 是必需输入，缺失时记入本轮失败说明。`archived_sessions/`、`attachments/`、`generated_images/` 和 `visualizations/` 可以不存在；这些目录存在但读不到时仍记缺口。选中范围内的符号链接按[链接规则](./file-capture.mdx#符号链接)保存。
+
+### 数据库与时间窗口
+
+数据库快照包含所有表、索引及值，来源增加的未知表也随库保存。SQLite 把主文件和 WAL 中参与这份一致状态的已提交数据纳入快照，恢复后可以用一个 `state_5.sqlite` 文件独立打开。采集器取得整库快照，清单记 `method: sqlite-online-backup`；数据库内容的含义交给读出解释。
+
+采集记录用 `capturedAt` 和 `completedAt` 记这一轮的起止时间。数据库快照内部一致，日志、索引、数据库和附件各自在这个窗口中取得；它们之间可能对应不同时间。数据库缺失、损坏或锁定后重试仍失败时，已经采到的日志和附件照常写入清单，缺口记在 `failure` 中。
 
 每个 rollout 的 `session_meta` 记着写它的 Codex 版本。
+
+### 依据与验证
+
+`CodexSource` 声明来源范围和取得方式，`Collector` 共用扫描、记录与循环，`SqliteSnapshotReader` 取得数据库快照。`CodexSourceTests` 覆盖来源消失后的读回、压缩及损坏的日志、附件、未知表、数据库缺失和部分完成；`SqliteSnapshotReaderTests` 覆盖 WAL、并发提交的一致状态、锁定和临时文件清理。整轮恢复与单文件导出由 `CaptureRecoveryTests` 验证。
 
 依据：
 
 - [一件事散在多处](../requirements/belief.mdx#一件事散在多处)：勘探发现 Codex 的日志里没有标题，标题、归档和父子关系都在日志外面。
+- [各处原样都存](../requirements/belief.mdx#各处原样都存)、[留最原始的一层](../requirements/belief.mdx#留最原始的一层)：日志、索引、数据库和附件各自保存，后续读出再解释它们的关系。
 - [格式随版本变化](../requirements/belief.mdx#格式随版本变化)：版本在每个文件里，读的时候按它分辨格式。
 
 ## 旧 Heartbeat
 
-`capture heartbeat [--host]` 经 SSH 登录运行旧 Heartbeat 的服务器，在数据库容器里用只读事务查询，只取本人的行。每张表一个文件，每行用 `row_to_json` 原样导成一行 JSON，文件的原位置记的是那条查询：
+旧库里有本人无法追回的历史，也有他人的数据。下一步先读取当前模式和本人标识，在一个一致只读事务中导出一天的本人记录及必要关联行，核对范围后再扩大到全部历史。取得方式、类型编码和文件格式随这个样本确定。
 
-| 文件 | 内容 |
+已知材料包括：
+
+| 已知记录 | 内容 |
 | --- | --- |
-| `segments.jsonl` | 和范围重叠的时段：前台、浏览器、VRChat |
-| `events.jsonl` | 范围内的键鼠事件，只有按键位置 |
-| `fact-gaps.jsonl` | 和范围重叠的丢失记录 |
-| `devices.jsonl`、`subjects.jsonl`、`streams.jsonl` | 设备和数据流 |
-| `app-identities.jsonl`、`apps.jsonl` | 这些时段用到的应用身份和应用 |
+| 时段 | 前台、浏览器、VRChat |
+| 事件 | 键鼠事件，只有按键位置 |
+| 丢失记录 | 哪段没有采到及其原因 |
+| 设备、主体、数据流 | 本人记录所需的关联信息 |
+| 应用身份和应用 | 时段中用到的应用身份与名称 |
 
-来源版本记库里最新的迁移号。
+样本保留实际查询、取得时间、数据库位置和可取得的模式版本。确定性排序只服务相同查询结果的重复取得，类型与值的恢复另行核对。
 
 依据：
 
@@ -56,9 +150,11 @@ description: "导洞接的四个来源各自存下什么"
 
 ## Git
 
-`capture git [--code]`，`--code` 默认是 `~/Code`，往下三层找仓库。每个仓库用 `git log --all` 找出范围内的提交，每个提交存一行 JSON：sha、仓库的相对路径、`origin` 的地址、`git cat-file commit` 输出的提交对象原文、`git show --numstat` 的改动统计。每个仓库一个文件 `repos/<仓库>.jsonl`，来源版本记 `git --version`。
+Git 的下一条验证路径是自包含 bundle，保存选定引用及可达对象，让历史正文可以独立恢复。先用包含重命名和二进制文件的测试仓库取得一份保存内容，改变来源引用后再恢复，逐版本核对正文。
+
+这一范围先覆盖已提交历史。未提交工作区、不可达对象、LFS 和子模块各自有独立的取得条件；发现实际依赖后逐项勘探，再决定要补进哪些材料。仓库位置、引用、来源地址与工具版本随当次取得保存。
 
 依据：
 
-- [有的数据错过就没了](../requirements/belief.mdx#有的数据错过就没了)：提交是持久的，任何时候都能补。
-- [留最原始的一层](../requirements/belief.mdx#留最原始的一层)：提交对象原文是 Git 里最原始的一层，改动统计附在旁边，读的时候不用再回仓库。
+- [有的数据错过就没了](../requirements/belief.mdx#有的数据错过就没了)：Git 可以读取仍存在的历史对象；保存后再改引用，也能恢复已经取得的版本。
+- [留最原始的一层](../requirements/belief.mdx#留最原始的一层)：Git 对象和引用保留版本正文，改动统计可以在读出时生成。

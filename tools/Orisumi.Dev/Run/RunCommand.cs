@@ -15,6 +15,7 @@ internal sealed class RunCommand(RepositoryContext repository, IProcessRunner ru
 
     public Task<int> ForwardAsync(IReadOnlyList<string> arguments, CancellationToken token) =>
         runner.StreamAsync(new("dotnet",
-            ["run", "--project", repository.Path("src", "Orisumi"), "--verbosity", "quiet", "--", .. arguments],
-            Environment: new Dictionary<string, string?> { ["ORISUMI_STORE"] = repository.Path(".local", "orisumi") }), output, token);
+            ["run", "--project", repository.Path("src", "Orisumi.Cli"), "--verbosity", "quiet", "--", .. arguments],
+            Environment: new Dictionary<string, string?> { ["ORISUMI_STORE"] = repository.Path(".local", "orisumi") },
+            CancellationGracePeriod: TimeSpan.FromSeconds(12)), output, token);
 }

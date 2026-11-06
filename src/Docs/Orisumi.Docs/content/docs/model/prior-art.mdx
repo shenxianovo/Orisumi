@@ -1,0 +1,95 @@
+---
+title: "参照"
+description: "Perkeep、Syncthing、restic 的存储参照，以及当前原件格式采用的做法"
+---
+
+设计原件和节点之前，2026-11-04 读了三个做过内容寻址存储的系统的设计文档，只读文档和少量源码里的常量，没有安装或运行，读的是三家 GitHub 主分支当天的版本。标了出处的是文档里的事实，标「推论」的是推出来的，没有验证过。
+
+读过的材料：
+
+- [Perkeep](https://github.com/perkeep/perkeep/tree/master/doc)：`doc/overview.md`、`terms.md`、`principles.md`、`schema/`、`protocol/blob-enumerate.md`、0.9 到 0.12 的发布说明，源码常量在 `pkg/constants`、`pkg/schema`、`pkg/blob`、`pkg/server/sync.go`、`pkg/blobserver/blobpacked`、`pkg/gc`。
+- [Syncthing](https://github.com/syncthing/docs)：`specs/bep-v1.rst`、`users/syncing.rst`、`dev/device-ids.rst`、FAQ、[v2.0.0 发布说明](https://github.com/syncthing/syncthing/releases/tag/v2.0.0)。
+- [restic](https://github.com/restic/restic/tree/master/doc)：`design.rst`、`060_forget.rst`、`045_working_with_repos.rst`、`047_tuning_parameters.rst`、`077_troubleshooting.rst`、`cache.rst`。
+- FastCDC 各实现的差异：[`fastcdc` crate 的文档](https://docs.rs/fastcdc/latest/fastcdc/)。
+
+## 三家各是什么
+
+- **Perkeep**：「一生的个人存储」，目标是什么都留着。块是任意字节，元数据也写成 JSON 块。发心和 Orisumi 最近。
+- **Syncthing**：设备之间同步文件夹。块只是传输单位，事实是各设备上的文件，索引是本地数据库。
+- **restic**：备份。仓库里的文件只写一次、从不修改；快照引用目录树，树引用数据块；删除靠 `forget` 加 `prune`。
+
+## 块怎么命名和切分
+
+| | Perkeep | Syncthing | restic |
+| --- | --- | --- | --- |
+| 名字 | `算法-十六进制`。早期默认 `sha1`，0.10 加了 `sha224`，现在默认 `sha224`（`ref.go` 的 `NewHash`），两种并存 | 块内容的 SHA-256，原始字节，没有前缀 | 块 ID 是明文的 SHA-256，没有前缀；仓库里的文件名是文件内容（加密后）的 SHA-256 |
+| 切分 | 文件开头固定切出 256 KiB 的首块（照顾读文件头的工具），之后按滚动校验和切，块最小 64 KiB、最大 1 MiB；块之上用 `bytes` 元数据块组成哈希树；任何块都不超过 16 MiB | 定长块，按文件大小在 128 KiB 到 16 MiB 之间选 2 的幂，让一个文件少于 2000 块；同一文件内块长不变 | Rabin 指纹的 CDC，窗口 64 字节；小于 512 KiB 的文件不切；块 512 KiB 到 8 MiB，平均 1 MiB；多项式在 `init` 时随机生成，存进 `config` |
+| 压缩 | 块层不压缩 | 只在传输时压缩 | 仓库格式 v2 起用 zstd；哈希按压缩前的明文算，索引另记 `uncompressed_length`；同一个 pack 里压缩和不压缩的块可以混放 |
+| 物理存放 | 起初一块一个文件。0.9 加了 `blobpacked`：把小块按文件重排进不超过 16 MB 的 zip，zip 里带 manifest，「元数据索引丢了也能从 zip 重建」；另有 `diskpacked` | 就是文件本身 | 块装进 pack 文件，默认 16 MiB，pack 的头放在尾部；按 `data/<ID 前两位>/<ID>` 分目录 |
+
+几条和 Orisumi 直接相关的事实：
+
+- Syncthing v2.0 去掉了检测数据偏移的滚动哈希，发布说明的原话是「this effectively never helped」。`BlockInfo` 里原来的弱哈希字段改成了 `reserved 4`。
+- restic 的 `copy` 不重新切块。两个仓库的切块参数不同，去重就失效，复制来的文件「may occupy up to twice their space」。已有仓库的切块参数不能改。
+- `fastcdc` crate：`ronomon` 和 `v2016`/`v2020` 切出的边界不同；改了最小块长，切点几乎一定变；各实现的 GEAR 表取值不同；归一化级别改变块长的分布。
+
+## 元数据和索引放在哪，能不能从块重建
+
+- **Perkeep**：存储层每个块只记大小，「No other metadata is permitted」。索引建在同一套存储接口上，文档原话是「you can lose your index at any time」，删掉后从存储重新复制一遍就重建了。元数据块以 `{"camliVersion"` 开头，不读别的块就认得出；单个不超过 1 MB，成员太多时递归拆成子集（`static-set` 的 `mergeSets`）。索引的结构升级要全量重建，例如 multi claim 需要索引版本 7，旧索引必须重建。
+- **Syncthing**：索引数据库在本地（`index-*`）。数据库坏了就删掉，重新哈希所有文件夹。2.0 把 LevelDB 换成 SQLite，第一次启动要做一次很长的迁移。
+- **restic**：索引文件也存在仓库里，加密，每个小于 8 MiB，用 `supersedes` 标出取代了哪些旧索引；本地另有缓存。索引丢了，`repair index` 读每个 pack 尾部的头来重建。快照单独放在 `snapshots/` 目录，列快照不用读数据。读写顺序有不变式：先写 pack，再写索引，最后写快照；读的顺序相反。删数据时，先把 pack 从索引里去掉，再删 pack。
+
+## 同步怎么交换「有哪些块、缺哪些块」
+
+- **Perkeep**：块服务器只有三个操作：取、存、按名字排序列举（`after`、`limit` 分页，可长轮询）。「全量同步」不懂元数据，就是把对方没有的块傻傻地复制过去；「图同步」懂元数据，只同步一个子图。同步处理器在收到块时把它记进一个持久的队列，重启后接着复制；另有校验：按「256 个哈希前缀 × 源端的各种哈希算法」分片，比对两端的列举结果，缺的补进队列；可以每小时从目标端读一些字节比对。
+- **Syncthing**：连接建立时，`ClusterConfig` 里带着「我已经有你的哪个索引（index ID）、看到第几号（max sequence）」，对方只发序号更大的更新，这叫增量索引。每个文件夹的索引有一个随机的 index ID，索引重置时换新的。索引必须按序号递增发送。缺的块按（文件、偏移、长度、哈希）请求，收到后校验 SHA-256，不对就丢掉，换一个来源；本地别的文件里有同样哈希的块就直接复制。
+- **restic**：仓库之间只有 `copy`，要把数据读出来、换密钥重新加密再写；已经复制过的快照会跳过。
+
+## 删除和垃圾回收
+
+- **Perkeep**：概述写着「there's no delete support (optional garbage collection coming later)」，原则写着「Disk is cheap and getting cheaper. No need to delete in general」。块服务器协议没有删除操作。删除是一个新的签名块（delete claim），指向被删的对象。垃圾回收是通用的标记清除：停下写入，从根标记，清掉没标记的；根是用户签名的 permanode 和 keep claim。
+- **Syncthing**：删除是索引里的一条记录，`deleted` 为真、块列表为空，随索引传播。2.0 以前删除记录永远留着；2.0 起默认六个月后忘掉，发布说明写明：需要更久以后删除才生效的，要调长 `--db-delete-retention-interval` 或设成 0。FAQ 说 Syncthing 不是备份工具，因为修改和删除都会传到所有设备。文件夹根下有 `.stfolder` 标记：标记不在（例如盘没挂上），就停下这个文件夹，免得把「整个目录不见了」当成「所有文件都删了」传出去。
+- **restic**：两步。`forget` 删快照文件；`prune` 从剩下的快照出发标记还在用的块，整个没用的 pack 删掉，部分有用的按 `--max-unused`（默认 5%）决定留着还是下载下来重新打包，最后重建索引。`prune` 要拿排他锁，期间备份完成不了；锁超过 30 分钟算过期。重新打包时先写新 pack、再更新索引、最后删旧 pack。
+
+## 格式怎么演进
+
+- **Perkeep**：名字带算法前缀，所以 `sha1` 和 `sha224` 能并存，默认算法改了旧块照样能用。元数据块的 `camliVersion` 一直是 1，演进靠加新的 `camliType`。索引结构变了就全量重建。
+- **Syncthing**：协议用 protobuf，字段只加不改，不要的标 `reserved`。`block_size` 是后加的，缺省时按 128 KiB 读，所以旧数据照样合法；规范要求「MUST therefore accept files with a block size differing from the above rule」。数据库换引擎时做一次迁移。
+- **restic**：`config` 里有仓库版本，现在是 1 或 2，不认识就停下。v2 加了压缩：明文前面加一个字节的编码版本，`[` 和 `{` 表示整段是旧格式的 JSON，旧文件不用重写就能读。S3 的旧目录布局一直支持到 0.17，之后删掉。切块参数随仓库定下，永远不变。
+
+## 各自踩过的坑
+
+文档里写明的：
+
+- Perkeep 起步用 sha1，后来加 sha224，两种名字从此并存。一块一个文件读得慢，后来加了 `blobpacked` 和 `diskpacked`。垃圾回收在概述里写着「coming later」。
+- Syncthing 的滚动哈希多年来「effectively never helped」，2.0 删掉。删除记录永远留着太占地方，2.0 改成六个月，代价是离线更久的设备可能把删掉的文件带回来。大文件的块列表太长，单条消息上限放到 500 MB，规范说以后要靠变长块缩短。挂载点不见了会被当成全删，所以有了 `.stfolder`。
+- restic 的切块参数每个仓库随机，跨仓库复制时去重失效。`prune` 要排他锁，远端仓库上重新打包要先下载再上传，很慢。密钥泄露后只能整库重新加密。2025 年有论文证明能从块长推出切块多项式，restic 0.18 改成把块随机分进 pack 来缓解。
+
+推论：
+
+- Perkeep 最复杂的是可变对象那一层：permanode、签名的 claim、按时间重放出当前状态。Orisumi 没有可变对象，只有采集记录和删除，这一层用不上。
+
+## 借了什么
+
+| 借的做法 | 出处 | 用在哪 |
+| --- | --- | --- |
+| 块名带算法前缀 | Perkeep | [块](./raw.mdx#块) |
+| 哈希按原文算，存储时用 zstd 压缩 | restic | [块](./raw.mdx#块) |
+| 切块器是存储格式的一部分，版本随采集记录保存 | restic 跨仓库复制的教训 | [块](./raw.mdx#块) |
+| 成批的记录用确定的排序和编码 | restic 要求 JSON 编码确定 | [来源怎么采](./sources.mdx) |
+| 块混放，按名字前两位分目录；采集记录单独放 | restic 的 `data/` 和 `snapshots/` | [块](./raw.mdx#块)、[采集记录](./raw.mdx#采集记录) |
+| 采集记录指向文件清单，没变的清单只存一份 | restic 的快照和目录树 | [采集记录](./raw.mdx#采集记录) |
+| 删除本身写成一条记录 | Perkeep 的删除块、Syncthing 的删除标记 | [删除记录](./raw.mdx#删除记录) |
+| 先写内容块和清单，最后发布采集记录 | restic 的读写不变式 | [采集记录](./raw.mdx#采集记录) |
+| 读回内容时核对哈希 | Syncthing、Perkeep、restic `check` | [恢复与导出](./raw.mdx#恢复与导出) |
+| 来源不在和来源为空分开记 | Syncthing 的 `.stfolder` | [文件采集](./file-capture.mdx#结果和失败) |
+
+同步、回收和多端协议的参照保留其各自适用条件。Orisumi 当前的副本路线先验证外部完整备份；何时引入节点见[副本与节点](./nodes.mdx)。
+
+## 当前取舍
+
+- **固定并记录切块器版本**：当前保留已验证的参数和 Gear 表，同一输入按同一版本切分；实际成本成为问题时再比较其他切法。
+- **保存记录与内容共同组成事实**：索引可以重建，采集记录、清单、内容和删除事实一起解释原件的来处与可见性。
+- **来源修改与删除后仍保留已采历史**：后续采集产生新的清单，已经采到的旧内容继续可读。
+- **副本先做恢复试验**：先验证外部完整备份，应用内同步和物理回收分别由实际问题触发。
+- **当前一块一个文件**：块的身份与压缩表示分开；只有真实读写或空间成本形成问题，才比较打包存放的收益。

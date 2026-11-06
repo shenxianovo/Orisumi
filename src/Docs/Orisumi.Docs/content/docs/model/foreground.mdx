@@ -1,0 +1,64 @@
+---
+title: "前台应用观测"
+description: "macOS 的应用级查询和通知逐条留作原件，活动含义在以后理解"
+---
+
+启动时查询当前前台应用；随后接收 macOS 实际发来的应用激活、失活、系统睡眠、唤醒及用户会话通知。每条完整观察行取得后立即保存，所以观察程序仍在运行时，已经提交的内容就能恢复。
+
+例如，从应用 A 切到 B，系统可能先交付 B 激活，再交付 A 失活；两条通知按收到的顺序各存一份。以后计算活动时段时，再结合通知含义解释。当前接口是应用级的，不提供同一应用内部的窗口切换、标题、按键或屏幕内容。
+
+依据：[首先收集数据](../requirements/belief.mdx#首先收集数据)、[尽量采全变化](../requirements/belief.mdx#尽量采全变化)、[留最原始的一层](../requirements/belief.mdx#留最原始的一层)、[出处一起保存](../requirements/belief.mdx#出处一起保存)。取得边界和逐条保存的权衡见 [0006](./adr/0006-observations-as-received.mdx)。
+
+## 运行与取回
+
+```sh
+orisumi run capture foreground --duration 10
+orisumi run capture foreground
+orisumi run raw list
+orisumi run raw show <采集记录>
+orisumi run raw restore <采集记录> <新的恢复目录>
+```
+
+第一条观察 10 秒，第二条持续到 Ctrl+C。`--store <目录>` 选择保存位置；扫描文件用的 `--interval`、`--once` 和 `--retries` 属于各自的文件来源命令。
+
+每条观察独立成为 `source: foreground` 的采集记录，材料路径是 `observation.jsonl`，取得方式为 `appkit-observation-jsonl`。恢复后在 `files/observation.jsonl` 中读取；完整恢复、校验和出处规则沿用[原件](./raw.mdx#恢复与导出)。默认不建立登录启动服务。
+
+## 保存的事实
+
+AppKit 交来对象，而非原始网络字节或事件日志。原生观察程序将取得的公开属性忠实编码为 UTF-8 JSONL，托管采集器保存每行的原始字节，包括 LF。每行共同包含：
+
+| 字段 | 含义 |
+| --- | --- |
+| `format` | `orisumi-foreground-v1`，这一层的记录格式 |
+| `run` | 本次观察程序运行的 UUID；重启后产生新的身份 |
+| `sequence` | 这次运行内从 1 开始的输出顺序 |
+| `observedAt` | 本机取得观察时的 UTC 时间 |
+| `kind` | `started`、`snapshot`、`notification` 或 `stopped` |
+
+`started` 保存系统版本、主机、观察程序 PID、接口和准备订阅的通知名称。`snapshot` 保存查询接口、查询原因与返回的应用属性。`notification` 保存通知原名和实际 `userInfo`；应用对象在接到通知的主线程回调中读取字段。唤醒或会话切入后另做一次查询，保留为独立快照。
+
+应用字段为名称、bundle ID、bundle URL、可执行文件 URL、PID、启动时间，以及 `isActive`、`isHidden`、`isTerminated`、`isFinishedLaunching`、`ownsMenuBar`、`activationPolicy`、`executableArchitecture`。缺失值写 `null`，各字段分别保存，不拼成永久或跨平台身份。
+
+能够直接用 JSON 表达的其他 `userInfo` 值照存；不能编码的对象在 `unencodedUserInfoTypes` 中留下键与类型。对象内部状态与这些未编码值属于取得范围之外。格式升级时再说明新增字段的真实含义。
+
+`observedAt` 是采集器看到事实的时刻，`sequence` 是采集器自己的顺序。系统接口未提供的来源时间与持久游标保持缺失。采集根另记实际保存起止时间、主机、采集器版本，以及 helper 路径和对应的 `run`、`sequence`。
+
+受控切换中，workspace 先交付新应用激活，再交付旧应用失活；应用自身回调的交错顺序相反。产品原件保存 workspace 的真实交付顺序，测试应用自身回调作为独立对照材料。应用的动态属性还受主 run loop 缓存影响，因此激活通知名、当时读到的 `isActive` 和应用自己的完成回调分别解释。`started` 是程序开始事实，随后才注册订阅，不能据此认定已经准备好接收全部通知。
+
+## 停止与缺口
+
+达到时长或收到 Ctrl+C 时，父进程发出停止请求，继续读完 helper 输出并等待它退出。正常结束有 `stopped` 事实；未收到停止请求却退出、非零退出、半行或协议错误都会形成失败结果。半行与协议错误行也保留原始字节，分别存为 `incomplete-observation.jsonl` 和 `invalid-observation.jsonl`。
+
+停止请求后 5 秒内仍不退出，会强制停止并记录失败。原生 helper 把 SIGINT 留给父进程处理；父进程消失时，stdin 关闭也会结束观察。产品命令和开发入口留有更长的有界收尾时间，防止外层先杀掉正在保存结束事实的进程。
+
+保存失败时终止观察，并尽力留下失败记录；整个存储不可用时在命令输出中说明。此前已经完成的采集记录继续可读。进程被强制终止、系统停机、观察程序未运行时，仍可能丢失尚未保存的末尾或整个未观察窗口。已有根证明已保存前缀，不证明系统断电耐久性。
+
+## 平台条件与验收范围
+
+当前实现使用 AppKit 的 `NSWorkspace`，需要 macOS 图形用户会话；构建时需要现有的 `xcrun swiftc`，运行使用随 CLI 携带的原生程序。其他平台继续使用其可用的数据来源，前台入口明确报告 macOS 条件。
+
+生产程序不调用辅助功能接口，也不申请辅助功能、输入监控或屏幕录制权限。本机已有辅助功能信任，因此这次环境没有证明全新未授权身份的行为。
+
+实际初始查询、22 次三应用切换、正常停止和逐条恢复已通过核对；同应用切窗和改标题也验证了应用级接口的范围，见[前台验收](./validation.mdx#前台观测)。这支持当前手动运行的 macOS 应用级来源。长期常驻、睡眠与会话变化各自保留待测范围；会话切入切出通知沿用 AppKit 的原语义。
+
+接口依据：[Apple frontmostApplication](https://developer.apple.com/documentation/appkit/nsworkspace/frontmostapplication)、[应用激活通知](https://developer.apple.com/documentation/appkit/nsworkspace/didactivateapplicationnotification)、[NSRunningApplication](https://developer.apple.com/documentation/appkit/nsrunningapplication)、[会话切出通知](https://developer.apple.com/documentation/appkit/nsworkspace/sessiondidresignactivenotification)。

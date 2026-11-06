@@ -1,15 +1,12 @@
 using System.CommandLine;
-using System.Text.Json;
 
 namespace Orisumi.Dev;
 
 internal sealed class TidyCommand(RepositoryContext repository, IProcessRunner runner, TextWriter output)
 {
-    private sealed record UnusedRecord(string File, string Key);
-
     public Command CreateCommand()
     {
-        var command = new Command("tidy", "Format the changed files, remove unused answer records and lint what changed");
+        var command = new Command("tidy", "Format the changed files and lint what changed");
         var json = CommandLine.Json();
         command.Options.Add(json);
         command.SetAction((parse, token) => RunAsync(parse.GetValue(json), token));
