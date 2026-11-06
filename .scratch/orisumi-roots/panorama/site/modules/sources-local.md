@@ -486,15 +486,15 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 ## Git保存内容层次
 
-**助手推论** · commit 原文含树的标识与作者信息；只存 commit 和 numstat 可以看做过什么，无法在仓库消失后恢复版本文件正文。
+**助手推论** · bundle保存引用可达的Git对象与版本正文，HEAD符号关系和配置另存取得事实；这些材料共同表达本次实际拿到的范围。
 
-**条件成立再做 · 以后**
+**Agent采用 · 当前**
 
 候选：提交引用及可达对象归档。
 
-理由与代价：自包含 Git bundle 能保住可达版本正文，优于仅提交统计；整工作区存在多文件一致性和外部对象问题，接受未提交、LFS、子模块另列范围。
+理由与代价：A/B离开来源后分别恢复26与12个对象、7与2个提交版本，证明bundle路线保住历史正文；符号关系及配置独立记录，外部对象另列。
 
-启动或重审条件：用含重命名与二进制的测试仓库导出恢复，逐版本核对正文；发现 LFS/子模块再查依赖闭包。
+启动或重审条件：真实仓库运行成本、特殊对象格式/存储、外部依赖或未提交状态需求变化时重审；完整性由独立恢复与字节核对支持。
 
 依据：
 
@@ -503,9 +503,13 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 依据材料：[.scratch/requirements/survey-local.md](../../../../requirements/survey-local.md)。32 仓库速记，只证明已有提交。
 
-依据材料：[src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#git](../../../../../src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#git)。当前设计仅提交原文和 numstat。
-
 依据材料：[https://git-scm.com/docs/git-bundle](https://git-scm.com/docs/git-bundle)。官方支持 objects/refs 的完整或增量 bundle；未据此声称工作区等被包含。
+
+依据材料：[.scratch/requirements/survey-git.md](../../../../requirements/survey-git.md)。独立夹具A/B逐对象、逐版本恢复；HEAD与符号关系、最新stash/旧reflog、元数据竞态、LFS/子模块边界均留原样本。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)。显式仓库的bundle、分次命令原输出与取得条件；采集根身份沿用原件，特殊范围按实际结果说明。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)。真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。
 
 ### 提交引用及可达对象归档 · 助手推荐
 
@@ -515,11 +519,11 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 代价：体量更大；未提交内容、LFS 实体和子模块须另查。
 
-适用条件：推荐先一仓库恢复试验。
+适用条件：当前Git路线，先显式指定仓库，自动发现另按证据安排。
 
 继续展开：[Git当前工作与历史边界](#n-0654de3735dd2271)、[文件变化取得策略](capture.md#n-6de65500ebbea77b)
 
-分支终点：为一个包含重命名和二进制的测试仓库做自包含 bundle，在空目录恢复并比较各版本正文；列出 LFS 和子模块的外部材料。
+分支终点：合成A/B和真实两仓库独立恢复已通过；每轮空库verify后mirror clone+fsck，真实包损坏及头部悬空分别拒绝。
 
 检验：不访问原仓库即可检出所选历史；bundle verify 通过，外部缺失单独列出。
 
@@ -553,7 +557,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：每个依赖都可在离开原目录后解析，裸递归副本不因通过文件校验就被称一致仓库。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。（[src/Orisumi.Capturing/GitCollector.cs](../../../../../src/Orisumi.Capturing/GitCollector.cs)、[tests/Orisumi.Capturing.Tests/GitCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/GitCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -569,26 +573,30 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 **助手推论** · 分支、工作区改动、暂存、stash 与最终提交表达不同状态；“提交持久”也依赖对象仍可达或未被清理。
 
-**条件成立再做 · 以后**
+**Agent采用 · 当前**
 
-候选：先保存可达提交历史。
+候选：先保存HEAD、refs与可达对象。
 
-理由与代价：先取得 refs 与可达对象，让已采分支改写后仍可恢复；工作区和不可达对象需独立观察，接受当前未提交过程不在此边界。
+理由与代价：--all实测覆盖HEAD、refs和最新stash可达对象，改引用后A仍可恢复；旧reflog、index、工作区及外部实体各自有保存窗口，保留明确范围。
 
-启动或重审条件：测试仓库采 A 后改引用为 B，确认 A 仍可恢复；真实未提交丢失案例出现时再验证 working。
+启动或重审条件：未提交变化或旧reflog材料出现实际保存需求时，勘探独立文件/短期历史路线；多worktree与特殊对象库另验。
 
 依据：
 
 - [保留采到的历史](roots.md#n-509f2d3467e7b121)（选择依据）：实际已采版本要保留，此处区分来源当前状态、来源历史和本次取得的版本。
 - [尽量采全变化](roots.md#n-cc33c5b227746d72)（选择依据）：尽量取每次可取得变化，此处需验证来源暴露的变化粒度和取得窗口。
 
-依据材料：[src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#git](../../../../../src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#git)。既有设计只覆盖提交，工作区未决定。
-
 依据材料：[https://git-scm.com/docs/git-bundle](https://git-scm.com/docs/git-bundle)。bundle 覆盖所选引用及对象，额外状态需另行取证。
 
-### 先保存可达提交历史 · 助手推荐
+依据材料：[.scratch/requirements/survey-git.md](../../../../requirements/survey-git.md)。独立夹具A/B逐对象、逐版本恢复；HEAD与符号关系、最新stash/旧reflog、元数据竞态、LFS/子模块边界均留原样本。
 
-定期枚举 refs 并保留当次可达对象；已采版本在分支改写后仍保留。
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)。显式仓库的bundle、分次命令原输出与取得条件；采集根身份沿用原件，特殊范围按实际结果说明。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)。真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。
+
+### 先保存HEAD、refs与可达对象 · 助手推荐
+
+每轮由Git枚举HEAD和refs并输出bundle，另存分次取得的符号关系与配置；包含最新stash可达对象。
 
 收益：起点清楚且容易验证。
 
@@ -598,7 +606,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 继续展开：[离线与历史补取](capture.md#n-f116b26a22aa88eb)
 
-分支终点：测试仓库上采分支 A，改变引用后再采 B；检查 A 的对象仍能从已采原件恢复。
+分支终点：合成A/B和真实两仓库独立恢复已通过；每轮空库verify后mirror clone+fsck，真实包损坏及头部悬空分别拒绝。
 
 检验：恢复 A/B 两次 refs 与正文；不能用当前 git log 的结果推断完整过去。
 
@@ -618,7 +626,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：列出每种状态可取得的字段、丢失窗口与恢复方法。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。（[src/Orisumi.Capturing/GitCollector.cs](../../../../../src/Orisumi.Capturing/GitCollector.cs)、[tests/Orisumi.Capturing.Tests/GitCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/GitCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/git.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/git.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-%E5%8E%86%E5%8F%B2)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 

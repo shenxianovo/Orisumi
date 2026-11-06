@@ -1,9 +1,9 @@
 ---
 title: "来源怎么采"
-description: "会话、前台与浏览器观测的范围，以及旧 Heartbeat 和 Git 的来源设计"
+description: "会话、前台与浏览器观测、Git 历史的范围，以及旧 Heartbeat 的来源设计"
 ---
 
-这一页记录各来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 使用[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；[浏览器](./browser.mdx)由扩展取得标签与窗口观测，再交给本机原件接收器；旧 Heartbeat 和 Git 先验证各自的一条取得与恢复路径。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
+这一页记录各来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 使用[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；[浏览器](./browser.mdx)由扩展取得标签与窗口观测，再交给本机原件接收器；[Git](./git.mdx)保存引用可达对象及分次取得的出处。旧 Heartbeat 的导出路线仍待验证。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
 
 ## macOS 前台应用
 
@@ -156,9 +156,9 @@ orisumi run raw restore <采集> <新目录>
 
 ## Git
 
-Git 的下一条验证路径是自包含 bundle，保存选定引用及可达对象，让历史正文可以独立恢复。先用包含重命名和二进制文件的测试仓库取得一份保存内容，改变来源引用后再恢复，逐版本核对正文。
+`orisumi run capture git <仓库目录> --once` 保存本轮 `--all` 枚举的 HEAD、refs 及可达对象为 bundle，同时保存 Git 版本、参数、位置、命令原输出和时间。持续运行在每轮结束后等待 300 秒再采；位置由调用方明确提供。
 
-这一范围先覆盖已提交历史。未提交工作区、不可达对象、LFS 和子模块各自有独立的取得条件；发现实际依赖后逐项勘探，再决定要补进哪些材料。仓库位置、引用、来源地址与工具版本随当次取得保存。
+最新 stash 的可达对象随引用保存，旧 reflog、index 和未提交工作区另有范围。LFS pointer 与子模块 gitlink 可随主仓库取得，其外部正文分别勘探。bundle 头是本份归档的引用事实；当前分支、符号关系和 local 配置按各自观测时间保存。完整格式、失败留证与独立恢复见 [Git 历史采集](./git.mdx)。
 
 依据：
 

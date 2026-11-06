@@ -64,7 +64,42 @@ public static class Program
             command.Options.Add(retries);
             command.Options.Add(once);
         }
-        return new Command("capture", "把一个来源采成原件块") { files, claudeCode, codex, Foreground(storeDirectory), Browser(storeDirectory) };
+        return new Command("capture", "把一个来源采成原件块") { files, claudeCode, codex, Git(storeDirectory), Foreground(storeDirectory), Browser(storeDirectory) };
+    }
+
+    private static Command Git(Option<string> storeDirectory)
+    {
+        var repository = new Argument<string>("repository") { Description = "本轮取得引用与可达历史的 Git 仓库目录" };
+        var interval = new Option<int>("--interval") { Description = "每轮完成后等待的秒数", DefaultValueFactory = _ => 300 };
+        var once = new Option<bool>("--once") { Description = "只采集一轮；部分完成或失败时返回非零状态" };
+        var command = new Command("git", "保存一个显式仓库的 bundle 与分次取得的来源证据") { repository, interval, once };
+        command.SetAction(async (parse, token) =>
+        {
+            try
+            {
+                var collector = new GitCollector(parse.GetValue(storeDirectory)!, $"orisumi capture git {Version}");
+                var path = parse.GetValue(repository)!;
+                if (parse.GetValue(once))
+                {
+                    var round = await collector.ScanAsync(path, token);
+                    PrintRound(round);
+                    return token.IsCancellationRequested ? 130 : round.Failure is null ? 0 : 1;
+                }
+                await foreach (var round in collector.Watch(path, TimeSpan.FromSeconds(parse.GetValue(interval)), token))
+                    PrintRound(round);
+                return 0;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return 130;
+            }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                Console.Error.WriteLine(error.Message);
+                return 1;
+            }
+        });
+        return command;
     }
 
     private static Command Browser(Option<string> storeDirectory)

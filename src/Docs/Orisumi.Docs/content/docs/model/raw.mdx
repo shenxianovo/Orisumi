@@ -15,7 +15,7 @@ description: "从来源拿到的最原始的一层，存成按内容寻址的块
 
 **完整内容**是采集端一次交给存储的一段有结束边界的原始字节。一份完整内容可以包含多个来源单元，存储时可以拆成多个块。
 
-采集端按来源决定完整内容在哪里结束：普通文件交来一次读取的字节；SQLite 交来 online backup 取得的一份完整数据库快照；观察接口交来对象时，来源负责记录实际公开字段。前台每条 JSONL 观察行单独交付，浏览器每条 Native Messaging JSON payload 单独交付。批次的选择由来源设计确定。取得方式随内容记在清单里。
+采集端按来源决定完整内容在哪里结束：普通文件交来一次读取的字节；SQLite 交来 online backup 取得的一份完整数据库快照；观察接口交来对象时，来源负责记录实际公开字段。前台每条 JSONL 观察行单独交付，浏览器每条 Native Messaging JSON payload 单独交付。Git 一轮交来 bundle 及各次命令输出和取得事实。批次的选择由来源设计确定。取得方式随内容记在清单里。
 
 存储层负责将完整内容切成物理块，并按原顺序读回。来源单元、完整内容和物理块分别有自己的边界，出处与采集运行另行表达。
 
@@ -108,6 +108,9 @@ description: "从来源拿到的最原始的一层，存成按内容寻址的块
 | `appkit-observation-jsonl` | AppKit helper 交来的一条 JSONL 观察行，含原有换行 |
 | `chrome-native-message-json` | Chrome Native Messaging 交来的一份 JSON payload 原字节 |
 | `chrome-native-message-frame` | 未完整或无效帧中实际收到的长度头与内容 |
+| `git-bundle` | Git bundle 命令交来的原始字节或失败前缀 |
+| `git-command-stdout`、`git-command-stderr` | 各条 Git 命令的原始标准输出或错误输出 |
+| `git-command-metadata` | 该命令的参数、位置、环境条件、时间和取得结果 |
 
 普通文件和数据库快照的 `linkTarget` 是 `null`。符号链接的 `bytes` 是 0、`hash` 是空内容的 SHA-256、`blocks` 是空数组，链接目标只在 `linkTarget` 中保存。读取链接目标时保留原字符串，包括相对路径或指向来源目录之外的路径。
 

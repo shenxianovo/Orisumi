@@ -113,7 +113,7 @@ flowchart TD
 
 继续展开：[手机来源分项勘探](sources-live.md#n-fa86213d600d0954)、[硬件传感数据取得](sources-live.md#n-403c19b83fbf57ee)
 
-实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/ClaudeCodeSource.cs](../../../../../src/Orisumi.Capturing/ClaudeCodeSource.cs)、[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/ClaudeCodeSource.cs](../../../../../src/Orisumi.Capturing/ClaudeCodeSource.cs)、[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -250,7 +250,7 @@ flowchart TD
 
 检验：延期列表显式列出哪些时段永远补不回，不能称全量历史。
 
-实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
 
 审阅重点：建议现存易取得材料先留底，同时为一条不可补回的观测做小导洞。决定下一项投入在哪里。
 

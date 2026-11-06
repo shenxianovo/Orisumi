@@ -705,7 +705,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Capturing/ClaudeCodeSource.cs",
           "src/Orisumi.Capturing/CodexSource.cs",
@@ -905,7 +905,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Capturing/ForegroundCollector.cs",
@@ -1736,7 +1736,7 @@
       "module": "sources-local",
       "type": "decision",
       "status": "proposed",
-      "summary": "commit 原文含树的标识与作者信息；只存 commit 和 numstat 可以看做过什么，无法在仓库消失后恢复版本文件正文。",
+      "summary": "bundle保存引用可达的Git对象与版本正文，HEAD符号关系和配置另存取得事实；这些材料共同表达本次实际拿到的范围。",
       "basis": [
         {
           "id": "首先收集数据",
@@ -1756,14 +1756,24 @@
           "note": "32 仓库速记，只证明已有提交。"
         },
         {
-          "kind": "file",
-          "ref": "src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#git",
-          "note": "当前设计仅提交原文和 numstat。"
-        },
-        {
           "kind": "url",
           "ref": "https://git-scm.com/docs/git-bundle",
           "note": "官方支持 objects/refs 的完整或增量 bundle；未据此声称工作区等被包含。"
+        },
+        {
+          "kind": "file",
+          "ref": ".scratch/requirements/survey-git.md",
+          "note": "独立夹具A/B逐对象、逐版本恢复；HEAD与符号关系、最新stash/旧reflog、元数据竞态、LFS/子模块边界均留原样本。"
+        },
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
+          "note": "显式仓库的bundle、分次命令原输出与取得条件；采集根身份沿用原件，特殊范围按实际结果说明。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
+          "note": "真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。"
         }
       ],
       "options": [
@@ -1774,7 +1784,7 @@
           "summary": "保留可取得 refs 和所需 commit/tree/blob 对象，优先试自包含 bundle；把取得时的引用状态一起存。",
           "benefit": "来源仓库消失后仍可读历史正文。",
           "cost": "体量更大；未提交内容、LFS 实体和子模块须另查。",
-          "when": "推荐先一仓库恢复试验。",
+          "when": "当前Git路线，先显式指定仓库，自动发现另按证据安排。",
           "next": [
             "Git当前工作与历史边界",
             "文件变化取得策略"
@@ -1782,7 +1792,7 @@
           "conflicts_with": [],
           "terminal": {
             "kind": "experiment",
-            "detail": "为一个包含重命名和二进制的测试仓库做自包含 bundle，在空目录恢复并比较各版本正文；列出 LFS 和子模块的外部材料。",
+            "detail": "合成A/B和真实两仓库独立恢复已通过；每轮空库verify后mirror clone+fsck，真实包损坏及头部悬空分别拒绝。",
             "check": "不访问原仓库即可检出所选历史；bundle verify 通过，外部缺失单独列出。"
           }
         },
@@ -1823,19 +1833,24 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "implemented",
+        "note": "显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。",
+        "refs": [
+          "src/Orisumi.Capturing/GitCollector.cs",
+          "tests/Orisumi.Capturing.Tests/GitCollectorTests.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "objects"
         ],
-        "reason": "自包含 Git bundle 能保住可达版本正文，优于仅提交统计；整工作区存在多文件一致性和外部对象问题，接受未提交、LFS、子模块另列范围。",
-        "trigger": "用含重命名与二进制的测试仓库导出恢复，逐版本核对正文；发现 LFS/子模块再查依赖闭包。",
-        "stage": "later"
+        "reason": "A/B离开来源后分别恢复26与12个对象、7与2个提交版本，证明bundle路线保住历史正文；符号关系及配置独立记录，外部对象另列。",
+        "trigger": "真实仓库运行成本、特殊对象格式/存储、外部依赖或未提交状态需求变化时重审；完整性由独立恢复与字节核对支持。",
+        "stage": "now"
       }
     },
     {
@@ -1858,22 +1873,32 @@
       ],
       "evidence": [
         {
-          "kind": "file",
-          "ref": "src/Docs/Orisumi.Docs/content/docs/model/sources.mdx#git",
-          "note": "既有设计只覆盖提交，工作区未决定。"
-        },
-        {
           "kind": "url",
           "ref": "https://git-scm.com/docs/git-bundle",
           "note": "bundle 覆盖所选引用及对象，额外状态需另行取证。"
+        },
+        {
+          "kind": "file",
+          "ref": ".scratch/requirements/survey-git.md",
+          "note": "独立夹具A/B逐对象、逐版本恢复；HEAD与符号关系、最新stash/旧reflog、元数据竞态、LFS/子模块边界均留原样本。"
+        },
+        {
+          "kind": "file",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
+          "note": "显式仓库的bundle、分次命令原输出与取得条件；采集根身份沿用原件，特殊范围按实际结果说明。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
+          "note": "真实两仓库各采两轮，独立恢复禁止来源目录与网络，全部可达对象正文SHA-256一致；完整性与取消另有红→绿行为证据。"
         }
       ],
       "options": [
         {
           "id": "committed",
-          "title": "先保存可达提交历史",
+          "title": "先保存HEAD、refs与可达对象",
           "status": "recommended",
-          "summary": "定期枚举 refs 并保留当次可达对象；已采版本在分支改写后仍保留。",
+          "summary": "每轮由Git枚举HEAD和refs并输出bundle，另存分次取得的符号关系与配置；包含最新stash可达对象。",
           "benefit": "起点清楚且容易验证。",
           "cost": "未提交改动和被清理前未取得的对象不在其中。",
           "when": "推荐为第一条 Git 路线。",
@@ -1883,7 +1908,7 @@
           "conflicts_with": [],
           "terminal": {
             "kind": "experiment",
-            "detail": "测试仓库上采分支 A，改变引用后再采 B；检查 A 的对象仍能从已采原件恢复。",
+            "detail": "合成A/B和真实两仓库独立恢复已通过；每轮空库verify后mirror clone+fsck，真实包损坏及头部悬空分别拒绝。",
             "check": "恢复 A/B 两次 refs 与正文；不能用当前 git log 的结果推断完整过去。"
           }
         },
@@ -1908,21 +1933,26 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "implemented",
+        "note": "显式仓库GitCollector与CLI已实现；12条行为测试、真实qstack/Orisumi各两轮独立恢复通过，分别核对30/23936对象。单线程bundle的重复取得只新增出处；Orisumi/qstack两个日常任务已启用，均产生成功采集记录。",
+        "refs": [
+          "src/Orisumi.Capturing/GitCollector.cs",
+          "tests/Orisumi.Capturing.Tests/GitCollectorTests.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "one",
-      "choice_note": "选择提交历史单独保存，或提交历史加未提交/短期状态；扩展方案包含提交历史，不需要同时选择两个候选。",
+      "choice_note": "选择引用可达对象单独保存，或加上工作区、暂存和短期历史；扩展方案包含可达对象，最新stash与完整stash栈分别解释。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "committed"
         ],
-        "reason": "先取得 refs 与可达对象，让已采分支改写后仍可恢复；工作区和不可达对象需独立观察，接受当前未提交过程不在此边界。",
-        "trigger": "测试仓库采 A 后改引用为 B，确认 A 仍可恢复；真实未提交丢失案例出现时再验证 working。",
-        "stage": "later"
+        "reason": "--all实测覆盖HEAD、refs和最新stash可达对象，改引用后A仍可恢复；旧reflog、index、工作区及外部实体各自有保存窗口，保留明确范围。",
+        "trigger": "未提交变化或旧reflog材料出现实际保存需求时，勘探独立文件/短期历史路线；多worktree与特殊对象库另验。",
+        "stage": "now"
       }
     },
     {
@@ -3167,7 +3197,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。",
+        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控 Profile 断连恢复通过，日常 Chrome 已加载，16份原件核验及三类代表材料恢复通过。长期体量另测。",
         "refs": [
           "src/Orisumi.Browser/worker.js",
           "src/Orisumi.Browser/delivery.js",
@@ -3260,7 +3290,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。",
+        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控 Profile 断连恢复通过，日常 Chrome 已加载，16份原件核验及三类代表材料恢复通过。长期体量另测。",
         "refs": [
           "src/Orisumi.Browser/worker.js",
           "src/Orisumi.Browser/delivery.js",
@@ -3640,7 +3670,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。",
+        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控 Profile 断连恢复通过，日常 Chrome 已加载，16份原件核验及三类代表材料恢复通过。长期体量另测。",
         "refs": [
           "src/Orisumi.Browser/worker.js",
           "src/Orisumi.Browser/delivery.js",
@@ -5512,7 +5542,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "当前三个来源分别采用通知与每轮结束后等待 300 秒；文件来源的真实两轮采集与恢复已验，系统启动复用现有循环。",
+        "note": "前台和浏览器按事件取得，两种会话及两个Git仓库每轮结束后等待300秒；文件来源的真实两轮采集与恢复已验，系统启动复用现有循环。",
         "refs": [
           "src/Orisumi.Capturing/Collector.cs",
           "src/Orisumi.Capturing/ForegroundCollector.cs",
@@ -5849,7 +5879,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "已发布独立程序并配置三个用户级任务，共用明确存储；实际运行、停止与再启动已验。真实退出登录再登录与全天覆盖仍待测。",
+        "note": "已发布独立程序并配置五项用户级任务，共用明确存储；实际运行、停止与再启动已验。真实退出登录再登录与全天覆盖仍待测。",
         "refs": [
           "tools/Orisumi.Dev/Run/PublishCommand.cs",
           "src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx",
@@ -11808,7 +11838,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Cli/Program.cs",
           "src/Docs/Orisumi.Docs/content/docs/model/index.mdx",
@@ -12397,7 +12427,7 @@
         "choices": [
           "none"
         ],
-        "reason": "单次结果和失败保留在原件与运行输出中；外部系统只管理三个采集进程的启动和重启。来源遗漏、长期未更新与告警仍无内建判定，接受这部分可见性边界。",
+        "reason": "单次结果和失败保留在原件与运行输出中；外部系统只管理五项采集任务的启动和重启。来源遗漏、长期未更新与告警仍无内建判定，接受这部分可见性边界。",
         "trigger": "需要发现进程存活但长期没有新结果时，再加简单外部探活；来源缺口恢复与告警平台继续按从简边界后置。",
         "stage": "now"
       }
@@ -12478,7 +12508,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Capturing/ForegroundCollector.cs",
@@ -12580,7 +12610,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；五项用户级任务覆盖前台、两种会话和两个显式Git仓库，日常浏览器由扩展与Native host持续取得。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx",
           ".scratch/requirements/survey-macos-foreground.md",
@@ -13612,7 +13642,7 @@
         "第一阶段怎样验收",
         "运行保障怎样安排"
       ],
-      "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
+      "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。 当前扩为五任务，新增两个显式Git仓库，更新后均有新版本成功根；Native host独立重启和续传另验。"
     },
     {
       "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
@@ -13631,7 +13661,25 @@
         "浏览器事件传输",
         "瞬时事件接收方式"
       ],
-      "note": "新 Profile 受控事件、断连与 Worker 重启、118份逐字节恢复；生产安装和长期覆盖另验。"
+      "note": "新 Profile 受控事件、断连与 Worker 重启、118份逐字节恢复；日常 Chrome 实际启用后16份原件核验、三类代表材料恢复通过，长期覆盖另验。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/git.mdx",
+      "nodes": [
+        "Git保存内容层次",
+        "Git当前工作与历史边界",
+        "内容取得与来源身份"
+      ],
+      "note": "自包含bundle及分次命令原输出、HEAD/symref、local config与取得条件，失败前缀和有界取消。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#git-历史",
+      "nodes": [
+        "Git保存内容层次",
+        "Git当前工作与历史边界",
+        "第一阶段怎样验收"
+      ],
+      "note": "真实两仓库各两轮，禁止访问来源目录和网络的Git恢复；30/23936对象逐字节通过，独立架构审阅和环境干扰另验。 单线程打包后相同包全部复用，第二轮大仓仅新增13,661字节出处。"
     }
   ],
   "limitations": [
@@ -13642,13 +13690,13 @@
     "存储对照包含真实静态样本与明确标注的历史回放；只比较去重后压缩内容体积，不能代表真实连续历史、完整元数据、CPU或所有来源。",
     "既有答题基准验证过已删除的导洞；不能据此声称重写后的读取能力或全部答案已经通过用户验收。",
     "已授权采用的方案按独立交付推进，正式文档和实现随实际完成范围同步替换；尚未实现的路线继续保留条件与证据缺口。",
-    "外部副本仍是按需手动复制。当前三个来源已由用户级任务持续采集；受限 IP 网络与进程重启有实际证据。真实重新登录、全天运行、系统睡眠、其他平台、全新权限身份及断电各自待验，系统进程状态不能证明来源完整率。",
-    "浏览器已验证受控新 Profile 的标签/窗口观测、暂存重放与独立恢复；安装实例是扩展生成身份，复制Profile可能复制它。日常Profile安装、长期量、睡眠和未暂存尾部各自保留验收边界。"
+    "外部副本仍是按需手动复制。当前前台、两种会话和两个Git仓库由五项用户级任务持续采集，浏览器由扩展及Native host运行；受限 IP 网络与进程重启有实际证据。真实重新登录、全天运行、系统睡眠、其他平台、全新权限身份及断电各自待验，系统进程状态不能证明来源完整率。",
+    "浏览器已验证受控新 Profile 的标签/窗口观测、暂存重放与独立恢复；安装实例是扩展生成身份，复制Profile可能复制它。日常 Chrome 已加载且16份原件核对通过；长期量、睡眠和未暂存尾部各自保留验收边界。"
   ],
   "routes": [
     {
       "title": "当前交付：留下材料并能取回",
-      "summary": "Claude Code 与 Codex 已选材料的采集、完整出处、本机恢复，以及一次 Linux 手动副本与独立恢复已经完成；继续按来源损失窗口扩展。",
+      "summary": "Claude Code与Codex已选材料、出处、本机恢复和Linux手动副本已完成；持续采集中的149根已独立核对并恢复三个来源最新材料。",
       "when": "当前已选目录与 state_5 范围；Codex 其他库仍待核对。手动副本之后的新采集等下一次备份，定时任务尚未建立。",
       "choices": {
         "交付路线怎样排序": "independent",
@@ -13670,7 +13718,7 @@
     },
     {
       "title": "当前交付：已有来源持续采集",
-      "summary": "独立发布程序由三个用户级任务运行，前台持续观察、Codex/Claude Code 每轮结束后等待 300 秒；共用原件目录，保留外部手动副本路线。",
+      "summary": "独立发布程序由五项用户级任务运行，前台持续观察，Codex/Claude Code及Orisumi/qstack两仓库每轮后等待300秒；浏览器另由Native host取得，所有来源共用原件目录。",
       "when": "当前 macOS 用户会话；手动切换、受限 IP 网络与重启恢复、任务装载和停止各有实际证据，真实重新登录、全天与系统状态组合另测。",
       "choices": {
         "来源接入顺序": "loss-cost",
@@ -13683,8 +13731,8 @@
     },
     {
       "title": "当前交付：浏览器观测与断连续传",
-      "summary": "标签/窗口原回调与独立查询先在扩展暂存，经 Native Messaging 交原件；匹配根回执后清理，受控Profile端到端恢复已验。",
-      "when": "Chrome 130+ 的 MV3 扩展与本机 host；日常 Profile 安装、长期体量及系统状态组合分别验证。",
+      "summary": "标签/窗口原回调与独立查询先在扩展暂存，经 Native Messaging 交原件；匹配根回执后清理。受控 Profile 故障恢复及日常 Chrome 实际启用已验。",
+      "when": "Chrome 130+ 的 MV3 扩展与本机 host；日常 Profile 已启用，长期体量与系统状态组合分别验证。",
       "choices": {
         "浏览器观测层次": [
           "events"
@@ -13692,6 +13740,17 @@
         "浏览器焦点与标签观测": "separate",
         "浏览器事件传输": "native",
         "瞬时事件接收方式": "local-first",
+        "第一阶段怎样验收": "recovery"
+      }
+    },
+    {
+      "title": "当前交付：Git历史与独立恢复",
+      "summary": "显式仓库的HEAD、refs及可达对象以bundle保存；命令原输出与取得时间分开记录，实际mirror clone与fsck通过后判为完整。",
+      "when": "普通完整仓库已有合成A/B及两个真实仓库证据；最新stash可达对象在范围内，旧reflog、index、工作区与外部实体另列。当前两个已验证仓库已启用持续任务，其他仓库先明确选择。",
+      "choices": {
+        "Git保存内容层次": "objects",
+        "Git当前工作与历史边界": "committed",
+        "内容取得与来源身份": "separate-three",
         "第一阶段怎样验收": "recovery"
       }
     },

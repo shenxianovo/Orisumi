@@ -86,6 +86,6 @@ macOS 普通 Chrome 的用户级登记位置为 `~/Library/Application Support/G
 
 在相应 Profile 的扩展管理页加载发布目录的 `Browser/`。浏览器按需启动 host；标准输入与输出专用于 Native Messaging，诊断写到标准错误。host 默认写 `~/.orisumi`，独立测试通过 `ORISUMI_STORE` 指定测试存储。每个 Profile 各自安装，具体浏览器的登记目录按其接口文档设置。
 
-更新时先验证新发布，保留旧原件与扩展暂存，再重新加载扩展，使新的 Worker 和 host 使用新程序。停止采集可以禁用扩展；移除扩展前先核对暂存已送达，因为卸载会清掉浏览器内的暂存。现有三个系统任务的管理见[本机持续采集](./continuous-capture.mdx)。
+更新时先验证新发布，保留旧原件与扩展暂存，再重新加载扩展，使新的 Worker 和 host 使用新程序。停止采集可以禁用扩展；移除扩展前先核对暂存已送达，因为卸载会清掉浏览器内的暂存。现有五项系统任务的管理见[本机持续采集](./continuous-capture.mdx)。
 
-受控新 Profile 的完整链路、长消息与恢复证据见[浏览器验收](./validation.mdx#浏览器观测)。日常 Profile 启用与持续量另行核对。
+受控新 Profile 的完整链路、长消息与恢复证据见[浏览器验收](./validation.mdx#浏览器观测)。当前日常 Chrome Profile 已启用，启动、查询与标签回调已有实际原件和恢复证据；长期体量和系统状态组合继续核对。

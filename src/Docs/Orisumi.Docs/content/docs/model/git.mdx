@@ -1,0 +1,59 @@
+---
+title: "Git 历史采集"
+description: "引用可达对象的自包含 bundle、分次观测的出处与独立恢复"
+---
+
+例如，一个仓库先有 `旧名.txt` 和二进制文件，第二次提交把旧名改成新名。采 A 后改写分支，再采 B；来源目录移走后，分别从 A、B 的原件恢复 bundle，仍可读回各次已经取得的历史正文。当前工作区里的未提交修改另有取得路径。
+
+依据：[留最原始的一层](../requirements/belief.mdx#留最原始的一层)、[保留采到的历史](../requirements/belief.mdx#保留采到的历史)、[出处一起保存](../requirements/belief.mdx#出处一起保存)与[能补的也定期采](../requirements/belief.mdx#能补的也定期采)。Git 勘探实测了分支改写、重命名、二进制、stash、符号引用和脱离来源后的恢复；当前路线由 Agent 按自主授权采用。
+
+## 取得范围
+
+```sh
+orisumi run capture git <仓库目录> --once
+orisumi run capture git <仓库目录> --interval 300
+```
+
+每次明确指定一个仓库位置，立即采一轮；持续模式在每轮结束后等待指定秒数，默认 300 秒。来源名是 `git`，采集根的 `origin` 是该位置的规范绝对路径。采集记录根的内容哈希标识这次取得；对象 ID、引用名和仓库路径是来源证据。
+
+`git -c pack.threads=1 bundle create - --all` 产生 `repository.bundle`，包含该次 Git 枚举的 HEAD、refs 及可达对象。最新 `refs/stash` 的可达内容也在范围内；只存于旧 reflog 的 stash、当前 index、工作区和不可达对象另算。LFS pointer 和子模块 gitlink 是主仓库对象中的事实，LFS 实体和子仓库对象分别属于外部材料。
+
+bundle 头部记这份归档实际携带的引用名与对象值。HEAD 与其他符号引用关系由分次命令观测保留：两个分支指向同一提交时，clone 可以选出与来源不同的当前分支；remote HEAD 的符号关系也可能成为直接引用。读取者应将单独观测与 bundle 的引用事实一起解释。接口依据见 [git-bundle](https://git-scm.com/docs/git-bundle)、[git-rev-list](https://git-scm.com/docs/git-rev-list)和 [git-clone](https://git-scm.com/docs/git-clone)。
+
+仅本次 bundle 命令固定 `pack.threads=1`。真实重复采集发现默认并行生成会让同一对象集的包字节变化；单线程样本连续三次完全相同，额外生成耗时约 0.16 秒。这个设置让已有块更容易复用，仍按每轮实际字节保存；Git 版本、配置和对象布局变化后重新测量，稳定性限于实测条件。配置语义见 [pack.threads](https://git-scm.com/docs/git-config#Documentation/git-config.txt-packthreads)。
+
+## 内容与出处
+
+| 保存路径 | 原件内容 |
+| --- | --- |
+| `repository.bundle` | bundle 命令的 stdout 原字节；失败时保留实际取得的前缀 |
+| `commands/<名称>/stdout`、`stderr` | 各条命令分别交付的原始输出；bundle 的 stdout 单独放在上面路径 |
+| `commands/<名称>/command.json` | `orisumi-git-command-v1`：实际程序、参数数组、cwd、明确环境覆盖与移除名称、开始/结束时间、退出码、错误与取消状态，以及输出保存路径 |
+
+命令材料包含 Git 版本、实际 git-dir/common-dir、对象格式、shallow 状态、local 配置、取得前后 refs 与 HEAD、bundle 引用、空库 verify、实际 mirror clone 和对象 fsck 结果。refs 观测同时输出对象值、引用名和符号目标，以 NUL 分隔字段；HEAD 分别取得 symbolic-ref 和对象值。各命令原输出保留其分隔符及末尾换行。
+
+配置通过 `config --local --no-includes --null --show-origin --show-scope --list` 取得，明确限定本仓库 local 范围，include 指令本身随配置值保存。用户、系统、include 内容和 worktree 的完整生效配置各有独立范围。恢复时配置仍是一份来源材料；clone 新生成的配置表达恢复目录的实际条件。
+
+每条命令有独立取得窗口，采集根记录整轮开始和完成。读取 refs 后、创建 bundle 前，分支可能被改写；前后观测相等也只能说明两个取得时刻相等。bundle、HEAD、配置与 refs 分别按各自证据解释。
+
+## 执行与结果
+
+采集直接以参数数组调用 Git。清除继承的 `GIT_*` 环境变量并记录移除名称，随后明确设置 `GIT_OPTIONAL_LOCKS=0`、`GIT_NO_LAZY_FETCH=1`、`GIT_NO_REPLACE_OBJECTS=1`、`GIT_TERMINAL_PROMPT=0`、`GIT_ALLOW_PROTOCOL=`。这些条件分别限定可选写入、按需补取、替换对象、交互提示和协议传输。只有核验本轮 bundle 的 mirror clone 明确开放 file 协议，并记录其实际环境；源仓库的引用、工作区及配置保持原值。环境条件见 [Git 环境变量](https://git-scm.com/docs/git#_environment_variables)。
+
+完整轮要求必要命令成功、bundle 非空、list-heads 成功，并在按对象格式新建的空仓库中通过 verify。随后从本轮 bundle mirror clone 到另一个新目录，运行 fsck 检查引用与对象。空库 verify 检查先决对象；实际试验中，截断包内容也可能通过这一检查，因此完整轮还需要后两步。shallow 状态记录为范围缺口，promisor 缺对象在关闭补取后按实际失败保存；特殊仓库形态的通过范围见[验收](./validation.mdx#git-历史)。
+
+空仓库会留下 HEAD、refs 和 Git 拒绝创建空 bundle 的输出，采集记录带失败。命令失败仍保存已取得的输出、时间和退出状态，`--once` 返回非零。运行中取消时请求结束当前 Git 进程树，再保存已取得前缀并记录取消；CLI 返回 130。父进程先退出而其他进程仍持有管道时，排空等待限制为 2 秒，随后保存已取得字节并记录管道未结束。已经脱离父进程的后代可能继续存在；这个结果会作为缺口表达。来源取得结果与原件存储失败分别报告。
+
+## 恢复
+
+先通过已有原件命令恢复这次保存的全部材料：
+
+```sh
+orisumi run raw restore <采集记录> <新的恢复目录>
+git clone --mirror <恢复目录>/files/repository.bundle <新的Git目录>
+git -C <新的Git目录> fsck --full
+```
+
+恢复得到 bundle、原命令输出与取得事实。Git 的 mirror clone 可以取得保存的全部引用值；当前分支和符号引用关系按独立观测核对，需要时据此重建。逐版本读取 tree/blob 验证正文；LFS 和子模块的外部内容单独列出。
+
+当前从显式仓库、单轮取得和独立恢复起步。仓库自动发现、未提交变化、外部对象补取与其他仓库形态分别按来源证据展开；当前已为 Orisumi 和 qstack 两个验证过的仓库启用[本机持续任务](./continuous-capture.mdx)，每轮后等待300秒；其他仓库先明确位置并核对实际取得结果。

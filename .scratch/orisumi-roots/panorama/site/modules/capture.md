@@ -208,7 +208,7 @@ flowchart TD
 
 检验：Worker 全局变量清空后样本仍可读，额度耗尽时有可观察结果。
 
-实现现状：标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。（[src/Orisumi.Browser/worker.js](../../../../../src/Orisumi.Browser/worker.js)、[src/Orisumi.Browser/delivery.js](../../../../../src/Orisumi.Browser/delivery.js)、[src/Orisumi.Capturing/NativeReceiver.cs](../../../../../src/Orisumi.Capturing/NativeReceiver.cs)、[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)）
+实现现状：标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控 Profile 断连恢复通过，日常 Chrome 已加载，16份原件核验及三类代表材料恢复通过。长期体量另测。（[src/Orisumi.Browser/worker.js](../../../../../src/Orisumi.Browser/worker.js)、[src/Orisumi.Browser/delivery.js](../../../../../src/Orisumi.Browser/delivery.js)、[src/Orisumi.Capturing/NativeReceiver.cs](../../../../../src/Orisumi.Capturing/NativeReceiver.cs)、[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -1091,7 +1091,7 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 检验：不会因重复启动产生并行读取风暴，跳过时间明确。
 
-实现现状：当前三个来源分别采用通知与每轮结束后等待 300 秒；文件来源的真实两轮采集与恢复已验，系统启动复用现有循环。（[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
+实现现状：前台和浏览器按事件取得，两种会话及两个Git仓库每轮结束后等待300秒；文件来源的真实两轮采集与恢复已验，系统启动复用现有循环。（[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -1320,7 +1320,7 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 
 检验：按来源分别列实际执行设备及可达条件；不部署新服务，本任务仅设计。
 
-实现现状：已发布独立程序并配置三个用户级任务，共用明确存储；实际运行、停止与再启动已验。真实退出登录再登录与全天覆盖仍待测。（[tools/Orisumi.Dev/Run/PublishCommand.cs](../../../../../tools/Orisumi.Dev/Run/PublishCommand.cs)、[src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
+实现现状：已发布独立程序并配置五项用户级任务，共用明确存储；实际运行、停止与再启动已验。真实退出登录再登录与全天覆盖仍待测。（[tools/Orisumi.Dev/Run/PublishCommand.cs](../../../../../tools/Orisumi.Dev/Run/PublishCommand.cs)、[src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 

@@ -1,11 +1,13 @@
 ---
 title: "本机持续采集"
-description: "固定发布程序与三个用户级系统任务，分别承担运行与取得"
+description: "固定发布程序、五个用户级系统任务与浏览器按需接收"
 ---
 
-例如，登录 Mac 后，系统分别启动前台观察、Codex 和 Claude Code 采集。前台通知到达就保存；两个文件来源立即采一轮，随后每轮完成后等待 300 秒。三个进程共用同一个原件目录，新的材料与出处持续留下，读取和理解随后进行。
+例如，登录 Mac 后，系统启动前台观察、Codex、Claude Code，以及 Orisumi、qstack 两个显式仓库的 Git 采集。前台通知到达就保存；另外四项立即采一轮，随后每轮完成后等待 300 秒。五项任务共用同一个原件目录，新的材料与出处持续留下，读取和理解随后进行。
 
-依据：[收集不靠自觉](../requirements/belief.mdx#收集不靠自觉)、[能补的也定期采](../requirements/belief.mdx#能补的也定期采)、[先采错过就没的](../requirements/belief.mdx#先采错过就没的)与[采集保障先从简](../requirements/belief.mdx#采集保障先从简)。当前采用 macOS 用户级 LaunchAgent，直接复用三个采集命令。系统负责进程启动与重启，采集器负责来源取得、保存和结果。
+[浏览器扩展](./browser.mdx)也已在日常 Chrome Profile 启用。它由浏览器运行，并通过 Native Messaging 按需启动接收器，写入同一个原件目录；运行与停止方式随浏览器和扩展管理。
+
+依据：[收集不靠自觉](../requirements/belief.mdx#收集不靠自觉)、[能补的也定期采](../requirements/belief.mdx#能补的也定期采)、[先采错过就没的](../requirements/belief.mdx#先采错过就没的)与[采集保障先从简](../requirements/belief.mdx#采集保障先从简)。当前采用 macOS 用户级 LaunchAgent，直接复用既有采集命令。系统负责进程启动与重启，采集器负责来源取得、保存和结果。
 
 ## 发布与位置
 
@@ -24,9 +26,9 @@ orisumi publish "$HOME/Library/Application Support/Orisumi/Collector"
 | 内容 | 位置 |
 | --- | --- |
 | 固定程序 | `~/Library/Application Support/Orisumi/Collector/` |
-| 原件 | `~/.orisumi/`，三个任务都传入其绝对路径 |
-| 系统任务 | `~/Library/LaunchAgents/dev.orisumi.capture.<来源>.plist` |
-| 各来源运行输出 | `~/Library/Logs/Orisumi/capture-<来源>.out.log` 与 `.err.log` |
+| 原件 | `~/.orisumi/`，五项任务都传入其绝对路径 |
+| 系统任务 | `~/Library/LaunchAgents/dev.orisumi.capture.<任务>.plist` |
+| 各来源运行输出 | `~/Library/Logs/Orisumi/capture-<任务>.out.log` 与 `.err.log` |
 
 程序、原件和日志目录仅本人可访问；任务配置仅本人可写。开发入口 `orisumi run` 仍使用仓库 `.local/orisumi` 进行开发验证。查看日常采集时，显式选择日常原件目录：
 
@@ -59,7 +61,9 @@ ps -axo pid,ppid,command | awk '/[o]risumi-cli capture browser/'
 
 ## 系统任务
 
-三个任务的来源分别为 `foreground`、`codex`、`claude-code`，标签分别为 `dev.orisumi.capture.<来源>`。每个任务的 `ProgramArguments` 按数组传入程序绝对路径、`capture`、来源、`--store`、原件绝对路径；路径中的空格由数组保留。
+前台、Codex、Claude Code 的标签分别为 `dev.orisumi.capture.foreground`、`dev.orisumi.capture.codex`、`dev.orisumi.capture.claude-code`；两个仓库的标签为 `dev.orisumi.capture.git-orisumi`、`dev.orisumi.capture.git-qstack`。Git 任务只取得这两个已验证的显式仓库，保存范围和独立恢复见 [Git 历史](./git.mdx)。
+
+每个任务的 `ProgramArguments` 按数组传入程序绝对路径、`capture`、来源及 `--store` 原件绝对路径。Git 任务另外传入明确仓库绝对路径及 `--interval 300`；标签与来源名分别表达任务实例和原件来源，两个 Git 任务的来源名都是 `git`。路径中的空格由参数数组保留。
 
 | 配置 | 当前取值与用途 |
 | --- | --- |
@@ -85,10 +89,10 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/dev.orisumi.captu
 
 `bootout` 停止并卸载当前会话里的任务；plist 仍在时，下次登录会再次加载。持续停用时先 `disable gui/<uid>/<标签>`，再 `bootout`；恢复时 `enable` 后 `bootstrap`。卸载时先 bootout，再删除对应 plist，保留原件目录。`kickstart -k` 会先杀现有实例，正常停止使用 bootout。
 
-更新程序时，先发布到一个新的相邻目录并验证能运行，再 bootout 三个任务。确认 CLI 与 helper 已结束，将旧程序目录移开、新目录放到固定位置，再 bootstrap；旧程序目录在新程序验收后删除。原件、任务配置和日志各自保留。发布目录只存程序，更新过程与原件删除分别处理。
+更新程序时，先发布到一个新的相邻目录并验证能运行，再 bootout 五项受管任务。确认这些任务及前台 helper 已结束，将旧程序目录移开、新目录放到固定位置，再 bootstrap；旧程序目录在新程序验收前保留，清理时与原件分别处理。浏览器 Native host 由 Chrome 维持，更新时独立核对其 PID 和版本；受管任务的停止范围与它分开。需要更换接收器时正常停止旧 host，扩展在重试时启动新程序并补送已暂存内容。原件、任务配置和日志各自保留。发布目录只存程序，更新过程与原件删除分别处理。
 
 ## 取得与保存范围
 
-三个来源共用块、清单和采集记录，按[原件写入规则](./raw.mdx#块)并发发布。文件来源继续使用各自的单轮结果、有限重试和 300 秒循环；前台逐条保存。正常停止时，产品请求 helper 收尾，读完结束行并退出。
+这些来源共用块、清单和采集记录，按[原件写入规则](./raw.mdx#块)并发发布。文件来源继续使用各自的单轮结果、有限重试和 300 秒循环；Git 每轮生成 bundle 并实际恢复检查；前台逐条保存。正常停止时，产品请求 helper 收尾，读完结束行并退出。
 
 这条路线解决日常启动和已有来源持续取得。外部副本仍按[副本与节点](./nodes.mdx)手动复制，新材料在下一份副本前只有本地一份。运行输出供核查本次结果；长期日志体量、全天覆盖与真实重新登录分别测量。实际操作与恢复证据见[持续采集验收](./validation.mdx#持续采集)。
