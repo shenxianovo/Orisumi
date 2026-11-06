@@ -535,7 +535,7 @@ flowchart TD
 
 候选：先写依赖，最后发布记录。
 
-理由与代价：内容与清单完成后发布根，能使可见记录不引用未写依赖；接受原子重命名不等于完整断电耐久保证。
+理由与代价：先完整发布内容和清单，再发布根；已有对象保持原样，多个写者只有一个新增。接受进程级可见性和完整断电耐久性需要分别验证。
 
 启动或重审条件：派生存储在写内容、清单和根前后终止进程，验证可见根闭包与哈希；真实断电保证有需求再专项测试。
 
@@ -547,13 +547,15 @@ flowchart TD
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/raw.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/raw.mdx)。现有设计与格式是需回看的选择，不自动成为本轮用户确认。
 
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#并发发布](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%B9%B6%E5%8F%91%E5%8F%91%E5%B8%83)。多写者争用在旧实现复现重复 Added；原子不覆盖发布后，40 次块/记录竞争均只有一个新增，60 份恢复通过，其中40次发生在其他写者仍运行时。
+
 ### 先写依赖，最后发布记录 · 助手推荐
 
 内容和清单完成后才发布根；读出验证哈希；中断留下未引用对象由后续明确回收规则处理。
 
 收益：局部协议简单，可避免正常取消发布半份根。
 
-代价：断电耐久性仍取决于刷盘/目录持久化，当前重命名不证明完整断电保证。
+代价：文件系统需要支持原子发布；断电耐久性仍取决于数据与目录持久化，当前可见性验证不证明断电保证。
 
 适用条件：独立对象存储路线。
 
@@ -575,7 +577,7 @@ flowchart TD
 
 检验：提交后依赖齐全，未提交记录不可见，重试不会丢失此前历史。
 
-实现现状：StoreFile先写.pending再Move，CaptureWriter最后写根，读取校验块哈希；没有显式fsync、GC或断电耐久实验。（[src/Orisumi.Raw/StoreFile.cs](../../../../../src/Orisumi.Raw/StoreFile.cs)、[src/Orisumi.Raw/CaptureWriter.cs](../../../../../src/Orisumi.Raw/CaptureWriter.cs)、[tests/Orisumi.Raw.Tests/RawStoreTests.cs](../../../../../tests/Orisumi.Raw.Tests/RawStoreTests.cs)）
+实现现状：对象先写完同目录临时文件，再原子不覆盖发布，内容和清单先于采集根。macOS/Linux 使用 link，Windows 使用移动接口；并发唯一新增与运行中恢复已在本机验证，断电与其他平台写入另测。（[src/Orisumi.Raw/StoreFile.cs](../../../../../src/Orisumi.Raw/StoreFile.cs)、[src/Orisumi.Raw/CaptureWriter.cs](../../../../../src/Orisumi.Raw/CaptureWriter.cs)、[tests/Orisumi.Raw.Tests/BlockStoreTests.cs](../../../../../tests/Orisumi.Raw.Tests/BlockStoreTests.cs)、[tests/Orisumi.Raw.Tests/StoreFileTests.cs](../../../../../tests/Orisumi.Raw.Tests/StoreFileTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#并发发布](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%B9%B6%E5%8F%91%E5%8F%91%E5%B8%83)）
 
 审阅重点：当前只补清楚本地持久化承诺和检验范围；不顺带建设探活、自动补采或告警。
 

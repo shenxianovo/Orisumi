@@ -76,7 +76,7 @@ Orisumi 先收集关于人的数据，原样内容和直接知道的出处一起
 
 ## 工作约定
 
-- 运行产品、预览文档和最终验收通过 `orisumi`，例如 `orisumi docs dev`、`orisumi verify`。开发中的单项目构建和测试可直接用原生工具；按当前改动运行最小有效检查，避免为局部验证建立临时仓库或扩充命令封装。
+- 开发中运行产品、发布、预览文档和最终验收通过 `orisumi`，例如 `orisumi run`、`orisumi publish`、`orisumi verify`。日常采集由系统任务直接运行固定发布程序；配置、更新与停止时先读[本机持续采集](src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx)。开发中的单项目构建和测试可直接用原生工具；按当前改动运行最小有效检查，避免为局部验证建立临时仓库或扩充命令封装。
 - 进行中的记录放在 `.scratch/<slug>/`，完成后删除。
 - 同时运行的子 Agent 最多 2 到 3 个。
 - 改完文件后运行 `orisumi tidy`，它格式化改过的代码并 lint 改过的文件。

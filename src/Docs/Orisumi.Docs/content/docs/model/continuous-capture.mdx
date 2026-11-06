@@ -1,0 +1,88 @@
+---
+title: "本机持续采集"
+description: "固定发布程序与三个用户级系统任务，分别承担运行与取得"
+---
+
+例如，登录 Mac 后，系统分别启动前台观察、Codex 和 Claude Code 采集。前台通知到达就保存；两个文件来源立即采一轮，随后每轮完成后等待 300 秒。三个进程共用同一个原件目录，新的材料与出处持续留下，读取和理解随后进行。
+
+依据：[收集不靠自觉](../requirements/belief.mdx#收集不靠自觉)、[能补的也定期采](../requirements/belief.mdx#能补的也定期采)、[先采错过就没的](../requirements/belief.mdx#先采错过就没的)与[采集保障先从简](../requirements/belief.mdx#采集保障先从简)。当前采用 macOS 用户级 LaunchAgent，直接复用三个采集命令。系统负责进程启动与重启，采集器负责来源取得、保存和结果。
+
+## 发布与位置
+
+开发入口提供一次显式发布：
+
+```sh
+orisumi publish "$HOME/Library/Application Support/Orisumi/Collector"
+```
+
+目标须是不存在的新路径。命令将当前检出发布为本机平台的 Release、自包含、不裁剪程序；先写同级临时目录，成功后改名为目标，失败或取消清理本次临时产物。目录内含 `orisumi-cli`、.NET 运行时与依赖，macOS 另含 `orisumi-foreground`。原件格式和来源身份沿现有规则；采集记录继续保存程序版本与实际出处。
+
+日常任务直接执行这份固定程序。构建需要 SDK 和依赖，运行使用发布目录中的文件；修改工作区后，已安装程序继续运行原版本，更新时重新发布。自包含产物也随重新发布更新其运行时。发布依据见 [Microsoft 文档](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-publish)。
+
+本机配置明确分开以下位置：
+
+| 内容 | 位置 |
+| --- | --- |
+| 固定程序 | `~/Library/Application Support/Orisumi/Collector/` |
+| 原件 | `~/.orisumi/`，三个任务都传入其绝对路径 |
+| 系统任务 | `~/Library/LaunchAgents/dev.orisumi.capture.<来源>.plist` |
+| 各来源运行输出 | `~/Library/Logs/Orisumi/capture-<来源>.out.log` 与 `.err.log` |
+
+程序、原件和日志目录仅本人可访问；任务配置仅本人可写。开发入口 `orisumi run` 仍使用仓库 `.local/orisumi` 进行开发验证。查看日常采集时，显式选择日常原件目录：
+
+```sh
+orisumi_app="$HOME/Library/Application Support/Orisumi/Collector/orisumi-cli"
+"$orisumi_app" raw list --store "$HOME/.orisumi"
+"$orisumi_app" raw restore <采集记录> <新的恢复目录> --store "$HOME/.orisumi"
+```
+
+## 查看当前版本
+
+运行固定发布目录中的程序查询安装版本。以观察前台应用的任务为例，`launchctl print` 的 `program` 和 `pid` 分别显示任务配置的程序路径和当前进程号。
+
+```sh
+"$orisumi_app" --version
+launchctl print "gui/$(id -u)/dev.orisumi.capture.foreground"
+```
+
+要确认实际写入原件的版本，先用上面的 `raw list` 选该来源最近的采集记录，再执行下面的命令。输出中「由 … 采自」之间是采集器名称和版本。
+
+```sh
+"$orisumi_app" raw show '<采集记录>' --store "$HOME/.orisumi"
+```
+
+## 系统任务
+
+三个任务的来源分别为 `foreground`、`codex`、`claude-code`，标签分别为 `dev.orisumi.capture.<来源>`。每个任务的 `ProgramArguments` 按数组传入程序绝对路径、`capture`、来源、`--store`、原件绝对路径；路径中的空格由数组保留。
+
+| 配置 | 当前取值与用途 |
+| --- | --- |
+| `WorkingDirectory` | 发布目录，运行独立于工作区 |
+| `KeepAlive` | `true`；系统加载后启动，进程退出后由系统重新启动 |
+| `LimitLoadToSessionType` | `Aqua`；前台观察对应图形用户会话 |
+| `ProcessType` | `Background` |
+| `ExitTimeOut` | 20 秒，为产品正常收尾留出时间 |
+| `Umask` | 十进制 63，即八进制 077 |
+| `StandardOutPath` / `StandardErrorPath` | 各来源独立日志的绝对路径 |
+
+`KeepAlive` 已包含启动要求。用户级任务的加载与退出条件见 [Apple 文档](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)和本机 `launchd.plist` 手册。进程重启只说明程序重新运行；前台会产生新的 run 和初始查询，停机期间的活动保持缺口。存储失败、权限失效和睡眠仍影响取得，运行状态不代表来源完整率。
+
+## 停止、恢复与更新
+
+以下操作针对一个来源；替换标签即可处理其他任务。
+
+```sh
+launchctl print "gui/$(id -u)/dev.orisumi.capture.foreground"
+launchctl bootout "gui/$(id -u)/dev.orisumi.capture.foreground"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/dev.orisumi.capture.foreground.plist"
+```
+
+`bootout` 停止并卸载当前会话里的任务；plist 仍在时，下次登录会再次加载。持续停用时先 `disable gui/<uid>/<标签>`，再 `bootout`；恢复时 `enable` 后 `bootstrap`。卸载时先 bootout，再删除对应 plist，保留原件目录。`kickstart -k` 会先杀现有实例，正常停止使用 bootout。
+
+更新程序时，先发布到一个新的相邻目录并验证能运行，再 bootout 三个任务。确认 CLI 与 helper 已结束，将旧程序目录移开、新目录放到固定位置，再 bootstrap；旧程序目录在新程序验收后删除。原件、任务配置和日志各自保留。发布目录只存程序，更新过程与原件删除分别处理。
+
+## 取得与保存范围
+
+三个来源共用块、清单和采集记录，按[原件写入规则](./raw.mdx#块)并发发布。文件来源继续使用各自的单轮结果、有限重试和 300 秒循环；前台逐条保存。正常停止时，产品请求 helper 收尾，读完结束行并退出。
+
+这条路线解决日常启动和已有来源持续取得。外部副本仍按[副本与节点](./nodes.mdx)手动复制，新材料在下一份副本前只有本地一份。运行输出供核查本次结果；长期日志体量、全天覆盖与真实重新登录分别测量。实际操作与恢复证据见[持续采集验收](./validation.mdx#持续采集)。

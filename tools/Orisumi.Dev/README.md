@@ -62,6 +62,7 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 | 命令 | 作用 |
 | --- | --- |
 | `run` | 运行本检出的 Orisumi，`run` 后面的参数原样交给它，数据放在 `.local/orisumi/` |
+| `publish <directory>` | 将本检出的 CLI 发布到新的目录，供本机独立运行 |
 | `docs` | 运行文档站 |
 | `loc` | 行数统计 |
 | `runs` | 运行记录 |
@@ -69,6 +70,16 @@ dotnet run --project tools/Orisumi.Dev -- tool install
 | `tool` | 安装和更新 `orisumi` 自身 |
 
 只输入命令组时显示该组的帮助。
+
+### 发布本机 CLI
+
+```sh
+orisumi publish /path/to/new-directory
+```
+
+发布使用当前运行环境的 RID、Release 配置、自包含运行时和完整程序集。macOS 产物包括 `orisumi-cli` 与同目录的 `orisumi-foreground`。发布目录可移到仓库外运行，日常启动直接执行其中的 `orisumi-cli`；编译、依赖还原与原生 helper 构建都在显式发布时完成。
+
+目标须是尚不存在的新路径。命令先写入目标旁的临时目录，成功后将其改名为目标目录；失败或取消会删除本次临时产物。更新时发布到新的目录，再由外部启动方式切换运行位置。原件目录通过产品命令的 `--store` 明确指定，独立于发布目录。
 
 ### 输出
 

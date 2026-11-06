@@ -799,13 +799,13 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 **助手推论** · 原事件刚到时先留下，之后才解释它。持久接收的实现与“持续监控、自动恢复、告警”是不同建设范围。
 
-**条件成立再做 · 下一步**
+**Agent采用 · 当前**
 
 候选：设备上尽快持久记录。
 
-理由与代价：前台等瞬时事件应先在设备上留下实际对象，网络不进入保存成功前提；接受进程停机、盘满和尚未落地窗口的损失。
+理由与代价：在授权下采用当前 macOS 的本机逐条持久保存：真实切换、受限 IP 网络、正常收尾与重启恢复均已核对；接受未运行和未提交尾部的缺口。
 
-启动或重审条件：逐条保存前缀、真实切换恢复、异常退出和 Ctrl+C 已通过。先定位网络限制下开发入口的等待原因，再取得实际受限采集、正常收尾及重启恢复样本；当前实验未进入采集，不能据此判断采集是否依赖网络。
+启动或重审条件：来源形态、系统平台或写入量变化时，重新测接收与保存窗口；整机离线、断电和其他来源另有对应验收。
 
 依据：
 
@@ -815,7 +815,7 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 依据材料：[.scratch/requirements/survey-heartbeat.md](../../../../requirements/survey-heartbeat.md)。旧缓冲丢弃曾造成数周缺口，不能直接推成当前内建保障。
 
-依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前会话的 22 次真实切换与 49 条原件恢复通过。网络限制对照两轮均确认普通 loopback 连接成功、同策略 deny network* 连接返回 EPERM；两次真实 orisumi run 均在开发启动/构建阶段等待至 120 秒终止，尚未进入采集且未创建存储。等待根因未定位，当前没有受限环境中的真实采集或恢复证据。
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)。拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。
 
 ### 设备上尽快持久记录 · 助手推荐
 
@@ -859,7 +859,7 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 检验：断网十分钟后实际能补多少，不以发送成功日志代替远端持久确认。
 
-实现现状：前台每个完整观察行立即写内容、清单和根；22 次真实切换产生的 49 条原件恢复通过。网络限制实验停在开发启动/构建阶段，未进入采集；真实离线采集与重启后恢复链路仍待验证。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[tests/Orisumi.Capturing.Tests/ForegroundCollectorTests.cs](../../../../../tests/Orisumi.Capturing.Tests/ForegroundCollectorTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：当前前台来源每行立即写本机原件；受限 IP 网络下两轮真实切换、40 条恢复与停机空档均核对通过。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -1031,9 +1031,9 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 候选：按来源丢失窗口与机制选触发。
 
-理由与代价：文件扫描可沿现有可配置循环，未来瞬时事件采用事件取得；用真实保留窗口与耗时决定频率，接受现阶段参数并非全局最优。
+理由与代价：前台沿实际通知持续取得；Codex 与 Claude Code 复用轮末等待 300 秒的循环。按两轮真实扫描成本和来源保留窗口继续判断频率，当前保留默认周期。
 
-启动或重审条件：测首轮 Codex 耗时及两种周期的变化缺口；前台观测另用持续事件接口，资源实际成问题再调参。
+启动或重审条件：实际写入、CPU或来源损失窗口形成问题时调整对应来源频率；其他来源各用真实样本选择事件或扫描。
 
 依据：
 
@@ -1042,6 +1042,8 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 - [能补的也定期采](#n-a6470ed7ace260f0)（选择依据）：需要持续留下现存材料，具体定时或事件触发仍有选择。
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#自动运行](../../../../../src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#%E8%87%AA%E5%8A%A8%E8%BF%90%E8%A1%8C)。现有默认 300 秒及串行语义。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 按来源丢失窗口与机制选触发 · 助手推荐
 
@@ -1087,7 +1089,7 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 检验：不会因重复启动产生并行读取风暴，跳过时间明确。
 
-实现现状：轮末等待与启动即采已实现；其他策略尚未实现。（[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)）
+实现现状：当前三个来源分别采用通知与每轮结束后等待 300 秒；文件来源的真实两轮采集与恢复已验，系统启动复用现有循环。（[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -1109,7 +1111,7 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 理由与代价：当前本机原件保存不依赖网络，离线继续取得可减少数据损失；恢复时只能补来源实际保留的历史，接受设备停机事件不可补。
 
-启动或重审条件：隔离样本断网期间仍保存并可读回；以后接远端副本时另验补传，不把当前本地能力说成已有同步。
+启动或重审条件：当前前台本机保存与进程重启已验证；远端来源的历史保留、游标过期与后续副本传送分别按真实接口验证。
 
 依据：
 
@@ -1120,6 +1122,8 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 依据材料：[.scratch/requirements/survey-heartbeat.md](../../../../requirements/survey-heartbeat.md)。真实长期缺口。
 
 依据材料：[.scratch/requirements/survey-assistant-sessions.md](../../../../requirements/survey-assistant-sessions.md)。日志有可补窗口但会清理。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)。拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。
 
 ### 离线时依赖来源留史，连接后补取 · 助手推荐
 
@@ -1163,7 +1167,7 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 
 检验：重启测试后间隔显示为未观测，不能按前后状态延长成连续活动。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：前台受限 IP 网络下继续保存，两次运行各自恢复；停机空档只在重启后重新查询当前状态。现有文件来源重扫仍保留的材料，来源已经丢失的历史保持缺口。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -1252,11 +1256,11 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 
 **Agent采用 · 当前**
 
-候选：暂时手动运行。
+候选：系统登录启动或现有外部调度。
 
-理由与代价：当前用 orisumi 手动启动文件采集、前台观察与外部备份验证，接受持续记录仍依赖手动运行；登录服务按实际使用另行安排。
+理由与代价：新来源导洞已通过，而本机没有正在采集的 Orisumi 进程。采用固定发布程序和用户级系统任务，让已接入来源实际持续留下；构建与工作区从日常启动路径移出，系统负责进程重启。
 
-启动或重审条件：恢复导洞通过且需要持续记录时，核实系统登录启动；常开设备仅在云端来源实际可达后考虑。
+启动或重审条件：当前会话的装载、停止与再装载已有实测；实际重新登录、其他机器和系统状态组合分别验收。
 
 依据：
 
@@ -1264,11 +1268,13 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 - [采集保障先从简](roots.md#n-ffb6c54f0390b4e1)（选择依据）：当前内建保障暂缓，可简单外置；此处选择仍可独立完成的最小采集职责。
 - [收集不靠自觉](#n-2c0e3b3ad774e034)（选择依据）：既有减少人工投入的选择支持自动启动；导洞阶段仍可手动验证。
 
-依据材料：[src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#自动运行](../../../../../src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#%E8%87%AA%E5%8A%A8%E8%BF%90%E8%A1%8C)。登录启动与宿主尚未实现。
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#自动运行](../../../../../src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#%E8%87%AA%E5%8A%A8%E8%BF%90%E8%A1%8C)。已有命令内循环；日常启动由固定发布程序与用户级系统任务承担。
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/requirements/belief.mdx#收集不靠自觉](../../../../../src/Docs/Orisumi.Docs/content/docs/requirements/belief.mdx#%E6%94%B6%E9%9B%86%E4%B8%8D%E9%9D%A0%E8%87%AA%E8%A7%89)。既有自动收集方向。
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 系统登录启动或现有外部调度 · 助手推荐
 
@@ -1312,7 +1318,7 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 
 检验：按来源分别列实际执行设备及可达条件；不部署新服务，本任务仅设计。
 
-实现现状：CLI 手动启动文件单轮/周期采集和前台持续/定时观测；orisumi run 为产品取消保留有界收尾时间。登录启动与常驻服务尚未配置。（[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)、[tools/Orisumi.Dev/Run/RunCommand.cs](../../../../../tools/Orisumi.Dev/Run/RunCommand.cs)、[tools/Orisumi.Dev/Infrastructure/ProcessRunner.cs](../../../../../tools/Orisumi.Dev/Infrastructure/ProcessRunner.cs)）
+实现现状：已发布独立程序并配置三个用户级任务，共用明确存储；实际运行、停止与再启动已验。真实退出登录再登录与全天覆盖仍待测。（[tools/Orisumi.Dev/Run/PublishCommand.cs](../../../../../tools/Orisumi.Dev/Run/PublishCommand.cs)、[src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -1326,7 +1332,7 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 
 候选：保留单次结果与已成功材料。
 
-理由与代价：保留成功材料和本轮失败/部分完成已足以验收，沿有限重试即可；接受异常退出和长期停机尚无自动发现。
+理由与代价：单次成功、部分完成与失败继续独立保存；系统提供进程状态与重启。来源缺口和长期无新材料仍需要另行选择外部检查，当前接受该边界。
 
 启动或重审条件：数据库失败但文件成功、空目录、缺目录和存储失败各有可重复结果；出现真实探活需求再加外部检查。
 
@@ -1343,6 +1349,8 @@ Orisumi 暂停取得时依赖来源自己的持久历史；连接后按真实能
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#codex-取得与恢复](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#codex-%E5%8F%96%E5%BE%97%E4%B8%8E%E6%81%A2%E5%A4%8D)。缺少索引和数据库的人工来源仍保留可读日志，记录缺项，--once 返回 1。
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 保留单次结果与已成功材料 · 助手推荐
 

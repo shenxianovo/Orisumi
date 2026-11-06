@@ -31,6 +31,29 @@ public class BlockStoreTests
     }
 
     [Test]
+    public async Task ConcurrentWritersPublishTheSameBlockOnce()
+    {
+        var content = Samples.Noise(1024 * 1024);
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var directory = Samples.Directory();
+            using var start = new Barrier(3);
+            var writes = Enumerable.Range(0, 3).Select(_ => Task.Factory.StartNew(() =>
+            {
+                var blocks = new DirectoryBlockStore(directory);
+                if (!start.SignalAndWait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Concurrent writers did not start");
+                return blocks.Put(content);
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default));
+
+            var results = await Task.WhenAll(writes);
+            var reader = new DirectoryBlockStore(directory);
+            await Assert.That(results.Count(result => result.Added)).IsEqualTo(1);
+            await Assert.That(reader.Names().ToList()).IsEquivalentTo(new[] { results[0].Name });
+            await Assert.That(reader.Read(results[0].Name).SequenceEqual(content)).IsTrue();
+        }
+    }
+
+    [Test]
     public async Task BlocksSitUnderTheFirstTwoCharactersOfTheirName()
     {
         var root = Samples.Directory();

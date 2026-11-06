@@ -56,6 +56,8 @@ flowchart TD
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
 
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
+
 ### 按可独立使用的能力推进 · 助手推荐
 
 阶段一收集与历史取回；阶段二确定性检索/引用；阶段三按失败题加理解；阶段四按需要加人端/共享。副本和来源扩展按真实丢失窗口穿插。
@@ -104,7 +106,7 @@ flowchart TD
 
 检验：未改变前提时不得把这些能力列作收集完成的必要条件。
 
-实现现状：当前已交付 Codex 保存与本机恢复、手动异机副本及 macOS 手动应用级观测；前台通过正常/快速切换、同应用操作边界和 49 条原件恢复。读取、理解及其他来源继续按实际需求进入。（[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)、[src/Docs/Orisumi.Docs/content/docs/model/index.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/index.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)、[src/Docs/Orisumi.Docs/content/docs/model/index.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/index.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
 
 审阅重点：建议先完成收集与历史取回，再按真实问题补查询与理解。判断这样的独立阶段是否符合当前目标。
 
@@ -428,9 +430,9 @@ flowchart TD
 
 候选：当前连探活也暂缓。
 
-理由与代价：当前导洞阶段人工查看本次结果即可，已有记录与有限重试保留；接受停机和过期采集暂不自动发现。
+理由与代价：单次结果和失败保留在原件与运行输出中；外部系统只管理三个采集进程的启动和重启。来源遗漏、长期未更新与告警仍无内建判定，接受这部分可见性边界。
 
-启动或重审条件：实际持续运行需要发现停止时，先加简单外部探活；内建监控恢复告警继续服从已确认从简边界。
+启动或重审条件：需要发现进程存活但长期没有新结果时，再加简单外部探活；来源缺口恢复与告警平台继续按从简边界后置。
 
 依据：
 
@@ -440,6 +442,8 @@ flowchart TD
 依据材料：[.scratch/orisumi-roots/confirmations.md](../../../confirmations.md)。用户本轮的保障边界
 
 依据材料：[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)。Scan/Watch 保留并输出单次结果；--once 失败返回非零，当前外部探活尚未启用。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 先保留单次结果，需要时外部探活 · 助手推荐
 
@@ -457,13 +461,13 @@ flowchart TD
 
 ### 当前连探活也暂缓 · 可选路线
 
-使用时人工查看本次结果，持续保障留到实际需要。
+使用时查看保存结果和系统进程状态；来源结果的新鲜度与完整性探活留到实际需要。
 
 收益：最少建设投入。
 
 代价：更依赖人偶尔检查，可能错过材料。
 
-适用条件：采集尚在短期验证或用户明确接受此阶段。
+适用条件：当前接受来源缺口仍需按实际问题核查；系统进程启动与重启由启动路线负责。
 
 分支终点：保留运行命令与查看结果步骤，列出未覆盖的停机时段。
 
@@ -485,7 +489,7 @@ flowchart TD
 
 检验：未改变前提前，此分支不进入任何当前阶段依赖。
 
-实现现状：单次结果、有限读取重试、前台有界退出与失败记录已实现；已有一次手动异机副本。持续探活、自动恢复、定时备份和告警平台后置。（[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)、[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)）
+实现现状：现有有限重试与失败记录保留，用户级 launchd 管进程重启；实际停止与再运行已验证。来源完整性探活、定时备份和告警平台继续后置。（[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)）
 
 审阅重点：判断阶段边界、验收证据与替代路线触发条件；采用记录表达 Agent 选择，用户确认保留原证据。
 
@@ -513,6 +517,8 @@ flowchart TD
 依据材料：[.scratch/orisumi-roots/confirmations.md](../../../confirmations.md)。确认内容整理进模型区，替换被取代内容
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 集中确认后选一个独立交付 · 助手推荐
 
@@ -542,7 +548,7 @@ flowchart TD
 
 检验：报告能力成立的样本范围、未核实条件及条件失败时应走哪条现成替代。
 
-实现现状：119 个决策区分用户确认与授权内采用；当前已完成 Codex 保存恢复、手动异机副本和 macOS 手动应用级观测。前台 22 次真实切换、应用内操作边界与 49 条原件恢复已验证；其他范围继续保留具体条件。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Orisumi.Raw/CaptureRecovery.cs](../../../../../src/Orisumi.Raw/CaptureRecovery.cs)、[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Orisumi.Raw/CaptureRecovery.cs](../../../../../src/Orisumi.Raw/CaptureRecovery.cs)、[src/Orisumi.Cli/Program.cs](../../../../../src/Orisumi.Cli/Program.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
 
 审阅重点：在本次授权内采用具体方案，列出格式、身份、原件样例和验收，完成一段独立交付；选择与实施进展分别记录。
 
@@ -558,7 +564,7 @@ flowchart TD
 
 理由与代价：每个未知都对应最小输入、成功标准和失败分流，先验证影响当前交付的条件；接受远期试验仍未执行。
 
-启动或重审条件：当前 SQLite、独立恢复及 macOS 手动前台观测已通过对应验收；网络限制实验需先定位开发入口等待原因，再取得真实离线采集证据。其他平台、系统状态、权限身份、接口和媒体随具体用途触发。
+启动或重审条件：当前来源、恢复、受限 IP 网络和用户级任务的装载/停止已测；真实重新登录、全天运行、系统状态和新来源按各自最小实验推进。
 
 依据：
 
@@ -572,6 +578,8 @@ flowchart TD
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)。API、多端和节点仅有设计
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 每个未知给一个最小试验及分流条件 · 助手推荐
 
@@ -601,6 +609,6 @@ flowchart TD
 
 检验：当前阶段不依赖此能力；将来触发时能找到明确试验，不把它默认为已解决。
 
-实现现状：SQLite/WAL、本机与异机恢复、前台受控正常/快速切换、应用内操作边界、保存前缀与取消均有实际检验；其他平台、系统状态组合、断网、全新权限身份和全天运行按各自待测终点推进。（[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[.scratch/requirements/survey-macos-foreground.md](../../../../requirements/survey-macos-foreground.md)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[.scratch/requirements/survey-macos-foreground.md](../../../../requirements/survey-macos-foreground.md)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
 
 审阅重点：判断阶段边界、验收证据与替代路线触发条件；采用记录表达 Agent 选择，用户确认保留原证据。

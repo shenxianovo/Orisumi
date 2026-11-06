@@ -52,7 +52,7 @@ flowchart TD
 
 理由与代价：先保住已知会清理的会话材料，随后补前台活动这一不可补回缺口；媒体和手机外设保留条件性分支，接受尚未观测的时段无法追回。
 
-启动或重审条件：Codex、外部副本和 macOS 手动前台观测已通过当前范围的验收；媒体、外设和其他平台按实际设备、来源损失窗口与负载样本重审。
+启动或重审条件：已有来源开始持续取得；下一条瞬时来源优先勘探浏览器焦点与活动标签，再按损失窗口和投入重排。
 
 候选可组合。四个分支是可同时进入的来源范围；选中某一分支不排除其他分支，各自继续确定具体材料和取得方式。
 
@@ -62,6 +62,8 @@ flowchart TD
 - [数据所处的情况](roots.md#n-b450eb729c7db69e)（选择依据）：补回机会取决于材料是否已记录及何时消失，此处按真实处境选择取得方式。
 
 依据材料：[.scratch/requirements/survey.md](../../../../requirements/survey.md)。来源清单列入候选；列入不等于已具备取得能力。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
 
 ### 已有记录 · 助手推荐
 
@@ -111,7 +113,7 @@ flowchart TD
 
 继续展开：[手机来源分项勘探](sources-live.md#n-fa86213d600d0954)、[硬件传感数据取得](sources-live.md#n-403c19b83fbf57ee)
 
-实现现状：Claude Code 与 Codex 现有材料已采集并可恢复；macOS 手动前台应用观测已通过 22 次真实切换和 49 条原件恢复。其他来源按各自勘探终点推进。（[src/Orisumi.Capturing/ClaudeCodeSource.cs](../../../../../src/Orisumi.Capturing/ClaudeCodeSource.cs)、[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/ClaudeCodeSource.cs](../../../../../src/Orisumi.Capturing/ClaudeCodeSource.cs)、[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -206,6 +208,8 @@ flowchart TD
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
 
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
+
 ### 丢失窗口与接入成本共同排序 · 助手推荐
 
 把易取得的现存材料先留底，同时为补不回的观测挑一条小导洞。
@@ -246,7 +250,7 @@ flowchart TD
 
 检验：延期列表显式列出哪些时段永远补不回，不能称全量历史。
 
-实现现状：已完成 Codex 本机取得恢复及外部异机副本，随后完成 macOS 手动前台观测的受控切换、应用内操作边界与原件恢复；其他来源按实际损失窗口继续排序。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
 
 审阅重点：建议现存易取得材料先留底，同时为一条不可补回的观测做小导洞。决定下一项投入在哪里。
 

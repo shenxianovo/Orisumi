@@ -20,6 +20,7 @@ internal sealed class DeveloperCli(
         root.Options.Add(new HelpOption { Recursive = true });
         root.Options.Add(new VersionOption());
         root.Subcommands.Add(new RunCommand(repository, runner, output).CreateCommand());
+        root.Subcommands.Add(new PublishCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(new DocsCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(new TidyCommand(repository, runner, output).CreateCommand());
         root.Subcommands.Add(new VerificationCommand(repository, runner, output, error).CreateCommand());

@@ -26,7 +26,7 @@ Magpie、Shell 历史、Git、IM 本地库、文件和受保护的系统数据�
 | 来源 | 来自 | 怎么勘探 |
 | --- | --- | --- |
 | 前台应用、键鼠事件 | 用户 | 读旧 Heartbeat 已有的数据，已勘探，见 `survey-heartbeat.md` |
-| macOS 前台应用接口 | 用户 | AppKit 初始查询与通知接口，见 `survey-macos-foreground.md`；初始查询和保存已验，受控切换、锁屏睡眠仍待实测 |
+| macOS 前台应用接口 | 用户 | AppKit 初始查询与通知接口，见 `survey-macos-foreground.md`；初始查询、受控切换、原件恢复及受限 IP 网络下重启已验；系统状态组合与全天运行另测 |
 | Claude Code、Codex 会话 | 用户 | 本机 JSONL，直接读，已勘探，见 `survey-assistant-sessions.md` |
 
 前两版撞到过的怪癖，勘探时核对：

@@ -21,7 +21,7 @@ orisumi run raw restore <采集记录> <新的恢复目录>
 
 第一条观察 10 秒，第二条持续到 Ctrl+C。`--store <目录>` 选择保存位置；扫描文件用的 `--interval`、`--once` 和 `--retries` 属于各自的文件来源命令。
 
-每条观察独立成为 `source: foreground` 的采集记录，材料路径是 `observation.jsonl`，取得方式为 `appkit-observation-jsonl`。恢复后在 `files/observation.jsonl` 中读取；完整恢复、校验和出处规则沿用[原件](./raw.mdx#恢复与导出)。默认不建立登录启动服务。
+每条观察独立成为 `source: foreground` 的采集记录，材料路径是 `observation.jsonl`，取得方式为 `appkit-observation-jsonl`。恢复后在 `files/observation.jsonl` 中读取；完整恢复、校验和出处规则沿用[原件](./raw.mdx#恢复与导出)。手动入口用于开发与单次观察；日常运行见[本机持续采集](./continuous-capture.mdx)。
 
 ## 保存的事实
 
@@ -59,6 +59,6 @@ AppKit 交来对象，而非原始网络字节或事件日志。原生观察程�
 
 生产程序不调用辅助功能接口，也不申请辅助功能、输入监控或屏幕录制权限。本机已有辅助功能信任，因此这次环境没有证明全新未授权身份的行为。
 
-实际初始查询、22 次三应用切换、正常停止和逐条恢复已通过核对；同应用切窗和改标题也验证了应用级接口的范围，见[前台验收](./validation.mdx#前台观测)。这支持当前手动运行的 macOS 应用级来源。长期常驻、睡眠与会话变化各自保留待测范围；会话切入切出通知沿用 AppKit 的原语义。
+实际初始查询、22 次三应用切换、正常停止和逐条恢复已通过核对；同应用切窗和改标题也验证了应用级接口的范围，见[前台验收](./validation.mdx#前台观测)。受限 IP 网络与重启恢复、用户级任务的实际运行也已分别验证。长期常驻、睡眠与会话变化各自保留待测范围；会话切入切出通知沿用 AppKit 的原语义。
 
 接口依据：[Apple frontmostApplication](https://developer.apple.com/documentation/appkit/nsworkspace/frontmostapplication)、[应用激活通知](https://developer.apple.com/documentation/appkit/nsworkspace/didactivateapplicationnotification)、[NSRunningApplication](https://developer.apple.com/documentation/appkit/nsrunningapplication)、[会话切出通知](https://developer.apple.com/documentation/appkit/nsworkspace/sessiondidresignactivenotification)。

@@ -51,7 +51,7 @@ flowchart TD
 
 候选：第一条导洞只观察前台应用。
 
-理由与代价：在已有授权下，Agent 采用当前 macOS 手动应用级观测。三应用正常与快速切换、逐条保存和独立恢复已经端到端核对，能留下这一路径直接交付的瞬时事实；接受手动未运行时段、未取得事件和未落地尾部仍有缺口，活动含义留给读出。
+理由与代价：在已有授权下，Agent 采用当前 macOS 应用级观测。三应用正常与快速切换、逐条保存和独立恢复已经端到端核对，能留下这一路径直接交付的瞬时事实；接受手动未运行时段、未取得事件和未落地尾部仍有缺口，活动含义留给读出。
 
 启动或重审条件：改变平台、启动方式、应用级范围或需要全天覆盖时，以对应真实操作重新验收；锁屏/睡眠组合和全新权限身份按实际需要单独验证。
 
@@ -64,15 +64,19 @@ flowchart TD
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。
 
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)。拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%8C%81%E7%BB%AD%E9%87%87%E9%9B%86)。发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。
+
 ### 第一条导洞只观察前台应用 · 助手推荐
 
-在当前 macOS 图形用户会话中，手动启动 AppKit 应用级通知与初始前台查询，逐条保存应用公开属性；窗口内容、键鼠、输入文字和屏幕另开范围。
+在当前 macOS 图形用户会话中接收 AppKit 应用级通知与初始查询，逐条保存公开属性；由手动命令或用户级系统任务启动，窗口内容与键鼠另开范围。
 
 收益：以小范围开始积累事后无法补回的前台活动，原事件以后再解释成时段。
 
 代价：只能说明观察到的前台切换，不能推出用户注意力或键鼠活动。
 
-适用条件：当前 macOS 手动应用级观察；以实际受控切换与恢复结果限定覆盖范围。
+适用条件：当前 macOS 应用级观察；按实际受控切换、受限 IP 网络与系统任务运行结果限定覆盖。
 
 继续展开：[瞬时事件接收方式](capture.md#n-359653aed5ab9c59)、[来源版本与观测条件](sources.md#n-a4f8682d76dcd71d)
 
@@ -112,7 +116,7 @@ flowchart TD
 
 检验：实测漏掉哪些状态、耗电与 CPU，再选择间隔；未见事件不填补成已知活动。
 
-实现现状：当前采用的 macOS 手动应用级路线已实现并验收：22/22 次真实切换对应 22 条激活和 22 条失活，49/49 条原件恢复通过；同应用 4 次切窗与 1 次改标题没有新增应用级通知。静态查询、定时结束、真实 TTY Ctrl+C 和故障行为另有验证。键鼠及窗口内容不在本路线范围；其他平台、锁屏/睡眠组合和全天运行尚未验证。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Orisumi.Capturing/Native/Foreground.swift](../../../../../src/Orisumi.Capturing/Native/Foreground.swift)、[src/Docs/Orisumi.Docs/content/docs/model/foreground.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/foreground.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
+实现现状：当前 macOS 应用级路线已实现，手动受控切换与受限 IP 网络重启恢复均通过；用户级任务持续运行并保存真实切换。窗口内容、键鼠、其他平台与全天覆盖各有独立范围。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Orisumi.Capturing/Native/Foreground.swift](../../../../../src/Orisumi.Capturing/Native/Foreground.swift)、[src/Docs/Orisumi.Docs/content/docs/model/foreground.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/foreground.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 

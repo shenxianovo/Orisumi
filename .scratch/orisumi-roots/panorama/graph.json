@@ -621,6 +621,11 @@
           "kind": "file",
           "ref": ".scratch/requirements/survey.md",
           "note": "来源清单列入候选；列入不等于已具备取得能力。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -700,7 +705,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "Claude Code 与 Codex 现有材料已采集并可恢复；macOS 手动前台应用观测已通过 22 次真实切换和 49 条原件恢复。其他来源按各自勘探终点推进。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Capturing/ClaudeCodeSource.cs",
           "src/Orisumi.Capturing/CodexSource.cs",
@@ -717,7 +722,7 @@
           "instant"
         ],
         "reason": "先保住已知会清理的会话材料，随后补前台活动这一不可补回缺口；媒体和手机外设保留条件性分支，接受尚未观测的时段无法追回。",
-        "trigger": "Codex、外部副本和 macOS 手动前台观测已通过当前范围的验收；媒体、外设和其他平台按实际设备、来源损失窗口与负载样本重审。",
+        "trigger": "已有来源开始持续取得；下一条瞬时来源优先勘探浏览器焦点与活动标签，再按损失窗口和投入重排。",
         "stage": "now"
       }
     },
@@ -843,6 +848,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -895,7 +905,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "已完成 Codex 本机取得恢复及外部异机副本，随后完成 macOS 手动前台观测的受控切换、应用内操作边界与原件恢复；其他来源按实际损失窗口继续排序。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Capturing/ForegroundCollector.cs",
@@ -2988,6 +2998,16 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "note": "拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -2995,10 +3015,10 @@
           "id": "foreground-only",
           "title": "第一条导洞只观察前台应用",
           "status": "recommended",
-          "summary": "在当前 macOS 图形用户会话中，手动启动 AppKit 应用级通知与初始前台查询，逐条保存应用公开属性；窗口内容、键鼠、输入文字和屏幕另开范围。",
+          "summary": "在当前 macOS 图形用户会话中接收 AppKit 应用级通知与初始查询，逐条保存公开属性；由手动命令或用户级系统任务启动，窗口内容与键鼠另开范围。",
           "benefit": "以小范围开始积累事后无法补回的前台活动，原事件以后再解释成时段。",
           "cost": "只能说明观察到的前台切换，不能推出用户注意力或键鼠活动。",
-          "when": "当前 macOS 手动应用级观察；以实际受控切换与恢复结果限定覆盖范围。",
+          "when": "当前 macOS 应用级观察；按实际受控切换、受限 IP 网络与系统任务运行结果限定覆盖。",
           "next": [
             "瞬时事件接收方式",
             "来源版本与观测条件"
@@ -3051,7 +3071,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "当前采用的 macOS 手动应用级路线已实现并验收：22/22 次真实切换对应 22 条激活和 22 条失活，49/49 条原件恢复通过；同应用 4 次切窗与 1 次改标题没有新增应用级通知。静态查询、定时结束、真实 TTY Ctrl+C 和故障行为另有验证。键鼠及窗口内容不在本路线范围；其他平台、锁屏/睡眠组合和全天运行尚未验证。",
+        "note": "当前 macOS 应用级路线已实现，手动受控切换与受限 IP 网络重启恢复均通过；用户级任务持续运行并保存真实切换。窗口内容、键鼠、其他平台与全天覆盖各有独立范围。",
         "refs": [
           "src/Orisumi.Capturing/ForegroundCollector.cs",
           "src/Orisumi.Capturing/Native/Foreground.swift",
@@ -3067,7 +3087,7 @@
         "choices": [
           "foreground-only"
         ],
-        "reason": "在已有授权下，Agent 采用当前 macOS 手动应用级观测。三应用正常与快速切换、逐条保存和独立恢复已经端到端核对，能留下这一路径直接交付的瞬时事实；接受手动未运行时段、未取得事件和未落地尾部仍有缺口，活动含义留给读出。",
+        "reason": "在已有授权下，Agent 采用当前 macOS 应用级观测。三应用正常与快速切换、逐条保存和独立恢复已经端到端核对，能留下这一路径直接交付的瞬时事实；接受手动未运行时段、未取得事件和未落地尾部仍有缺口，活动含义留给读出。",
         "trigger": "改变平台、启动方式、应用级范围或需要全天覆盖时，以对应真实操作重新验收；锁屏/睡眠组合和全新权限身份按实际需要单独验证。",
         "stage": "now"
       }
@@ -5082,8 +5102,8 @@
         },
         {
           "kind": "measurement",
-          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
-          "note": "当前会话的 22 次真实切换与 49 条原件恢复通过。网络限制对照两轮均确认普通 loopback 连接成功、同策略 deny network* 连接返回 EPERM；两次真实 orisumi run 均在开发启动/构建阶段等待至 120 秒终止，尚未进入采集且未创建存储。等待根因未定位，当前没有受限环境中的真实采集或恢复证据。"
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "note": "拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。"
         }
       ],
       "options": [
@@ -5138,25 +5158,24 @@
         }
       ],
       "implementation": {
-        "state": "partial",
-        "note": "前台每个完整观察行立即写内容、清单和根；22 次真实切换产生的 49 条原件恢复通过。网络限制实验停在开发启动/构建阶段，未进入采集；真实离线采集与重启后恢复链路仍待验证。",
+        "state": "implemented",
+        "note": "当前前台来源每行立即写本机原件；受限 IP 网络下两轮真实切换、40 条恢复与停机空档均核对通过。",
         "refs": [
           "src/Orisumi.Capturing/ForegroundCollector.cs",
-          "tests/Orisumi.Capturing.Tests/ForegroundCollectorTests.cs",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "one",
       "choice_note": "针对一条事件流选择第一处持久落地职责：设备采集端、来源已有日志，或远端接收；按实际能力说明离线可补范围。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "local-first"
         ],
-        "reason": "前台等瞬时事件应先在设备上留下实际对象，网络不进入保存成功前提；接受进程停机、盘满和尚未落地窗口的损失。",
-        "trigger": "逐条保存前缀、真实切换恢复、异常退出和 Ctrl+C 已通过。先定位网络限制下开发入口的等待原因，再取得实际受限采集、正常收尾及重启恢复样本；当前实验未进入采集，不能据此判断采集是否依赖网络。",
-        "stage": "next"
+        "reason": "在授权下采用当前 macOS 的本机逐条持久保存：真实切换、受限 IP 网络、正常收尾与重启恢复均已核对；接受未运行和未提交尾部的缺口。",
+        "trigger": "来源形态、系统平台或写入量变化时，重新测接收与保存窗口；整机离线、断电和其他来源另有对应验收。",
+        "stage": "now"
       }
     },
     {
@@ -5396,6 +5415,11 @@
           "kind": "file",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#自动运行",
           "note": "现有默认 300 秒及串行语义。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -5452,10 +5476,12 @@
         }
       ],
       "implementation": {
-        "state": "partial",
-        "note": "轮末等待与启动即采已实现；其他策略尚未实现。",
+        "state": "implemented",
+        "note": "当前三个来源分别采用通知与每轮结束后等待 300 秒；文件来源的真实两轮采集与恢复已验，系统启动复用现有循环。",
         "refs": [
-          "src/Orisumi.Capturing/Collector.cs"
+          "src/Orisumi.Capturing/Collector.cs",
+          "src/Orisumi.Capturing/ForegroundCollector.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
@@ -5466,8 +5492,8 @@
         "choices": [
           "source-specific"
         ],
-        "reason": "文件扫描可沿现有可配置循环，未来瞬时事件采用事件取得；用真实保留窗口与耗时决定频率，接受现阶段参数并非全局最优。",
-        "trigger": "测首轮 Codex 耗时及两种周期的变化缺口；前台观测另用持续事件接口，资源实际成问题再调参。",
+        "reason": "前台沿实际通知持续取得；Codex 与 Claude Code 复用轮末等待 300 秒的循环。按两轮真实扫描成本和来源保留窗口继续判断频率，当前保留默认周期。",
+        "trigger": "实际写入、CPU或来源损失窗口形成问题时调整对应来源频率；其他来源各用真实样本选择事件或扫描。",
         "stage": "now"
       }
     },
@@ -5504,6 +5530,11 @@
           "kind": "file",
           "ref": ".scratch/requirements/survey-assistant-sessions.md",
           "note": "日志有可补窗口但会清理。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "note": "拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。"
         }
       ],
       "options": [
@@ -5557,9 +5588,13 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "partial",
+        "note": "前台受限 IP 网络下继续保存，两次运行各自恢复；停机空档只在重启后重新查询当前状态。现有文件来源重扫仍保留的材料，来源已经丢失的历史保持缺口。",
+        "refs": [
+          "src/Orisumi.Capturing/ForegroundCollector.cs",
+          "src/Orisumi.Capturing/Collector.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "one",
@@ -5570,7 +5605,7 @@
           "local-capture"
         ],
         "reason": "当前本机原件保存不依赖网络，离线继续取得可减少数据损失；恢复时只能补来源实际保留的历史，接受设备停机事件不可补。",
-        "trigger": "隔离样本断网期间仍保存并可读回；以后接远端副本时另验补传，不把当前本地能力说成已有同步。",
+        "trigger": "当前前台本机保存与进程重启已验证；远端来源的历史保留、游标过期与后续副本传送分别按真实接口验证。",
         "stage": "now"
       }
     },
@@ -5709,7 +5744,7 @@
         {
           "kind": "file",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/file-capture.mdx#自动运行",
-          "note": "登录启动与宿主尚未实现。"
+          "note": "已有命令内循环；日常启动由固定发布程序与用户级系统任务承担。"
         },
         {
           "kind": "file",
@@ -5720,6 +5755,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -5773,12 +5813,12 @@
         }
       ],
       "implementation": {
-        "state": "implemented",
-        "note": "CLI 手动启动文件单轮/周期采集和前台持续/定时观测；orisumi run 为产品取消保留有界收尾时间。登录启动与常驻服务尚未配置。",
+        "state": "partial",
+        "note": "已发布独立程序并配置三个用户级任务，共用明确存储；实际运行、停止与再启动已验。真实退出登录再登录与全天覆盖仍待测。",
         "refs": [
-          "src/Orisumi.Cli/Program.cs",
-          "tools/Orisumi.Dev/Run/RunCommand.cs",
-          "tools/Orisumi.Dev/Infrastructure/ProcessRunner.cs"
+          "tools/Orisumi.Dev/Run/PublishCommand.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
@@ -5787,10 +5827,10 @@
       "resolution": {
         "state": "adopted",
         "choices": [
-          "manual"
+          "login"
         ],
-        "reason": "当前用 orisumi 手动启动文件采集、前台观察与外部备份验证，接受持续记录仍依赖手动运行；登录服务按实际使用另行安排。",
-        "trigger": "恢复导洞通过且需要持续记录时，核实系统登录启动；常开设备仅在云端来源实际可达后考虑。",
+        "reason": "新来源导洞已通过，而本机没有正在采集的 Orisumi 进程。采用固定发布程序和用户级系统任务，让已接入来源实际持续留下；构建与工作区从日常启动路径移出，系统负责进程重启。",
+        "trigger": "当前会话的装载、停止与再装载已有实测；实际重新登录、其他机器和系统状态组合分别验收。",
         "stage": "now"
       }
     },
@@ -5837,6 +5877,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -5909,7 +5954,7 @@
         "choices": [
           "result"
         ],
-        "reason": "保留成功材料和本轮失败/部分完成已足以验收，沿有限重试即可；接受异常退出和长期停机尚无自动发现。",
+        "reason": "单次成功、部分完成与失败继续独立保存；系统提供进程状态与重启。来源缺口和长期无新材料仍需要另行选择外部检查，当前接受该边界。",
         "trigger": "数据库失败但文件成功、空目录、缺目录和存储失败各有可重复结果；出现真实探活需求再加外部检查。",
         "stage": "now"
       }
@@ -7953,6 +7998,11 @@
           "kind": "file",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/raw.mdx",
           "note": "现有设计与格式是需回看的选择，不自动成为本轮用户确认。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#并发发布",
+          "note": "多写者争用在旧实现复现重复 Added；原子不覆盖发布后，40 次块/记录竞争均只有一个新增，60 份恢复通过，其中40次发生在其他写者仍运行时。"
         }
       ],
       "options": [
@@ -7962,7 +8012,7 @@
           "status": "recommended",
           "summary": "内容和清单完成后才发布根；读出验证哈希；中断留下未引用对象由后续明确回收规则处理。",
           "benefit": "局部协议简单，可避免正常取消发布半份根。",
-          "cost": "断电耐久性仍取决于刷盘/目录持久化，当前重命名不证明完整断电保证。",
+          "cost": "文件系统需要支持原子发布；断电耐久性仍取决于数据与目录持久化，当前可见性验证不证明断电保证。",
           "when": "独立对象存储路线。",
           "next": [],
           "terminal": {
@@ -7991,11 +8041,13 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "StoreFile先写.pending再Move，CaptureWriter最后写根，读取校验块哈希；没有显式fsync、GC或断电耐久实验。",
+        "note": "对象先写完同目录临时文件，再原子不覆盖发布，内容和清单先于采集根。macOS/Linux 使用 link，Windows 使用移动接口；并发唯一新增与运行中恢复已在本机验证，断电与其他平台写入另测。",
         "refs": [
           "src/Orisumi.Raw/StoreFile.cs",
           "src/Orisumi.Raw/CaptureWriter.cs",
-          "tests/Orisumi.Raw.Tests/RawStoreTests.cs"
+          "tests/Orisumi.Raw.Tests/BlockStoreTests.cs",
+          "tests/Orisumi.Raw.Tests/StoreFileTests.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#并发发布"
         ]
       },
       "review": "当前只补清楚本地持久化承诺和检验范围；不顺带建设探活、自动补采或告警。",
@@ -8004,7 +8056,7 @@
         "choices": [
           "publish-last"
         ],
-        "reason": "内容与清单完成后发布根，能使可见记录不引用未写依赖；接受原子重命名不等于完整断电耐久保证。",
+        "reason": "先完整发布内容和清单，再发布根；已有对象保持原样，多个写者只有一个新增。接受进程级可见性和完整断电耐久性需要分别验证。",
         "trigger": "派生存储在写内容、清单和根前后终止进程，验证可见根闭包与哈希；真实断电保证有需求再专项测试。",
         "stage": "now"
       }
@@ -8546,6 +8598,11 @@
           "kind": "file",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx",
           "note": "现有设计与格式是需回看的选择，不自动成为本轮用户确认。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "note": "拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。"
         }
       ],
       "options": [
@@ -8608,7 +8665,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "本机持续保存与一份 Linux 手动副本已验证；采集端断网、自动传送、缓存清理和按需拉取尚未实现或现场验证。",
+        "note": "本机持续采集、受限 IP 网络下保存与进程重启恢复、一次 Linux 手动副本分别已验；应用内节点、自动传送、缓存清理与按需拉取继续后置。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx",
           "src/Orisumi.Capturing/ForegroundCollector.cs",
@@ -9034,8 +9091,8 @@
         },
         {
           "kind": "measurement",
-          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
-          "note": "当前会话的 22 次真实切换与 49 条原件恢复通过；网络限制对照两轮均确认普通 loopback 连接成功、同策略 deny network* 连接返回 EPERM；两次真实 orisumi run 均在开发启动/构建阶段等待至 120 秒终止，尚未进入采集且未创建存储。等待根因未定位，当前没有受限环境中的真实采集或恢复证据。"
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "note": "拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。"
         }
       ],
       "options": [
@@ -9075,22 +9132,22 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "前台观察行直接写本机 Raw，49 条真实观测原件全部恢复。网络限制实验尚停在开发启动/构建阶段，真实离线采集与重启后恢复、自动副本传送和传感器缓冲仍待验证。",
+        "note": "当前电脑本地保存、受限 IP 网络下取得与重启恢复已验证；已有手动异机副本路线。自动传送、传感器缓冲及清理仍未实现。",
         "refs": [
-          "src/Orisumi.Capturing/ForegroundCollector.cs",
           "src/Orisumi.Raw/RawStore.cs",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx"
         ]
       },
       "review": "以设备真实能力决定缓冲方式，保留未能观测或未能留住的边界。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "local-raw"
         ],
-        "reason": "已知电脑具备本地存储，前台等事件先本机落地避免依赖网络；接受设备停机及容量不足仍有缺口。",
-        "trigger": "网络限制实验先定位开发入口等待原因，再验证实际采集与重启恢复；无存储硬件接入时先测真实缓冲，再单独选 remote-only-collector。",
-        "stage": "next"
+        "reason": "在当前有本地存储的电脑上，先保存成功取得的原件，再按外部副本路线交付另一保存点；受限 IP 网络实跑已验证本机保存与重启恢复，接受设备停机和容量失败仍有缺口。",
+        "trigger": "接无本地存储的设备时重选；自动传送、空间回收与其他平台按实际需要分别验证。",
+        "stage": "now"
       }
     },
     {
@@ -11647,6 +11704,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -11711,7 +11773,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "当前已交付 Codex 保存与本机恢复、手动异机副本及 macOS 手动应用级观测；前台通过正常/快速切换、同应用操作边界和 49 条原件恢复。读取、理解及其他来源继续按实际需求进入。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Cli/Program.cs",
           "src/Docs/Orisumi.Docs/content/docs/model/index.mdx",
@@ -12226,6 +12288,11 @@
           "kind": "file",
           "ref": "src/Orisumi.Cli/Program.cs",
           "note": "Scan/Watch 保留并输出单次结果；--once 失败返回非零，当前外部探活尚未启用。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -12249,10 +12316,10 @@
           "id": "none",
           "title": "当前连探活也暂缓",
           "status": "alternative",
-          "summary": "使用时人工查看本次结果，持续保障留到实际需要。",
+          "summary": "使用时查看保存结果和系统进程状态；来源结果的新鲜度与完整性探活留到实际需要。",
           "benefit": "最少建设投入。",
           "cost": "更依赖人偶尔检查，可能错过材料。",
-          "when": "采集尚在短期验证或用户明确接受此阶段。",
+          "when": "当前接受来源缺口仍需按实际问题核查；系统进程启动与重启由启动路线负责。",
           "next": [],
           "terminal": {
             "kind": "conditional",
@@ -12282,12 +12349,11 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "单次结果、有限读取重试、前台有界退出与失败记录已实现；已有一次手动异机副本。持续探活、自动恢复、定时备份和告警平台后置。",
+        "note": "现有有限重试与失败记录保留，用户级 launchd 管进程重启；实际停止与再运行已验证。来源完整性探活、定时备份和告警平台继续后置。",
         "refs": [
-          "src/Orisumi.Cli/Program.cs",
           "src/Orisumi.Capturing/Collector.cs",
-          "src/Orisumi.Capturing/ForegroundCollector.cs",
-          "src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx"
+          "src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集"
         ]
       },
       "review": "判断阶段边界、验收证据与替代路线触发条件；采用记录表达 Agent 选择，用户确认保留原证据。",
@@ -12296,8 +12362,8 @@
         "choices": [
           "none"
         ],
-        "reason": "当前导洞阶段人工查看本次结果即可，已有记录与有限重试保留；接受停机和过期采集暂不自动发现。",
-        "trigger": "实际持续运行需要发现停止时，先加简单外部探活；内建监控恢复告警继续服从已确认从简边界。",
+        "reason": "单次结果和失败保留在原件与运行输出中；外部系统只管理三个采集进程的启动和重启。来源遗漏、长期未更新与告警仍无内建判定，接受这部分可见性边界。",
+        "trigger": "需要发现进程存活但长期没有新结果时，再加简单外部探活；来源缺口恢复与告警平台继续按从简边界后置。",
         "stage": "now"
       }
     },
@@ -12334,6 +12400,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -12372,7 +12443,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "119 个决策区分用户确认与授权内采用；当前已完成 Codex 保存恢复、手动异机副本和 macOS 手动应用级观测。前台 22 次真实切换、应用内操作边界与 49 条原件恢复已验证；其他范围继续保留具体条件。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Capturing/ForegroundCollector.cs",
@@ -12431,6 +12502,11 @@
           "kind": "measurement",
           "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测",
           "note": "当前 macOS 图形用户会话手动观察：7 次约 1 秒切换与 15 次约 0.2 秒切换全部取得；22 条激活、22 条失活分别与测试应用自身回调的身份及顺序一致。49 条原件全部恢复并核对哈希、长度、LF 和出处；同应用 4 次切窗、1 次改标题期间无新增应用级通知。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+          "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
         }
       ],
       "options": [
@@ -12469,7 +12545,7 @@
       ],
       "implementation": {
         "state": "partial",
-        "note": "SQLite/WAL、本机与异机恢复、前台受控正常/快速切换、应用内操作边界、保存前缀与取消均有实际检验；其他平台、系统状态组合、断网、全新权限身份和全天运行按各自待测终点推进。",
+        "note": "Codex/Claude Code 文件采集、macOS 前台逐条观察、原件恢复与一次手动异机副本已有证据；当前三个来源由独立发布程序和用户级任务持续采集。受限 IP 网络与进程重启已验，其他来源及读取理解按真实需要进入。",
         "refs": [
           "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx",
           ".scratch/requirements/survey-macos-foreground.md",
@@ -12483,7 +12559,7 @@
           "test"
         ],
         "reason": "每个未知都对应最小输入、成功标准和失败分流，先验证影响当前交付的条件；接受远期试验仍未执行。",
-        "trigger": "当前 SQLite、独立恢复及 macOS 手动前台观测已通过对应验收；网络限制实验需先定位开发入口等待原因，再取得真实离线采集证据。其他平台、系统状态、权限身份、接口和媒体随具体用途触发。",
+        "trigger": "当前来源、恢复、受限 IP 网络和用户级任务的装载/停止已测；真实重新登录、全天运行、系统状态和新来源按各自最小实验推进。",
         "stage": "now"
       }
     }
@@ -13460,6 +13536,48 @@
         "未验证能力怎样推进"
       ],
       "note": "22 次正常/快速切换与应用自身回调独立对账，49 条原件恢复通过；同应用切窗/改标题范围和跨通道交错次序分别记录。静态查询、真实 TTY 收尾及九项行为测试继续提供各自范围的证据。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/continuous-capture.mdx",
+      "nodes": [
+        "采集启动与执行位置",
+        "运行保障怎样安排",
+        "调度频率与触发"
+      ],
+      "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
+    },
+    {
+      "ref": "tools/Orisumi.Dev/Run/PublishCommand.cs",
+      "nodes": [
+        "采集启动与执行位置"
+      ],
+      "note": "一次显式自包含发布，目标须新路径，成功后发布目录，失败和取消清派生产物。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+      "nodes": [
+        "瞬时事件接收方式",
+        "采集设备怎样缓冲",
+        "离线与历史补取"
+      ],
+      "note": "拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#并发发布",
+      "nodes": [
+        "写入完整性与校验",
+        "第一阶段怎样验收"
+      ],
+      "note": "真实多进程并发发现重复 Added；修复为原子不覆盖发布，已有目标和读取完整性分别回归。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#持续采集",
+      "nodes": [
+        "采集启动与执行位置",
+        "第一阶段怎样验收",
+        "运行保障怎样安排"
+      ],
+      "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
     }
   ],
   "limitations": [
@@ -13470,7 +13588,7 @@
     "存储对照包含真实静态样本与明确标注的历史回放；只比较去重后压缩内容体积，不能代表真实连续历史、完整元数据、CPU或所有来源。",
     "既有答题基准验证过已删除的导洞；不能据此声称重写后的读取能力或全部答案已经通过用户验收。",
     "已授权采用的方案按独立交付推进，正式文档和实现随实际完成范围同步替换；尚未实现的路线继续保留条件与证据缺口。",
-    "外部副本已有一次手动 Linux 恢复证据，尚未配置定时任务。macOS 手动应用级观测已通过 22 次真实切换及 49 条原件恢复，同应用切窗与改标题未新增应用级通知。此样本不外推至其他平台、任意更短间隔、全天运行、锁屏/睡眠组合或全新权限身份；网络限制实验未越过开发启动/构建阶段，真实离线采集与恢复仍待验证。"
+    "外部副本仍是按需手动复制。当前三个来源已由用户级任务持续采集；受限 IP 网络与进程重启有实际证据。真实重新登录、全天运行、系统睡眠、其他平台、全新权限身份及断电各自待验，系统进程状态不能证明来源完整率。"
   ],
   "routes": [
     {
@@ -13496,15 +13614,15 @@
       }
     },
     {
-      "title": "当前交付：macOS 手动前台观测",
-      "summary": "当前 macOS 手动应用级路线已采用并实现：22 次受控正常/快速切换分别与应用自身回调对账，49 条原件全部恢复；初始查询、逐条保存、定时结束和 Ctrl+C 另有验证。",
-      "when": "当前图形用户会话与既有权限身份；快速样本实际请求间隔约 201–203 毫秒。同应用 4 次切窗、1 次改标题期间无应用级通知。当前手动启动，断网验证、系统状态组合、全天覆盖、其他平台及新来源范围分别处理。",
+      "title": "当前交付：已有来源持续采集",
+      "summary": "独立发布程序由三个用户级任务运行，前台持续观察、Codex/Claude Code 每轮结束后等待 300 秒；共用原件目录，保留外部手动副本路线。",
+      "when": "当前 macOS 用户会话；手动切换、受限 IP 网络与重启恢复、任务装载和停止各有实际证据，真实重新登录、全天与系统状态组合另测。",
       "choices": {
         "来源接入顺序": "loss-cost",
         "前台应用与键鼠观测": "foreground-only",
         "瞬时事件接收方式": "local-first",
         "事件时间与顺序": "separate",
-        "采集启动与执行位置": "manual",
+        "采集启动与执行位置": "login",
         "第一阶段怎样验收": "recovery"
       }
     },

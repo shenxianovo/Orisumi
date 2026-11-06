@@ -208,6 +208,8 @@ flowchart TD
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)。现有设计与格式是需回看的选择，不自动成为本轮用户确认。
 
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)。拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。
+
 ### 长期完整保存点加本地采集/缓存 · 助手推荐
 
 至少一处负责完整保留；采集设备先本地留下材料，收到目的地完整核验确认后才按明确策略清理可再取缓存。
@@ -256,7 +258,7 @@ flowchart TD
 
 检验：每个保留根的依赖闭包都有可用副本；仅统计块份数不能漏掉记录。
 
-实现现状：本机持续保存与一份 Linux 手动副本已验证；采集端断网、自动传送、缓存清理和按需拉取尚未实现或现场验证。（[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
+实现现状：本机持续采集、受限 IP 网络下保存与进程重启恢复、一次 Linux 手动副本分别已验；应用内节点、自动传送、缓存清理与按需拉取继续后置。（[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)、[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
 
 审阅重点：采集端、保存端、查询端和浏览器入口可分别安排；默认所有设备同能力不必要。
 
@@ -526,13 +528,13 @@ flowchart TD
 
 **助手推论** · 长期保存点和小传感器可以共存。先核对每台采集设备的实际存储能力，再选择离线期间能留下多少；不能把没有存储的设备描述成离线无损。
 
-**条件成立再做 · 下一步**
+**Agent采用 · 当前**
 
 候选：设备上先保存原件，再交长期保存点。
 
-理由与代价：已知电脑具备本地存储，前台等事件先本机落地避免依赖网络；接受设备停机及容量不足仍有缺口。
+理由与代价：在当前有本地存储的电脑上，先保存成功取得的原件，再按外部副本路线交付另一保存点；受限 IP 网络实跑已验证本机保存与重启恢复，接受设备停机和容量失败仍有缺口。
 
-启动或重审条件：网络限制实验先定位开发入口等待原因，再验证实际采集与重启恢复；无存储硬件接入时先测真实缓冲，再单独选 remote-only-collector。
+启动或重审条件：接无本地存储的设备时重选；自动传送、空间回收与其他平台按实际需要分别验证。
 
 依据：
 
@@ -540,7 +542,7 @@ flowchart TD
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)。现有设计与格式是需回看的选择，不自动成为本轮用户确认。
 
-依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#前台观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E5%89%8D%E5%8F%B0%E8%A7%82%E6%B5%8B)。当前会话的 22 次真实切换与 49 条原件恢复通过；网络限制对照两轮均确认普通 loopback 连接成功、同策略 deny network* 连接返回 EPERM；两次真实 orisumi run 均在开发启动/构建阶段等待至 120 秒终止，尚未进入采集且未创建存储。等待根因未定位，当前没有受限环境中的真实采集或恢复证据。
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)。拒绝采集进程全部 IPv4/IPv6 通信并保留本机 IPC，两轮保存并恢复 40/40 份原件，实际 17 次激活和 17 次失活对应；两轮身份独立，停机空档不产生原件。
 
 ### 设备上先保存原件，再交长期保存点 · 助手推荐
 
@@ -572,7 +574,7 @@ flowchart TD
 
 检验：拔网后产生已知序列，恢复后列出实际保留、缺失与顺序范围。
 
-实现现状：前台观察行直接写本机 Raw，49 条真实观测原件全部恢复。网络限制实验尚停在开发启动/构建阶段，真实离线采集与重启后恢复、自动副本传送和传感器缓冲仍待验证。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Orisumi.Raw/RawStore.cs](../../../../../src/Orisumi.Raw/RawStore.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
+实现现状：当前电脑本地保存、受限 IP 网络下取得与重启恢复已验证；已有手动异机副本路线。自动传送、传感器缓冲及清理仍未实现。（[src/Orisumi.Raw/RawStore.cs](../../../../../src/Orisumi.Raw/RawStore.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)、[src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/nodes.mdx)）
 
 审阅重点：以设备真实能力决定缓冲方式，保留未能观测或未能留住的边界。
 
