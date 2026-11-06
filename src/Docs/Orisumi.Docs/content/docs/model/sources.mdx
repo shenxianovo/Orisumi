@@ -1,15 +1,21 @@
 ---
 title: "来源怎么采"
-description: "已接入的会话和前台观测，以及旧 Heartbeat 和 Git 的来源设计"
+description: "会话、前台与浏览器观测的范围，以及旧 Heartbeat 和 Git 的来源设计"
 ---
 
-这一页记录已接入来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 已接入[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；旧 Heartbeat 和 Git 先验证各自的一条取得与恢复路径。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
+这一页记录各来源的保存范围，以及后续来源的验证条件。Claude Code 和 Codex 使用[共用采集器](./file-capture.mdx)；macOS 前台使用[实时观察入口](./foreground.mdx)；[浏览器](./browser.mdx)由扩展取得标签与窗口观测，再交给本机原件接收器；旧 Heartbeat 和 Git 先验证各自的一条取得与恢复路径。存下的东西、采集记录和恢复方式见[原件](./raw.mdx)。
 
 ## macOS 前台应用
 
 `orisumi run capture foreground` 保存 AppKit 的初始前台查询及实际收到的激活、失活、睡眠唤醒和用户会话通知。每条观察立即独立写成原件；`--duration <秒>` 限定运行时间，省略时持续到 Ctrl+C。
 
 保存的是通知名称、实际对象的公开属性和取得条件，没有窗口标题、键鼠或输入文字。格式、运行要求、失败行为与当前平台验收限制见[前台应用观测](./foreground.mdx)。应用切换与人的注意力分别解释。
+
+## 浏览器
+
+MV3 扩展保存 `tabs` 和 `windows` 的回调参数、初始状态查询、激活后的标签查询，以及取得时刻和来源环境。回调中的 URL、query、fragment、标题和后台标签属性保持原样；窗口内 active、窗口焦点和系统前台分别表达。
+
+来源名为 `browser`。扩展先写本地暂存，本机接收器将每个 Native Messaging payload 单独保存，发布根后回执；扩展收到匹配回执后移除暂存。接收程序退出期间的短暂事件因此可以补送，Worker 未取得或未成功暂存的内容仍有缺口。范围、身份、原件字节边界和安装方式见[浏览器观测](./browser.mdx)。
 
 ## Claude Code
 

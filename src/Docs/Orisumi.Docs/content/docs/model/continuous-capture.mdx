@@ -51,6 +51,12 @@ launchctl print "gui/$(id -u)/dev.orisumi.capture.foreground"
 "$orisumi_app" raw show '<采集记录>' --store "$HOME/.orisumi"
 ```
 
+Chrome 按需启动浏览器接收器。用下面的命令查接收器进程，再用 `raw show` 核对最近一条 `browser` 采集记录的版本。扩展自身的版本在 `chrome://extensions` 的 Orisumi 详情页查看。
+
+```sh
+ps -axo pid,ppid,command | awk '/[o]risumi-cli capture browser/'
+```
+
 ## 系统任务
 
 三个任务的来源分别为 `foreground`、`codex`、`claude-code`，标签分别为 `dev.orisumi.capture.<来源>`。每个任务的 `ProgramArguments` 按数组传入程序绝对路径、`capture`、来源、`--store`、原件绝对路径；路径中的空格由数组保留。

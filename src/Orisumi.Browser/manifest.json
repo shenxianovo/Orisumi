@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Orisumi 浏览器观测",
+  "version": "0.1.0",
+  "description": "原样留下标签与窗口事件，保存后移除本机暂存。",
+  "minimum_chrome_version": "130",
+  "permissions": [
+    "tabs",
+    "nativeMessaging",
+    "storage",
+    "unlimitedStorage",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwSZGQgc+WqhYgICnN1W933eWix/bid8hL7PMLk30zzEXfovKRv4YGKMpVHihIKIzkgla927pzSV0mWv6tuCprgd4K+oDyw9QQVo9hrBk0clkiuuQB0RHVYZgnOEdV+siPU9JsCY6nlUIOnq5vKZmVAwmwfLk9Q8cnBSZhKUBcpBb/rAkO+kUVXruSvjXMk0gd/sz5lkRXTV55VW3qySfveuUfj/7asNgQJW1ScfOT/EWwovgIbFBr2XYcT5yBHfjqMIJv7ADCmaUSZ7Xz1KovYfA9UiwQvdnIDGcoA900HHUjkBDLHoRCYezHfpSVjQ7tatruB4qdjh2Ad8w1vfX9wIDAQAB"
+}

@@ -7,5 +7,7 @@ Orisumi 从零重写。之前的设计和实现已经删除，留在 Git 历史�
 
 目前可以采集 [Claude Code 和 Codex](../model/sources.mdx) 的日志、索引及相关材料，以及 [macOS 前台应用观测](../model/foreground.mdx)，再[恢复到独立目录或导出单个文件](../model/raw.mdx#恢复与导出)。Codex 的 SQLite 保存为整个数据库的一致快照；外部副本已完成[真实异机恢复验证](../model/validation.mdx#外部副本)，前台观察已通过[受控应用切换与逐条恢复](../model/validation.mdx#前台观测)。三个来源已按[本机持续采集](../model/continuous-capture.mdx)运行；后续来源、读出和界面按[模型中的触发条件](../model/index.mdx#实现到哪了)逐项展开。
 
+[浏览器观测](../model/browser.mdx)也已接通：标签和窗口回调先在扩展暂存，收到本机原件回执后清理；受控 Profile 的断连补送、Worker 重启和逐字节恢复已通过[验收](../model/validation.mdx#浏览器观测)，日常 Profile 安装和持续量另行核对。
+
 - [需求](../requirements/index.mdx)：用户确认的需求。
 - [模型](../model/index.mdx)：当前采用的采集、保存和恢复链路，以及后续能力的触发条件。

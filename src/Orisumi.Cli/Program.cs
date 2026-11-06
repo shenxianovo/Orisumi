@@ -23,7 +23,12 @@ public static class Program
         root.Options.Add(store);
         root.Subcommands.Add(Capture(store));
         root.Subcommands.Add(RawCommands(store));
-        return root.Parse(args).InvokeAsync(new InvocationConfiguration { ProcessTerminationTimeout = TimeSpan.FromSeconds(10) });
+        var parse = root.Parse(args);
+        return parse.InvokeAsync(new InvocationConfiguration
+        {
+            ProcessTerminationTimeout = TimeSpan.FromSeconds(10),
+            Output = parse.CommandResult.Command.Name == "browser" ? Console.Error : Console.Out,
+        });
     }
 
     private static Command Capture(Option<string> storeDirectory)
@@ -59,7 +64,34 @@ public static class Program
             command.Options.Add(retries);
             command.Options.Add(once);
         }
-        return new Command("capture", "把一个来源采成原件块") { files, claudeCode, codex, Foreground(storeDirectory) };
+        return new Command("capture", "把一个来源采成原件块") { files, claudeCode, codex, Foreground(storeDirectory), Browser(storeDirectory) };
+    }
+
+    private static Command Browser(Option<string> storeDirectory)
+    {
+        var caller = new Argument<string>("caller-origin") { Description = "浏览器传入的扩展 origin" };
+        var command = new Command("browser", "接收 Native Messaging 帧，保存浏览器观测后逐条回执") { caller };
+        command.SetAction(async (parse, token) =>
+        {
+            try
+            {
+                using var input = Console.OpenStandardInput();
+                using var output = Console.OpenStandardOutput();
+                var receiver = new NativeReceiver(parse.GetValue(storeDirectory)!, $"orisumi capture browser {Version}");
+                await receiver.RunAsync(input, output, parse.GetValue(caller)!, token);
+                return 0;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return 130;
+            }
+            catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                Console.Error.WriteLine(error.Message);
+                return 1;
+            }
+        });
+        return command;
     }
 
     private static Command Foreground(Option<string> storeDirectory)

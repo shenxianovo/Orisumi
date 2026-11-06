@@ -141,38 +141,40 @@ flowchart TD
 
 **助手推论** · 扩展收到事件后需要把它留下。Chrome 官方文档说明 Service Worker 可终止且全局变量会丢，内存暂存不能代表已保存。
 
-**条件成立再做 · 以后**
+**Agent采用 · 当前**
 
 候选：Native Messaging 交本机程序。
 
-理由与代价：本机接收契合设备本地持久记录，避免为扩展额外运行通用 HTTP 服务；接受注册、消息大小和进程生命周期成本。
+理由与代价：真实断连样本证明快照不能补回短暂标签，采用 storage.local 暂存与 Native 根回执；单 port 单 host，复用现有原件而无需新增 HTTP 常驻服务。
 
-启动或重审条件：依据官方 Native Messaging 能力测试正常事件、Worker 重启、接收端退出和长消息；持久性失败时先试 extension-store。
+启动或重审条件：来源体量、真实磁盘限制或安装条件改变时重测；批量导出仅在即时通道不适合时重新比较。
 
 依据：
 
 - [数据所处的情况](roots.md#n-b450eb729c7db69e)（选择依据）：补回机会取决于材料是否已记录及何时消失，此处按真实处境选择取得方式。
 - [采集保障先从简](roots.md#n-ffb6c54f0390b4e1)（选择依据）：当前内建保障暂缓，可简单外置；此处选择仍可独立完成的最小采集职责。
 
-依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。曾比较 Native Messaging 与 HTTP，均未实施。
-
 依据材料：[https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。Service Worker 会终止，全局变量会丢，官方建议持久保存。
+
+依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。CfT156 两个受控 Profile 的真实 callback/query 与完整 Native frame；host 断连期间短暂标签无法从重连快照补回。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)。正式扩展 119 入站帧、118 回执根逐字节恢复；Worker 重启、暂存重放、Profile 身份与快速关闭查询错误均核对。
 
 ### Native Messaging 交本机程序 · 助手推荐
 
-验证扩展把事件交给本机接收程序并原样落地；若短暂不可用，明确本地临时保留方式。
+扩展先用 storage.local 暂存，Native Messaging 按需启动本机接收器；原件根发布后回执，匹配回执后移除暂存。
 
-收益：可在事件到来时启动本机接收端的候选路线。
+收益：复用本机原件与恢复，断连期间已经暂存的瞬时事件可在 Worker 重启后继续补送。
 
-代价：注册、消息上限与进程生命周期尚需官方核对。
+代价：需要扩展与 host 登记；接受重复交付、未成功暂存的尾部及浏览器未运行缺口，磁盘容量仍有限。
 
-适用条件：取得能力或范围尚未测清时，先取得一个可核验样本。
+适用条件：当前浏览器事件路线；主通道为 Native Messaging，暂存属于其发送职责。
 
 继续展开：[瞬时事件接收方式](#n-359653aed5ab9c59)
 
-分支终点：读现行官方 Native Messaging 文档，做事件、重启扩展、接收端退出、长消息的四项试验。
+分支终点：正常事件、Worker 重启、host 退出、Profile 身份及118份回执根恢复已验；消息边界由接收器测试覆盖，日常体量继续测。
 
-检验：能从已落地记录指出最后成功事件；进程退出后的覆盖按实际结果声明。
+检验：成功回执只在根发布后发出，恢复 payload 与入站字节一致；旧项清理与新项持久化的失败分别处理。
 
 ### 本机 HTTP 接收 · 可选路线
 
@@ -190,9 +192,9 @@ flowchart TD
 
 检验：只有实际接收并落地的数据算已取得；失败事件去向明确。
 
-### 扩展先持久保存再导出 · 可选路线
+### 扩展持久保存后批量导出 · 可选路线
 
-在浏览器可用存储里先留下事件，再交给 Orisumi 文件/接口来源。
+独立于即时接收器，在浏览器存储里积累，再按批次导出给 Orisumi 文件来源。
 
 收益：短时不依赖本机接收器常开。
 
@@ -206,7 +208,7 @@ flowchart TD
 
 检验：Worker 全局变量清空后样本仍可读，额度耗尽时有可观察结果。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。（[src/Orisumi.Browser/worker.js](../../../../../src/Orisumi.Browser/worker.js)、[src/Orisumi.Browser/delivery.js](../../../../../src/Orisumi.Browser/delivery.js)、[src/Orisumi.Capturing/NativeReceiver.cs](../../../../../src/Orisumi.Capturing/NativeReceiver.cs)、[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -859,7 +861,7 @@ SQLite 用 Online Backup 等正式能力取得独立快照；其他引擎按其�
 
 检验：断网十分钟后实际能补多少，不以发送成功日志代替远端持久确认。
 
-实现现状：当前前台来源每行立即写本机原件；受限 IP 网络下两轮真实切换、40 条恢复与停机空档均核对通过。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)）
+实现现状：当前前台来源每行立即写本机原件；受限 IP 网络下两轮真实切换、40 条恢复与停机空档均核对通过。 浏览器先在扩展本地暂存，再逐条交给本机原件接收器，重启续传与恢复已验。（[src/Orisumi.Capturing/ForegroundCollector.cs](../../../../../src/Orisumi.Capturing/ForegroundCollector.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E7%BD%91%E7%BB%9C%E9%99%90%E5%88%B6%E4%B8%8E%E9%87%8D%E5%90%AF)、[src/Orisumi.Browser/delivery.js](../../../../../src/Orisumi.Browser/delivery.js)、[src/Orisumi.Capturing/NativeReceiver.cs](../../../../../src/Orisumi.Capturing/NativeReceiver.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 

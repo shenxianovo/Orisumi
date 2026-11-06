@@ -146,6 +146,48 @@
 
 所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)、[来源版本与观测条件](modules/sources.md#n-a4f8682d76dcd71d)
 
+#### [浏览器观测层次](modules/sources-live.md#n-bba0514698b64e45)
+
+**Agent采用 · 当前**
+
+候选：标签与窗口焦点事件。
+
+理由与代价：真实样本证实瞬时标签与窗口事实无法由后来的快照补回；当前采用事件和独立查询，持久历史、导航专用接口、页面内容各按后续来源验证。
+
+启动或重审条件：日常 Profile 持续量、睡眠和权限范围另测；实际需要补过去或网页内容时分别进入 history/page 路线。
+
+依据：[尽量收集一切](modules/roots.md#n-c3c6e7607f2c9805)、[数据所处的情况](modules/roots.md#n-b450eb729c7db69e)
+
+所选候选的后续：[浏览器焦点与标签观测](modules/sources-live.md#n-6a613b885484430f)、[浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
+
+#### [浏览器焦点与标签观测](modules/sources-live.md#n-6a613b885484430f)
+
+**Agent采用 · 当前**
+
+候选：分别保留标签、窗口与系统前台。
+
+理由与代价：双窗口与最小化样本确认 active、focused 与系统前台各有语义；异步 tabs.get 实际出现标签已关闭错误，因此回调和查询各自保留。
+
+启动或重审条件：浏览器或接口版本、Profile 范围和系统状态变化时，重跑受控序列；睡眠及长期体量另验。
+
+依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
+
+所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)、[浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
+
+#### [浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
+
+**Agent采用 · 当前**
+
+候选：Native Messaging 交本机程序。
+
+理由与代价：真实断连样本证明快照不能补回短暂标签，采用 storage.local 暂存与 Native 根回执；单 port 单 host，复用现有原件而无需新增 HTTP 常驻服务。
+
+启动或重审条件：来源体量、真实磁盘限制或安装条件改变时重测；批量导出仅在即时通道不适合时重新比较。
+
+依据：[数据所处的情况](modules/roots.md#n-b450eb729c7db69e)、[采集保障先从简](modules/roots.md#n-ffb6c54f0390b4e1)
+
+所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)
+
 #### [取得方式按来源形态选择](modules/capture.md#n-6d6180cd980550cc)
 
 **Agent采用 · 当前**
@@ -1056,34 +1098,6 @@
 
 所选候选的后续：[本地文件选择边界](modules/sources-local.md#n-8448d9854b79d7b9)、[接口与导出取得方式](modules/capture.md#n-c68c6175d29abc5e)
 
-#### [浏览器观测层次](modules/sources-live.md#n-bba0514698b64e45)
-
-**条件成立再做 · 以后**
-
-候选：标签、导航与窗口焦点事件、浏览器持久记录。
-
-理由与代价：持久历史与标签/窗口事件分别补过去和未来，均有明确来源形态；页面与网络负载更大，接受先不含正文的阶段范围。
-
-启动或重审条件：先单 Profile 对照真实操作与 History/API 样本；事件和历史恢复通过后按实际内容缺口勘探 page。
-
-依据：[尽量收集一切](modules/roots.md#n-c3c6e7607f2c9805)、[数据所处的情况](modules/roots.md#n-b450eb729c7db69e)
-
-所选候选的后续：[浏览器焦点与标签观测](modules/sources-live.md#n-6a613b885484430f)、[浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)、[浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)
-
-#### [浏览器焦点与标签观测](modules/sources-live.md#n-6a613b885484430f)
-
-**条件成立再做 · 以后**
-
-候选：分别保留标签、窗口与系统前台。
-
-理由与代价：系统前台、窗口焦点、活动标签分别保存才不会把后台标签算成注意力；接受跨接口时钟与语义待测。
-
-启动或重审条件：一个 Profile 重放双窗口、最小化、后台与单页应用序列，核对官方事件语义及启动状态。
-
-依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
-
-所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)、[浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
-
 #### [浏览器持久记录取得](modules/sources-live.md#n-0a1e75558e92bd10)
 
 **条件成立再做 · 以后**
@@ -1123,20 +1137,6 @@
 启动或重审条件：普通 audio/video 与实际平台播放器对照播放/暂停/跳转；只有独立网络事实需求出现再测 network。
 
 依据：[首先收集数据](modules/roots.md#n-2c3dfbca22881d81)、[尽量完整留下](modules/roots.md#n-77e7f6f84727e69e)
-
-所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)
-
-#### [浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)
-
-**条件成立再做 · 以后**
-
-候选：Native Messaging 交本机程序。
-
-理由与代价：本机接收契合设备本地持久记录，避免为扩展额外运行通用 HTTP 服务；接受注册、消息大小和进程生命周期成本。
-
-启动或重审条件：依据官方 Native Messaging 能力测试正常事件、Worker 重启、接收端退出和长消息；持久性失败时先试 extension-store。
-
-依据：[数据所处的情况](modules/roots.md#n-b450eb729c7db69e)、[采集保障先从简](modules/roots.md#n-ffb6c54f0390b4e1)
 
 所选候选的后续：[瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)
 

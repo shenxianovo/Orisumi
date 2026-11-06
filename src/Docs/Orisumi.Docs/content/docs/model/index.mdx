@@ -27,7 +27,7 @@ flowchart LR
 
 这一节记录 Agent 在用户授权自主选择与实现的范围内采用的方案。授权与逐项确认分别记录；用户确认的起点见[需求](../requirements/index.mdx)。当前格式与取舍写在[决定](./adr/0001-two-layer-chunking.mdx)里，技术参照见[参照](./prior-art.mdx)。
 
-[副本与节点](./nodes.mdx)记录已验证的手动异机备份路线；[前台应用观测](./foreground.mdx)记录新的瞬时来源与其覆盖限制。[读出](./readings.mdx)和[给 Agent 的命令](./context.mdx)按实际使用需要展开，当前采集与恢复可以独立交付。
+[副本与节点](./nodes.mdx)记录已验证的手动异机备份路线；[前台应用观测](./foreground.mdx)与[浏览器观测](./browser.mdx)分别记录系统和浏览器的瞬时来源及其覆盖限制。[读出](./readings.mdx)和[给 Agent 的命令](./context.mdx)按实际使用需要展开，当前采集与恢复可以独立交付。
 
 ## 第一条导洞
 
@@ -44,8 +44,9 @@ Agent 在导洞中用五个上下文命令回答了测量基准的全部题目�
 | 项目 | 内容 |
 | --- | --- |
 | `src/Orisumi.Raw` | 块、切块器、采集记录、文件清单、删除记录、位置，以及原件恢复和导出 |
-| `src/Orisumi.Capturing` | 文件读取、SQLite 快照、符号链接、Claude Code 和 Codex 规则，以及 macOS 前台观察与逐行保存 |
-| `src/Orisumi.Cli` | 采集、查看原件、恢复和导出的命令 |
+| `src/Orisumi.Capturing` | 文件读取、SQLite 快照、符号链接、Claude Code 和 Codex 规则，以及 macOS 前台观察、浏览器 Native 接收与原字节保存 |
+| `src/Orisumi.Cli` | 采集、查看原件、恢复和导出的命令，以及浏览器 host 启动入口 |
+| `src/Orisumi.Browser` | 标签与窗口原回调、独立查询、本地暂存和根回执 |
 | `tests/Orisumi.Raw.Tests` | 原件格式、恢复、校验和取消 |
 | `tests/Orisumi.Capturing.Tests` | 来源选择、读取、快照、部分完成和自动采集循环 |
 
@@ -82,6 +83,8 @@ orisumi run raw delete <采集> --reason <原因>
 
 ## 实现到哪了
 
+[浏览器观测](./browser.mdx)的扩展与 Native 接收器已实现，双 Profile、Worker 重启、接收器退出和暂存补送已经在受控浏览器中验证；118 个回执根逐字节恢复通过，见[浏览器验收](./validation.mdx#浏览器观测)。
+
 已经实现：[原件](./raw.mdx)的块、切块器 `orisumi-cdc-1`、采集记录、文件清单、删除记录、位置的解析和显示；[共用采集器](./file-capture.mdx)的定期运行、单轮采集和部分完成记录；[Claude Code](./sources.mdx#claude-code) 与 [Codex](./sources.mdx#codex) 来源接入；原件查看、整轮恢复和单文件导出。
 
 [外部副本](./validation.mdx#外部副本)已用真实保存集完成 Linux 异机独立恢复。macOS [前台观测](./foreground.mdx)已接入：初始查询、22 次受控应用切换、即时保存、停止与恢复均通过核对；同应用切窗和改标题期间没有新增应用级通知，见[验收](./validation.mdx#前台观测)。
@@ -90,7 +93,7 @@ orisumi run raw delete <采集> --reason <原因>
 
 当前后续顺序与条件：
 
-- 让当前采集持续积累，按材料损失窗口勘探下一来源；浏览器焦点与活动标签优先比较。全天通知量、写入成本、重新登录及睡眠会话变化分别测量。
+- 让当前采集持续积累，按材料损失窗口勘探下一来源；浏览器标签/窗口、暂存续传与独立恢复已在受控 Profile 接通，日常 Profile 安装与持续量另验。全天通知量、写入成本、重新登录及睡眠会话变化分别测量。
 - 登录启动已配置，副本仍按需手动复制并校验。新增材料的备份窗口形成实际需要时，再接外部定时副本；跨设备查询或复制问题出现后再评估应用内节点。
 - 进入读取阶段时，从人亲手输入的文本和一个真实问题开始，逐项实现[确定性读出](./readings.mdx)。
 - 读出有实际查询需求时先试单 SQLite 投影；模型处理、界面、共享和远端入口各按明确任务验证。

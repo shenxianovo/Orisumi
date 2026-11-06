@@ -3097,7 +3097,7 @@
       "module": "sources-live",
       "type": "decision",
       "status": "proposed",
-      "summary": "一次访问可有浏览历史、标签事件、焦点、页面内容、媒体与截图。旧 Heartbeat 只记每窗口活动标签，后台也计时。",
+      "summary": "标签、窗口、浏览历史、页面内容和媒体分别形成材料。当前先保存 tabs/windows 原始回调与状态，按来源事实解释后台活动。",
       "basis": [
         {
           "id": "尽量收集一切",
@@ -3114,17 +3114,22 @@
         {
           "kind": "file",
           "ref": ".scratch/requirements/survey-browser.md",
-          "note": "能力整理没有新采样；旧系统后台计时问题已有证据。"
+          "note": "CfT156 两个受控 Profile 的真实 callback/query 与完整 Native frame；host 断连期间短暂标签无法从重连快照补回。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测",
+          "note": "正式扩展 119 入站帧、118 回执根逐字节恢复；Worker 重启、暂存重放、Profile 身份与快速关闭查询错误均核对。"
         }
       ],
       "options": [
         {
           "id": "events",
-          "title": "标签、导航与窗口焦点事件",
+          "title": "标签与窗口焦点事件",
           "status": "recommended",
           "summary": "分别保存原始事件和可取得状态，后续才推导用户看了什么。",
           "benefit": "纠正把后台活动标签直接当注意力的问题。",
-          "cost": "每浏览器/Profile 安装，重启与事件语义要测。",
+          "cost": "每个 Profile 安装；Worker 与本机接收器间先暂存后回执，未取得或未暂存的内容仍有缺口。",
           "when": "推荐首个浏览器实时导洞。",
           "next": [
             "浏览器焦点与标签观测",
@@ -3161,22 +3166,27 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "implemented",
+        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。",
+        "refs": [
+          "src/Orisumi.Browser/worker.js",
+          "src/Orisumi.Browser/delivery.js",
+          "src/Orisumi.Capturing/NativeReceiver.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "many",
       "choice_note": "事件、持久记录、页面/媒体是可叠加的观测层，不是三选一。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
-          "events",
-          "history"
+          "events"
         ],
-        "reason": "持久历史与标签/窗口事件分别补过去和未来，均有明确来源形态；页面与网络负载更大，接受先不含正文的阶段范围。",
-        "trigger": "先单 Profile 对照真实操作与 History/API 样本；事件和历史恢复通过后按实际内容缺口勘探 page。",
-        "stage": "later"
+        "reason": "真实样本证实瞬时标签与窗口事实无法由后来的快照补回；当前采用事件和独立查询，持久历史、导航专用接口、页面内容各按后续来源验证。",
+        "trigger": "日常 Profile 持续量、睡眠和权限范围另测；实际需要补过去或网页内容时分别进入 history/page 路线。",
+        "stage": "now"
       }
     },
     {
@@ -3201,7 +3211,12 @@
         {
           "kind": "file",
           "ref": ".scratch/requirements/survey-browser.md",
-          "note": "旧记录去掉 query/fragment，且未监听焦点。"
+          "note": "CfT156 两个受控 Profile 的真实 callback/query 与完整 Native frame；host 断连期间短暂标签无法从重连快照补回。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测",
+          "note": "正式扩展 119 入站帧、118 回执根逐字节恢复；Worker 重启、暂存重放、Profile 身份与快速关闭查询错误均核对。"
         }
       ],
       "options": [
@@ -3209,7 +3224,7 @@
           "id": "separate",
           "title": "分别保留标签、窗口与系统前台",
           "status": "recommended",
-          "summary": "订阅当前官方可用的标签/导航/窗口事件并在启动取状态，保留来源对象与取得时刻。",
+          "summary": "订阅 tabs/windows 当前事件，完整保存回调参数；启动窗口与活动标签查询、激活后的 tabs.get 分开保存请求/返回时间。",
           "benefit": "未来可按不同规则算可见性和使用。",
           "cost": "跨进程时间顺序与焦点语义需测。",
           "when": "取得能力或范围尚未测清时，先取得一个可核验样本。",
@@ -3219,9 +3234,9 @@
           ],
           "conflicts_with": [],
           "terminal": {
-            "kind": "survey",
-            "detail": "用前台、后台、最小化、两个窗口、单页应用和多 Profile 的操作序列采样。",
-            "check": "后台活动标签仍被记录但不直接计成人在阅读；事件和启动快照关系可核对。"
+            "kind": "experiment",
+            "detail": "受控双窗口、后台标签、最小化、SPA、缩放、快速关闭、两个 Profile 已核对；继续测日常 Profile 和系统状态组合。",
+            "check": "背景 onUpdated 原样保存；激活的两 ID 与随后 URL 查询或错误分开；不从 active 推断人在阅读。"
           }
         },
         {
@@ -3244,19 +3259,25 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "implemented",
+        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。",
+        "refs": [
+          "src/Orisumi.Browser/worker.js",
+          "src/Orisumi.Browser/delivery.js",
+          "src/Orisumi.Capturing/NativeReceiver.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "separate"
         ],
-        "reason": "系统前台、窗口焦点、活动标签分别保存才不会把后台标签算成注意力；接受跨接口时钟与语义待测。",
-        "trigger": "一个 Profile 重放双窗口、最小化、后台与单页应用序列，核对官方事件语义及启动状态。",
-        "stage": "later"
+        "reason": "双窗口与最小化样本确认 active、focused 与系统前台各有语义；异步 tabs.get 实际出现标签已关闭错误，因此回调和查询各自保留。",
+        "trigger": "浏览器或接口版本、Profile 范围和系统状态变化时，重跑受控序列；睡眠及长期体量另验。",
+        "stage": "now"
       }
     },
     {
@@ -3546,14 +3567,19 @@
       ],
       "evidence": [
         {
-          "kind": "file",
-          "ref": ".scratch/requirements/survey-browser.md",
-          "note": "曾比较 Native Messaging 与 HTTP，均未实施。"
-        },
-        {
           "kind": "url",
           "ref": "https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle",
           "note": "Service Worker 会终止，全局变量会丢，官方建议持久保存。"
+        },
+        {
+          "kind": "file",
+          "ref": ".scratch/requirements/survey-browser.md",
+          "note": "CfT156 两个受控 Profile 的真实 callback/query 与完整 Native frame；host 断连期间短暂标签无法从重连快照补回。"
+        },
+        {
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测",
+          "note": "正式扩展 119 入站帧、118 回执根逐字节恢复；Worker 重启、暂存重放、Profile 身份与快速关闭查询错误均核对。"
         }
       ],
       "options": [
@@ -3561,18 +3587,18 @@
           "id": "native",
           "title": "Native Messaging 交本机程序",
           "status": "recommended",
-          "summary": "验证扩展把事件交给本机接收程序并原样落地；若短暂不可用，明确本地临时保留方式。",
-          "benefit": "可在事件到来时启动本机接收端的候选路线。",
-          "cost": "注册、消息上限与进程生命周期尚需官方核对。",
-          "when": "取得能力或范围尚未测清时，先取得一个可核验样本。",
+          "summary": "扩展先用 storage.local 暂存，Native Messaging 按需启动本机接收器；原件根发布后回执，匹配回执后移除暂存。",
+          "benefit": "复用本机原件与恢复，断连期间已经暂存的瞬时事件可在 Worker 重启后继续补送。",
+          "cost": "需要扩展与 host 登记；接受重复交付、未成功暂存的尾部及浏览器未运行缺口，磁盘容量仍有限。",
+          "when": "当前浏览器事件路线；主通道为 Native Messaging，暂存属于其发送职责。",
           "next": [
             "瞬时事件接收方式"
           ],
           "conflicts_with": [],
           "terminal": {
-            "kind": "survey",
-            "detail": "读现行官方 Native Messaging 文档，做事件、重启扩展、接收端退出、长消息的四项试验。",
-            "check": "能从已落地记录指出最后成功事件；进程退出后的覆盖按实际结果声明。"
+            "kind": "experiment",
+            "detail": "正常事件、Worker 重启、host 退出、Profile 身份及118份回执根恢复已验；消息边界由接收器测试覆盖，日常体量继续测。",
+            "check": "成功回执只在根发布后发出，恢复 payload 与入站字节一致；旧项清理与新项持久化的失败分别处理。"
           }
         },
         {
@@ -3595,9 +3621,9 @@
         },
         {
           "id": "extension-store",
-          "title": "扩展先持久保存再导出",
+          "title": "扩展持久保存后批量导出",
           "status": "alternative",
-          "summary": "在浏览器可用存储里先留下事件，再交给 Orisumi 文件/接口来源。",
+          "summary": "独立于即时接收器，在浏览器存储里积累，再按批次导出给 Orisumi 文件来源。",
           "benefit": "短时不依赖本机接收器常开。",
           "cost": "浏览器存储额度、清理与导出延迟需测，未做内建保障体系。",
           "when": "取得能力或范围尚未测清时，先取得一个可核验样本。",
@@ -3613,21 +3639,27 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "本轮仅展开决策，尚未实现此来源路线。",
-        "refs": []
+        "state": "implemented",
+        "note": "标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。",
+        "refs": [
+          "src/Orisumi.Browser/worker.js",
+          "src/Orisumi.Browser/delivery.js",
+          "src/Orisumi.Capturing/NativeReceiver.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测"
+        ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
       "choice_mode": "one",
-      "choice_note": "针对一个扩展实例选择一条主要落地通道；三种方案均需实测 Worker 终止和接收失败，不默认增加第二套传输。",
+      "choice_note": "针对扩展实例选择一条主要交付通道；Native 通道内部暂存待确认项，批量导出仍是另一种方案。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
           "native"
         ],
-        "reason": "本机接收契合设备本地持久记录，避免为扩展额外运行通用 HTTP 服务；接受注册、消息大小和进程生命周期成本。",
-        "trigger": "依据官方 Native Messaging 能力测试正常事件、Worker 重启、接收端退出和长消息；持久性失败时先试 extension-store。",
-        "stage": "later"
+        "reason": "真实断连样本证明快照不能补回短暂标签，采用 storage.local 暂存与 Native 根回执；单 port 单 host，复用现有原件而无需新增 HTTP 常驻服务。",
+        "trigger": "来源体量、真实磁盘限制或安装条件改变时重测；批量导出仅在即时通道不适合时重新比较。",
+        "stage": "now"
       }
     },
     {
@@ -5159,10 +5191,13 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "当前前台来源每行立即写本机原件；受限 IP 网络下两轮真实切换、40 条恢复与停机空档均核对通过。",
+        "note": "当前前台来源每行立即写本机原件；受限 IP 网络下两轮真实切换、40 条恢复与停机空档均核对通过。 浏览器先在扩展本地暂存，再逐条交给本机原件接收器，重启续传与恢复已验。",
         "refs": [
           "src/Orisumi.Capturing/ForegroundCollector.cs",
-          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启"
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#网络限制与重启",
+          "src/Orisumi.Browser/delivery.js",
+          "src/Orisumi.Capturing/NativeReceiver.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测"
         ]
       },
       "review": "按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。",
@@ -13578,6 +13613,25 @@
         "运行保障怎样安排"
       ],
       "note": "发布自包含本机程序，由三个用户级 LaunchAgent 分别运行前台、Codex 与 Claude Code，显式共用同一原件目录；实际装载、停止、再装载与恢复分别验收，真实重新登录和全天运行另测。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/browser.mdx",
+      "nodes": [
+        "浏览器观测层次",
+        "浏览器焦点与标签观测",
+        "浏览器事件传输",
+        "瞬时事件接收方式"
+      ],
+      "note": "当前采用的浏览器 scope、instance/run、payload 边界、暂存与根回执。"
+    },
+    {
+      "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测",
+      "nodes": [
+        "浏览器焦点与标签观测",
+        "浏览器事件传输",
+        "瞬时事件接收方式"
+      ],
+      "note": "新 Profile 受控事件、断连与 Worker 重启、118份逐字节恢复；生产安装和长期覆盖另验。"
     }
   ],
   "limitations": [
@@ -13588,7 +13642,8 @@
     "存储对照包含真实静态样本与明确标注的历史回放；只比较去重后压缩内容体积，不能代表真实连续历史、完整元数据、CPU或所有来源。",
     "既有答题基准验证过已删除的导洞；不能据此声称重写后的读取能力或全部答案已经通过用户验收。",
     "已授权采用的方案按独立交付推进，正式文档和实现随实际完成范围同步替换；尚未实现的路线继续保留条件与证据缺口。",
-    "外部副本仍是按需手动复制。当前三个来源已由用户级任务持续采集；受限 IP 网络与进程重启有实际证据。真实重新登录、全天运行、系统睡眠、其他平台、全新权限身份及断电各自待验，系统进程状态不能证明来源完整率。"
+    "外部副本仍是按需手动复制。当前三个来源已由用户级任务持续采集；受限 IP 网络与进程重启有实际证据。真实重新登录、全天运行、系统睡眠、其他平台、全新权限身份及断电各自待验，系统进程状态不能证明来源完整率。",
+    "浏览器已验证受控新 Profile 的标签/窗口观测、暂存重放与独立恢复；安装实例是扩展生成身份，复制Profile可能复制它。日常Profile安装、长期量、睡眠和未暂存尾部各自保留验收边界。"
   ],
   "routes": [
     {
@@ -13623,6 +13678,20 @@
         "瞬时事件接收方式": "local-first",
         "事件时间与顺序": "separate",
         "采集启动与执行位置": "login",
+        "第一阶段怎样验收": "recovery"
+      }
+    },
+    {
+      "title": "当前交付：浏览器观测与断连续传",
+      "summary": "标签/窗口原回调与独立查询先在扩展暂存，经 Native Messaging 交原件；匹配根回执后清理，受控Profile端到端恢复已验。",
+      "when": "Chrome 130+ 的 MV3 扩展与本机 host；日常 Profile 安装、长期体量及系统状态组合分别验证。",
+      "choices": {
+        "浏览器观测层次": [
+          "events"
+        ],
+        "浏览器焦点与标签观测": "separate",
+        "浏览器事件传输": "native",
+        "瞬时事件接收方式": "local-first",
         "第一阶段怎样验收": "recovery"
       }
     },

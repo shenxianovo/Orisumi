@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <File Path="src/Orisumi.Browser/package.json" />
     <File Path="src/Docs/Orisumi.Docs/package.json" />
     <Project Path="src/Orisumi.Cli/Orisumi.Cli.csproj" />
     <Project Path="src/Orisumi.Capturing/Orisumi.Capturing.csproj" />

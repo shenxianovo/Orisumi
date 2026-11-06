@@ -39,6 +39,18 @@ Claude Code 与 Codex 已选材料的采集、完整出处、本机恢复，以�
 - [采集启动与执行位置](modules/capture.md#n-f47170f9f44e3fc5)：系统登录启动或现有外部调度
 - [第一阶段怎样验收](modules/delivery.md#n-ae87acd40d922614)：用可重复的小来源验证留下与取回
 
+## 当前交付：浏览器观测与断连续传
+
+标签/窗口原回调与独立查询先在扩展暂存，经 Native Messaging 交原件；匹配根回执后清理，受控Profile端到端恢复已验。
+
+Chrome 130+ 的 MV3 扩展与本机 host；日常 Profile 安装、长期体量及系统状态组合分别验证。
+
+- [浏览器观测层次](modules/sources-live.md#n-bba0514698b64e45)：标签与窗口焦点事件
+- [浏览器焦点与标签观测](modules/sources-live.md#n-6a613b885484430f)：分别保留标签、窗口与系统前台
+- [浏览器事件传输](modules/capture.md#n-b75cd5e6c6494099)：Native Messaging 交本机程序
+- [瞬时事件接收方式](modules/capture.md#n-359653aed5ab9c59)：设备上尽快持久记录
+- [第一阶段怎样验收](modules/delivery.md#n-ae87acd40d922614)：用可重复的小来源验证留下与取回
+
 ## 技术替代：整文件保存
 
 相同的原样保存目标，用整文件哈希对象和出处记录实现。静态资料、小文件或低频变化时更值得比较。

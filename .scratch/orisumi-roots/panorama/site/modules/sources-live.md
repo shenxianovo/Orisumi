@@ -130,15 +130,15 @@ flowchart TD
 
 ## 浏览器观测层次
 
-**助手推论** · 一次访问可有浏览历史、标签事件、焦点、页面内容、媒体与截图。旧 Heartbeat 只记每窗口活动标签，后台也计时。
+**助手推论** · 标签、窗口、浏览历史、页面内容和媒体分别形成材料。当前先保存 tabs/windows 原始回调与状态，按来源事实解释后台活动。
 
-**条件成立再做 · 以后**
+**Agent采用 · 当前**
 
-候选：标签、导航与窗口焦点事件、浏览器持久记录。
+候选：标签与窗口焦点事件。
 
-理由与代价：持久历史与标签/窗口事件分别补过去和未来，均有明确来源形态；页面与网络负载更大，接受先不含正文的阶段范围。
+理由与代价：真实样本证实瞬时标签与窗口事实无法由后来的快照补回；当前采用事件和独立查询，持久历史、导航专用接口、页面内容各按后续来源验证。
 
-启动或重审条件：先单 Profile 对照真实操作与 History/API 样本；事件和历史恢复通过后按实际内容缺口勘探 page。
+启动或重审条件：日常 Profile 持续量、睡眠和权限范围另测；实际需要补过去或网页内容时分别进入 history/page 路线。
 
 候选可组合。事件、持久记录、页面/媒体是可叠加的观测层，不是三选一。
 
@@ -147,15 +147,17 @@ flowchart TD
 - [尽量收集一切](roots.md#n-c3c6e7607f2c9805)（选择依据）：凡关于个人且可取得或观测的材料均可候选，此处明确实际覆盖范围。
 - [数据所处的情况](roots.md#n-b450eb729c7db69e)（选择依据）：补回机会取决于材料是否已记录及何时消失，此处按真实处境选择取得方式。
 
-依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。能力整理没有新采样；旧系统后台计时问题已有证据。
+依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。CfT156 两个受控 Profile 的真实 callback/query 与完整 Native frame；host 断连期间短暂标签无法从重连快照补回。
 
-### 标签、导航与窗口焦点事件 · 助手推荐
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)。正式扩展 119 入站帧、118 回执根逐字节恢复；Worker 重启、暂存重放、Profile 身份与快速关闭查询错误均核对。
+
+### 标签与窗口焦点事件 · 助手推荐
 
 分别保存原始事件和可取得状态，后续才推导用户看了什么。
 
 收益：纠正把后台活动标签直接当注意力的问题。
 
-代价：每浏览器/Profile 安装，重启与事件语义要测。
+代价：每个 Profile 安装；Worker 与本机接收器间先暂存后回执，未取得或未暂存的内容仍有缺口。
 
 适用条件：推荐首个浏览器实时导洞。
 
@@ -185,7 +187,7 @@ flowchart TD
 
 继续展开：[浏览器页面内容范围](#n-a7ffdec9fe8bb5c3)、[浏览器媒体与网络观测](#n-e5f6dc441264494e)
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。（[src/Orisumi.Browser/worker.js](../../../../../src/Orisumi.Browser/worker.js)、[src/Orisumi.Browser/delivery.js](../../../../../src/Orisumi.Browser/delivery.js)、[src/Orisumi.Capturing/NativeReceiver.cs](../../../../../src/Orisumi.Capturing/NativeReceiver.cs)、[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -201,24 +203,26 @@ flowchart TD
 
 **助手推论** · 两个浏览器窗口各有活动标签，但只有一个窗口有焦点，系统前台又可能是另一个应用。三个事实分开保存。
 
-**条件成立再做 · 以后**
+**Agent采用 · 当前**
 
 候选：分别保留标签、窗口与系统前台。
 
-理由与代价：系统前台、窗口焦点、活动标签分别保存才不会把后台标签算成注意力；接受跨接口时钟与语义待测。
+理由与代价：双窗口与最小化样本确认 active、focused 与系统前台各有语义；异步 tabs.get 实际出现标签已关闭错误，因此回调和查询各自保留。
 
-启动或重审条件：一个 Profile 重放双窗口、最小化、后台与单页应用序列，核对官方事件语义及启动状态。
+启动或重审条件：浏览器或接口版本、Profile 范围和系统状态变化时，重跑受控序列；睡眠及长期体量另验。
 
 依据：
 
 - [首先收集数据](roots.md#n-2c3dfbca22881d81)（选择依据）：先让材料存在并留下，此处展开取得材料的可执行方式。
 - [尽量完整留下](roots.md#n-77e7f6f84727e69e)（选择依据）：默认尽量留下选定范围内可得的信息，此处比较哪些材料会留下或丢失及实际代价。
 
-依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。旧记录去掉 query/fragment，且未监听焦点。
+依据材料：[.scratch/requirements/survey-browser.md](../../../../requirements/survey-browser.md)。CfT156 两个受控 Profile 的真实 callback/query 与完整 Native frame；host 断连期间短暂标签无法从重连快照补回。
+
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)。正式扩展 119 入站帧、118 回执根逐字节恢复；Worker 重启、暂存重放、Profile 身份与快速关闭查询错误均核对。
 
 ### 分别保留标签、窗口与系统前台 · 助手推荐
 
-订阅当前官方可用的标签/导航/窗口事件并在启动取状态，保留来源对象与取得时刻。
+订阅 tabs/windows 当前事件，完整保存回调参数；启动窗口与活动标签查询、激活后的 tabs.get 分开保存请求/返回时间。
 
 收益：未来可按不同规则算可见性和使用。
 
@@ -228,9 +232,9 @@ flowchart TD
 
 继续展开：[瞬时事件接收方式](capture.md#n-359653aed5ab9c59)、[浏览器事件传输](capture.md#n-b75cd5e6c6494099)
 
-分支终点：用前台、后台、最小化、两个窗口、单页应用和多 Profile 的操作序列采样。
+分支终点：受控双窗口、后台标签、最小化、SPA、缩放、快速关闭、两个 Profile 已核对；继续测日常 Profile 和系统状态组合。
 
-检验：后台活动标签仍被记录但不直接计成人在阅读；事件和启动快照关系可核对。
+检验：背景 onUpdated 原样保存；激活的两 ID 与随后 URL 查询或错误分开；不从 active 推断人在阅读。
 
 ### 采集时合并成浏览时段 · 与当前前提冲突
 
@@ -248,7 +252,7 @@ URL 相同就延长时段，直接保留汇总结果。
 
 检验：可用另一套焦点/URL 规则重算时段而无需重采。
 
-实现现状：本轮仅展开决策，尚未实现此来源路线。
+实现现状：标签/窗口与独立查询、扩展暂存和 Native 接收器已接通；受控新 Profile 完整恢复通过，日常 Profile 安装和持续覆盖另验。（[src/Orisumi.Browser/worker.js](../../../../../src/Orisumi.Browser/worker.js)、[src/Orisumi.Browser/delivery.js](../../../../../src/Orisumi.Browser/delivery.js)、[src/Orisumi.Capturing/NativeReceiver.cs](../../../../../src/Orisumi.Capturing/NativeReceiver.cs)、[src/Docs/Orisumi.Docs/content/docs/model/browser.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/browser.mdx)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#浏览器观测](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%B5%8F%E8%A7%88%E5%99%A8%E8%A7%82%E6%B5%8B)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 

@@ -1,0 +1,91 @@
+---
+title: "浏览器观测"
+description: "标签和窗口原回调、独立查询、本地暂存与原件回执"
+---
+
+例如，在两个浏览器窗口之间切换：每个窗口都可以有一个 active 标签，窗口焦点另外变化。扩展分别留下这些回调；激活后查到的 URL 是随后的一份查询结果。日后可结合系统前台应用解释它们，取得时保留各自的来源事实。
+
+依据：[先采错过就没的](../requirements/belief.mdx#先采错过就没的)、[尽量完整留下](../requirements/belief.mdx#尽量完整留下)、[留最原始的一层](../requirements/belief.mdx#留最原始的一层)与[出处一起保存](../requirements/belief.mdx#出处一起保存)。浏览器勘探实测发现，接收程序退出期间新建又关闭的标签无法从重连快照找回，因此采用扩展先暂存、原件保存后回执的路线。方案由 Agent 按用户自主授权采用。
+
+## 取得范围
+
+扩展使用 MV3，最低 Chrome 130。当前权限为 `tabs`、`nativeMessaging`、`storage`、`unlimitedStorage`、`alarms`。扩展与原件接收器都在本机运行。
+
+| 来源接口 | 留下的内容 |
+| --- | --- |
+| `tabs` 回调 | 创建、更新、移动、激活、高亮、分离、附着、关闭、替换、缩放的全部回调参数；包含后台标签更新 |
+| `windows` 回调 | 普通与 popup 窗口的创建、关闭、焦点、边界变化的全部回调参数 |
+| 初始查询 | `windows.getAll({populate:false,windowTypes:["normal","popup"]})` 与 `tabs.query({active:true})` 各自的返回 |
+| 后续查询 | 标签激活后 `tabs.get(tabId)`；窗口事件后重新取得窗口与活动标签状态 |
+| 启动环境 | 扩展 manifest、扩展 ID、User Agent、订阅范围、平台接口和实际权限返回 |
+
+每次 Worker 执行同步登记监听器，然后发起查询。查询记录调用参数、请求时间、回调参数、返回时刻与触发序号；接口报错时保留它交来的错误文字。回调发生到查询返回之间，标签可能继续变化或被关闭，两份观测各自成立。
+
+URL、query、fragment、空值及接口提供的属性按交来时保存。`onActivated` 只交来标签和窗口 ID；`Tab.active` 表示窗口内选中的标签。窗口的 `WINDOW_ID_NONE` 按接口范围解释，系统前台应用来自[另一个来源](./foreground.mdx)。接口定义见 [Tabs](https://developer.chrome.com/docs/extensions/reference/api/tabs) 与 [Windows](https://developer.chrome.com/docs/extensions/reference/api/windows)。
+
+浏览历史批量、正文、截图、媒体、网络请求与标签组详情各有后续路线。当前记录中已有的 groupId 等属性保持原样。无痕窗口取决于该 Profile 对扩展的允许设置。
+
+## 格式与身份
+
+每份观测为 `orisumi-browser-v1` JSON 对象。例如，激活回调与随后查询是两条：
+
+```jsonl
+{"format":"orisumi-browser-v1","instance":"<UUID>","run":"<UUID>","sequence":4,"observedAt":"2026-11-06T13:00:00.000Z","kind":"callback","operation":"tabs.onActivated","callbackArgs":[{"tabId":21,"windowId":8}]}
+{"format":"orisumi-browser-v1","instance":"<UUID>","run":"<UUID>","sequence":5,"observedAt":"2026-11-06T13:00:00.003Z","kind":"query","operation":"tabs.get","arguments":[21],"requestedAt":"2026-11-06T13:00:00.001Z","triggerSequence":4,"callbackArgs":[{"id":21,"windowId":8,"active":true,"url":"https://example.test/page?q=one#part","title":"示例"}]}
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `instance` | 扩展本地存储中的随机安装身份；同一 Profile 重启后保留，复制 Profile 可能复制它 |
+| `run`、`sequence` | 本次 Worker 执行的随机身份与递增序号；host 重连保持该次执行身份，Worker 重启新建 run |
+| `observedAt` | 回调到达扩展时的 UTC 时间，查询则为结果回调到达时刻 |
+| `kind` | `started`、`callback` 或 `query` |
+| `operation`、`callbackArgs` | 接口名与完整回调参数数组 |
+| `arguments`、`requestedAt`、`triggerSequence` | 查询的调用参数、请求时刻和触发它的观测序号 |
+| `error` | 查询失败时接口返回的错误文字 |
+
+`instance` 是采集端生成的身份，浏览器提供的 tabId、windowId 和扩展 ID 仍在原始内容中。两个 Profile 可使用同一个扩展 ID 与 caller origin；跨 Profile 和浏览器会话的身份对应由后续读出判断。
+
+## 暂存与传输
+
+每份新观测先写入 `storage.local`，成功后再通过 `runtime.connectNative("dev.orisumi.browser")` 发送。一条收到匹配回执后继续下一条。暂存索引通过 `getKeys()` 取得，内容逐条读取；Worker 重启从遗留项继续。`alarms` 每分钟提供重试机会，浏览器调度可能延后。
+
+接收器的回执包含原件根的完整名字：
+
+```json
+{"format":"orisumi-browser-ack-v1","instance":"<UUID>","run":"<UUID>","sequence":4,"capture":"sha256-<完整摘要>"}
+```
+
+扩展核对 instance、run、sequence 和完整根名字，再移除对应暂存。清理旧项失败时，新观测仍先落盘；新项写入失败时，已确认旧项仍能清理，已经落盘的队列仍能发送。收到回执前进程退出会重发；每次取得保留独立出处，相同字节继续复用原件块。重放顺序由暂存队列决定，事件顺序按来源 run、sequence 和观测时间读取。
+
+`unlimitedStorage` 开放 API 的默认空间上限，对应尽量留下、体量形成问题后再定预算的选择。磁盘写入仍可能失败；此时保留当前内存项并输出错误，下一次事件或重试继续写入。Worker 结束前尚未成功写入的内容仍可能丢失，卸载扩展会清掉其本地暂存。接口依据见 [Storage](https://developer.chrome.com/docs/extensions/reference/api/storage) 与 [Worker 生命周期](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)。
+
+## 进入原件
+
+Chrome 将消息序列化成 UTF-8 JSON，前面加四字节本机端序长度。`NativeReceiver` 保存完整 payload 的原始字节为 `observation.json`，取得方式 `chrome-native-message-json`；每条独立写一份 `browser` 采集记录。长度头用于分帧，payload 保持收到的空白、编码与属性顺序。
+
+采集根与清单发布完成后才写回执。接收端记录的 `capturedAt`、`completedAt` 是这条内容的保存窗口；原件中的 `observedAt` 可以早于补送时间。出处保存 caller origin、本次 host 的 connection UUID、该连接内帧序号，以及独立验证过的 instance/run/sequence。
+
+未完成的帧保留已收到的长度头与内容，并记录失败；完整坏 JSON 也留下实际字节。超过 Chrome 到 host 的 64 MiB 上限时保留已读头并停止。回执写出失败时，已经发布的原件仍然成功。恢复仍使用已有 `raw restore` 或 `raw export`，见[原件](./raw.mdx)。协议依据见 [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)。
+
+## 本机运行
+
+一次 CLI 发布包含接收程序、`orisumi-browser-host` launcher 与 `Browser/` 扩展文件。Chrome 的 Native Messaging 登记文件填写 launcher 的绝对路径，允许来源固定为 `chrome-extension://oceohkpgblbakehfdhnaeaanoljbpmgg/`；这个 ID 由扩展 manifest 的公开 key 决定。
+
+macOS 普通 Chrome 的用户级登记位置为 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/dev.orisumi.browser.json`：
+
+```json
+{
+  "name":"dev.orisumi.browser",
+  "description":"Orisumi browser observations",
+  "path":"<发布目录绝对路径>/orisumi-browser-host",
+  "type":"stdio",
+  "allowed_origins":["chrome-extension://oceohkpgblbakehfdhnaeaanoljbpmgg/"]
+}
+```
+
+在相应 Profile 的扩展管理页加载发布目录的 `Browser/`。浏览器按需启动 host；标准输入与输出专用于 Native Messaging，诊断写到标准错误。host 默认写 `~/.orisumi`，独立测试通过 `ORISUMI_STORE` 指定测试存储。每个 Profile 各自安装，具体浏览器的登记目录按其接口文档设置。
+
+更新时先验证新发布，保留旧原件与扩展暂存，再重新加载扩展，使新的 Worker 和 host 使用新程序。停止采集可以禁用扩展；移除扩展前先核对暂存已送达，因为卸载会清掉浏览器内的暂存。现有三个系统任务的管理见[本机持续采集](./continuous-capture.mdx)。
+
+受控新 Profile 的完整链路、长消息与恢复证据见[浏览器验收](./validation.mdx#浏览器观测)。日常 Profile 启用与持续量另行核对。
