@@ -34,4 +34,4 @@ python3 ../qstack/skills/qstack-explore/scripts/decision_graph.py build .scratch
 python3 ../qstack/skills/qstack-explore/scripts/decision_graph.py impact .scratch/orisumi-roots/panorama/graph.json --node 原件存成块
 ```
 
-交互逻辑已通过 DOM 测试，覆盖采用状态/阶段筛选、试选载入导出及确认/采用隔离。工具的 18 项 Python 测试、skill 结构和相对链接检查通过。此前本地文件协议被预览工具拒绝，实际浏览器布局仍未验收；自主展开已有一次有限场景试跑，新增授权后自主采用分支尚未完成独立行为试跑。Markdown 可独立阅读。
+交互逻辑已通过 DOM 测试，覆盖采用状态/阶段筛选、试选载入导出及确认/采用隔离。工具的 18 项 Python 测试、skill 结构和相对链接检查通过。实际Chrome桌面已检查全景、搜索、节点正文与附近关系图，移动窄屏和全部子图另验；自主展开已有一次有限场景试跑，新增授权后自主采用分支尚未完成独立行为试跑。Markdown 可独立阅读。
