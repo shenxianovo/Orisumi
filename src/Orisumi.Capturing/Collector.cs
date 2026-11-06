@@ -88,7 +88,7 @@ public sealed class Collector
     private bool Save(CaptureWriter writer, FileInput input, List<string> failures, CancellationToken token)
     {
         var origin = Path.GetFullPath(input.SourcePath);
-        var attributes = Attributes(origin, failures);
+        var attributes = Attributes(origin, failures, input.Optional);
         if (attributes is null) return false;
         if ((attributes & FileAttributes.ReparsePoint) != 0)
         {

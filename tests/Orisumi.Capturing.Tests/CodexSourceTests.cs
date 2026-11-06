@@ -8,6 +8,146 @@ namespace Orisumi.Capturing.Tests;
 public class CodexSourceTests
 {
     [Test]
+    public async Task AdditionalDatabasesAndDictationAreRecoverableAfterRemovingTheSource()
+    {
+        using var sample = new CaptureSample();
+        sample.File("sessions/a.jsonl", "log");
+        sample.File("session_index.jsonl", "index");
+        var databasePaths = new[]
+        {
+            "logs_2.sqlite", "goals_1.sqlite", "thread_history_1.sqlite", "sqlite/codex.db", "sqlite/codex-dev.db",
+            "queue_1.sqlite", "memories_1.sqlite", "sqlite/codex-thread-summaries-dev.db",
+        };
+        var files = new Dictionary<string, byte[]>
+        {
+            ["dictation-history/session/metadata.json"] = Encoding.UTF8.GetBytes("{\"mime\":\"audio/webm\",\"future\":null}\n"),
+            ["dictation-history/session/audio.chunk"] = [0x1A, 0x45, 0xDF, 0xA3, 0x00, 0xFF],
+            ["dictation-history/session/unknown.future"] = [0xFF, 0x00, 0x0D, 0x0A],
+            ["automations/example/automation.toml"] = Encoding.UTF8.GetBytes("prompt = \"保留原字节\"\r\n"),
+            ["realtime-voice-continuity.json"] = Encoding.UTF8.GetBytes("{\"future\":[null,\"语音\"]}\n"),
+            [".codex-global-state.json"] = Encoding.UTF8.GetBytes("{\"drafts\":{\"example\":\"尚未发送\"},\"unknown\":null}\r\n"),
+        };
+        foreach (var (path, bytes) in files) File.WriteAllBytes(sample.File(path, ""), bytes);
+        Capture capture;
+        var databases = new List<SqliteConnection>();
+        try
+        {
+            databases.Add(SqliteSample.Create(Path.Combine(sample.SourceDirectory, "state_5.sqlite")));
+            for (var index = 0; index < databasePaths.Length; index++)
+            {
+                var path = Path.Combine(sample.SourceDirectory, databasePaths[index]);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var database = SqliteSample.Create(path);
+                databases.Add(database);
+                SqliteSample.CommitRevision(database, index + 1);
+                await Assert.That(new FileInfo(path + "-wal").Length > 0).IsTrue();
+            }
+            var round = sample.Collector.Scan(CodexSource.Create(sample.SourceDirectory));
+            await Assert.That(round.Failure).IsNull();
+            capture = round.Result!.Capture;
+            var entries = sample.Store.Manifest(capture);
+            foreach (var path in databasePaths)
+            {
+                var entry = entries.Single(entry => entry.Path == path);
+                await Assert.That(entry.Method).IsEqualTo("sqlite-online-backup");
+                await Assert.That(entry.Origin).IsEqualTo(Path.Combine(sample.SourceDirectory, path));
+            }
+            await Assert.That(capture.Record.Origin).IsEqualTo(sample.SourceDirectory);
+        }
+        finally
+        {
+            foreach (var database in databases) database.Dispose();
+        }
+        Directory.Delete(sample.SourceDirectory, recursive: true);
+        var restored = new CaptureRecovery(sample.Store).Restore(capture, Path.Combine(sample.StoreDirectory, "expanded-restored"));
+        for (var index = 0; index < databasePaths.Length; index++)
+        {
+            using var database = SqliteSample.OpenReadOnly(Path.Combine(restored.Directory, "files", databasePaths[index]));
+            await SqliteSample.AssertRevision(database, index + 1);
+        }
+        foreach (var (path, bytes) in files)
+            await Assert.That(File.ReadAllBytes(Path.Combine(restored.Directory, "files", path)).SequenceEqual(bytes)).IsTrue();
+    }
+
+    [Test]
+    public async Task TheSameSourceFindsLaterMaterialsAndKeepsTheirEarlierVersionsAfterRemoval()
+    {
+        using var sample = new CaptureSample();
+        sample.File("sessions/a.jsonl", "log");
+        sample.File("session_index.jsonl", "index");
+        using var state = SqliteSample.Create(Path.Combine(sample.SourceDirectory, "state_5.sqlite"));
+        var source = CodexSource.Create(sample.SourceDirectory);
+        await Assert.That(sample.Collector.Scan(source).Failure).IsNull();
+        var path = Path.Combine(sample.SourceDirectory, "goals_1.sqlite");
+        Capture first;
+        Capture second;
+        var voice = sample.File("realtime-voice-continuity.json", "first\r\n");
+        var audio = sample.File("dictation-history/late.chunk", "late audio");
+        sample.File("automations/late/automation.toml", "prompt = 'later'");
+        using (var database = SqliteSample.Create(path))
+        {
+            SqliteSample.CommitRevision(database, 1);
+            var firstRound = sample.Collector.Scan(source);
+            await Assert.That(firstRound.Failure).IsNull();
+            first = firstRound.Result!.Capture;
+            SqliteSample.CommitRevision(database, 2);
+            File.WriteAllText(voice, "second\n");
+            var secondRound = sample.Collector.Scan(source);
+            await Assert.That(secondRound.Failure).IsNull();
+            second = secondRound.Result!.Capture;
+        }
+        File.Delete(path);
+        File.Delete(voice);
+        File.Delete(audio);
+        var absent = sample.Collector.Scan(source);
+        await Assert.That(absent.Failure).IsNull();
+        await Assert.That(sample.Store.Manifest(absent.Result!.Capture).Any(entry => entry.Path == "goals_1.sqlite")).IsFalse();
+        foreach (var (capture, revision, text) in new[] { (first, 1, "first\r\n"), (second, 2, "second\n") })
+        {
+            var restored = new CaptureRecovery(sample.Store).Restore(capture, Path.Combine(sample.StoreDirectory, $"optional-{revision}"));
+            using var database = SqliteSample.OpenReadOnly(Path.Combine(restored.Directory, "files", "goals_1.sqlite"));
+            await SqliteSample.AssertRevision(database, revision);
+            await Assert.That(File.ReadAllText(Path.Combine(restored.Directory, "files", "realtime-voice-continuity.json"))).IsEqualTo(text);
+            await Assert.That(File.ReadAllText(Path.Combine(restored.Directory, "files", "dictation-history", "late.chunk"))).IsEqualTo("late audio");
+            await Assert.That(File.ReadAllText(Path.Combine(restored.Directory, "files", "automations", "late", "automation.toml"))).IsEqualTo("prompt = 'later'");
+        }
+    }
+
+    [Test]
+    [Arguments("corrupt")]
+    [Arguments("directory")]
+    [Arguments("file-directory")]
+    [Arguments("link")]
+    [Arguments("broken-link")]
+    public async Task ExistingOptionalInputsReportFailuresAndDatabaseLinksKeepTheirTargets(string kind)
+    {
+        using var sample = new CaptureSample();
+        sample.File("sessions/a.jsonl", "available");
+        sample.File("session_index.jsonl", "index");
+        using var state = SqliteSample.Create(Path.Combine(sample.SourceDirectory, "state_5.sqlite"));
+        var name = kind == "file-directory" ? ".codex-global-state.json" : "goals_1.sqlite";
+        var path = Path.Combine(sample.SourceDirectory, name);
+        var linkTarget = kind == "broken-link" ? "missing.sqlite" : "state_5.sqlite";
+        if (kind is "directory" or "file-directory") Directory.CreateDirectory(path);
+        else if (kind is "link" or "broken-link") File.CreateSymbolicLink(path, linkTarget);
+        else File.WriteAllText(path, "not a SQLite database");
+        var round = sample.Collector.Scan(CodexSource.Create(sample.SourceDirectory));
+        await Assert.That(round.Failure!.Contains(name, StringComparison.Ordinal)).IsTrue();
+        var capture = round.Result!.Capture;
+        await Assert.That(sample.Store.Line(new Position("codex", capture.Name, "sessions/a.jsonl", 1))).IsEqualTo("available");
+        var entry = sample.Store.Manifest(capture).SingleOrDefault(entry => entry.Path == name);
+        if (kind is "link" or "broken-link")
+        {
+            await Assert.That(entry!.Method).IsEqualTo("readlink");
+            await Assert.That(entry.LinkTarget).IsEqualTo(linkTarget);
+            await Assert.That(round.Failure!.Contains("未取得数据库快照", StringComparison.Ordinal)).IsTrue();
+            var restored = new CaptureRecovery(sample.Store).Restore(capture, Path.Combine(sample.StoreDirectory, "linked"));
+            await Assert.That(new FileInfo(Path.Combine(restored.Directory, "files", name)).LinkTarget).IsEqualTo(linkTarget);
+        }
+        else await Assert.That(entry).IsNull();
+    }
+
+    [Test]
     public async Task AllKnownMaterialsCanBeRecoveredAfterRemovingTheSource()
     {
         using var sample = new CaptureSample();
@@ -90,7 +230,7 @@ public class CodexSourceTests
     }
 
     [Test]
-    public async Task MissingOptionalDirectoriesAreEmptyAndAnUnreadableOptionalRootIsAFailure()
+    public async Task AbsentOptionalInputsDoNotFailAndAnUnreadableOptionalRootDoes()
     {
         using var sample = new CaptureSample();
         sample.File("sessions/a.jsonl", "log");

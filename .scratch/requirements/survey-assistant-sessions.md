@@ -1,6 +1,6 @@
 # 勘探：Claude Code 和 Codex 会话
 
-2026-11-03 只读查看本机两家编程助手的会话数据。统计脚本在临时目录，用 `python3 -I` 流式读每个文件；Codex 的 `.zst` 用 Python 3.14 自带的 `compression.zstd` 解压读；sqlite 用 `mode=ro` 打开，没有 WAL 文件的库用 `immutable=1`。时间换算成本地时间时按 UTC+8。
+2026-11-03 只读查看本机两家编程助手的会话数据。统计脚本在临时目录，用 `python3 -I` 流式读每个文件；Codex 的 `.zst` 用 Python 3.14 自带的 `compression.zstd` 解压读；当次 SQLite 统计分别用了只读连接与 `immutable=1`，这部分计数不作为活库一致性证据。当前正式取得采用只读连接与 online backup，见[现行来源盘点](survey-codex-20261106.md)。时间换算成本地时间时按 UTC+8。
 
 ## 概况
 
@@ -16,7 +16,7 @@
 
 - 会话日志：`~/.codex/sessions/YYYY/MM/DD/rollout-<本地时间>-<threadId>.jsonl` 53 个，`~/.codex/archived_sessions/` 1112 个，共 1165 个，其中 1032 个是 zstd 压缩的 `.jsonl.zst`。磁盘上 1222.8 MB，解压后 3822 MB，57.4 万行，全部能解析。
 - 索引：`session_index.jsonl`（标题，635 行）、`state_5.sqlite` 的 `threads` 表（1112 个线程，1061 个已归档）、`thread_spawn_edges`（534 条父子边）。
-- `thread_history_1.sqlite`（1.2 GB）是从日志投影出来的条目表：16.1 万条 `thread_items`、5629 个 `thread_turns`，每个文件记着读到的字节偏移。
+- `thread_history_1.sqlite`（1.2 GB）有日志投影条目与进度结构：16.1 万条 `thread_items`、5629 个 `thread_turns`，每个文件记着读到的字节偏移。
 - `logs_2.sqlite` 是程序运行日志，只保留了 10-31 到今天。
 - 时间跨度 2026-08-10 到今天。
 
@@ -246,7 +246,7 @@
 
 ## 拿到它的代价
 
-- 都是本机文件和 sqlite，读取不需要登录和接口。Codex 的 sqlite 在运行时被写，只读打开要用 `mode=ro`；`thread_history_1` 没有 WAL 文件，`mode=ro` 打不开，要用 `immutable=1`。
+- 都是本机文件和 sqlite，读取不需要登录和接口。运行中的 Codex SQLite 通过只读连接和 online backup 取得一致快照；11-06 已实际验证包括 `thread_history_1` 在内的当前库可这样取得，静态读取标记不能代替活库一致性。
 - 持久的部分能事后补，但有窗口期：Claude 的旧会话会消失（见上），Codex 会压缩和搬家。按文件路径记会失效，按会话 id 能找回。
 - 需要常驻的只有瞬时的边角：Claude 子 Agent 的临时输出、Codex 的滚动日志。
 - 读 Claude 要读两处：`~/.claude/projects` 和桌面应用目录里的会话索引（标题、归档、rewind、派生关系只在后者）。读 Codex 要读日志、`session_index.jsonl` 和 `state_5.sqlite`（归档状态、父子边）。

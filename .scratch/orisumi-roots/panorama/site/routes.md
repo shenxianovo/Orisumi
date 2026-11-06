@@ -6,15 +6,15 @@
 
 ## 当前交付：留下材料并能取回
 
-Claude Code与Codex已选材料、出处、本机恢复和Linux手动副本已完成；持续采集中的149根已独立核对并恢复三个来源最新材料。
+Claude Code与Codex已选材料可独立恢复；Codex已扩到九库、草稿和语音等文件。日常149根的Linux副本验证完成，新增范围等下一次副本。
 
-当前已选目录与 state_5 范围；Codex 其他库仍待核对。手动副本之后的新采集等下一次备份，定时任务尚未建立。
+每个来源范围均显式声明；新增Codex范围的两轮本机恢复与来源不可读验证通过，日常固定版本更新和新范围外部备份分别验收。
 
 - [交付路线怎样排序](modules/delivery.md#n-e93627fc1fab2325)：按可独立使用的能力推进
 - [来源接入顺序](modules/sources.md#n-821855273f39bc59)：丢失窗口与接入成本共同排序
 - [Codex日志表示](modules/sources-local.md#n-654ef3908ee1adec)：枚举两处日志并保留原字节
 - [Codex状态数据库范围](modules/sources-local.md#n-bb8086babda89015)：状态库一致快照
-- [Codex附件与产物范围](modules/sources-local.md#n-c8cf6296fafacb06)：已知附件目录与可视化目录整体收
+- [Codex附件与产物范围](modules/sources-local.md#n-c8cf6296fafacb06)：整体保存已盘点的文件材料
 - [数据库取得一致性](modules/capture.md#n-cba810bb05a18834)：引擎提供一致快照
 - [采集记录与文件清单](modules/records.md#n-1d8f2faf261d23a6)：小采集记录加可复用清单
 - [内容取得与来源身份](modules/records.md#n-15c7ee1513e29577)：分开内容标识、取得标识与来源标识
@@ -25,6 +25,7 @@ Claude Code与Codex已选材料、出处、本机恢复和Linux手动副本已�
 - [第一阶段怎样验收](modules/delivery.md#n-ae87acd40d922614)：用可重复的小来源验证留下与取回
 - [同步交换与提交](modules/availability.md#n-da173cb6e04759f8)：外部完整保存集复制
 - [导出与恢复](modules/storage.md#n-da66683208852205)：导出完整记录与内容闭包
+- [Codex其他数据库范围](modules/sources-local.md#n-212a8d9d321fc8c3)：直接保留可取得的其他整库
 
 ## 当前交付：已有来源持续采集
 

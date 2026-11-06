@@ -105,20 +105,33 @@ orisumi run raw restore <采集> <新目录>
 | --- | --- |
 | `sessions/`、`archived_sessions/` | 递归选择 `.jsonl` 与 `.jsonl.zst`，整份文件按字节保存 |
 | `session_index.jsonl` | 完整文件，包括追加的线程标题记录 |
-| `state_5.sqlite` | 整个数据库的 SQLite online backup 快照 |
+| `state_5.sqlite` | 主状态库的完整 SQLite online backup 快照 |
+| `thread_history_1.sqlite` | 完整历史库，包括消息、实时内容、回合与投影进度 |
+| `logs_2.sqlite`、`goals_1.sqlite` | 运行日志与目标状态，各自取得整库快照 |
+| `queue_1.sqlite`、`memories_1.sqlite` | 队列与记忆状态，各自取得整库快照；空表同样按实际状态保留 |
+| `sqlite/codex.db`、`sqlite/codex-dev.db` | 桌面时间线、自动化与本地目录，两处原路径各自保留 |
+| `sqlite/codex-thread-summaries-dev.db` | 已存在的摘要库整库快照 |
+| `realtime-voice-continuity.json` | 语音连续对话文件原字节 |
+| `.codex-global-state.json` | 桌面全局状态原文件，包括当前草稿与文档映射 |
+| `dictation-history/` | 全部听写 JSON、音频 chunk 与同目录其他文件原字节 |
+| `automations/` | 自动化目录全部文件，包括定义与附属状态 |
 | `attachments/` | 全部文件，例如长文本附件 |
 | `generated_images/` | 全部文件，例如生成的图片 |
 | `visualizations/` | 全部文件，包括页面及其本地脚本等资源 |
 
 每轮按这份范围重新枚举材料。日志按路径和扩展名选择，内容与记录时间由后续读出解释；未知记录类型、末尾半行、子 Agent 和续接文件里的重复内容都随文件保存。`.jsonl.zst` 保留压缩文件的原始字节，损坏的压缩文件也照存。
 
-`sessions/`、`session_index.jsonl` 和 `state_5.sqlite` 是必需输入，缺失时记入本轮失败说明。`archived_sessions/`、`attachments/`、`generated_images/` 和 `visualizations/` 可以不存在；这些目录存在但读不到时仍记缺口。选中范围内的符号链接按[链接规则](./file-capture.mdx#符号链接)保存。
+`sessions/`、`session_index.jsonl` 和 `state_5.sqlite` 是必需输入，缺失时记入本轮失败说明。其余列出的固定输入可以不存在；所有候选位置保留在来源定义中，每轮重新检查，常驻开始后新出现的文件也会进入下一轮。只有系统明确报告不存在时跳过，存在但不可读、类型不符或数据库损坏仍记缺口。本轮没有取得某份可选材料，不代表该数据库有零行；零行需要实际快照证明。选中范围内的符号链接按[链接规则](./file-capture.mdx#符号链接)保存。
 
 ### 数据库与时间窗口
 
-数据库快照包含所有表、索引及值，来源增加的未知表也随库保存。SQLite 把主文件和 WAL 中参与这份一致状态的已提交数据纳入快照，恢复后可以用一个 `state_5.sqlite` 文件独立打开。采集器取得整库快照，清单记 `method: sqlite-online-backup`；数据库内容的含义交给读出解释。
+数据库快照包含所有表、索引及值，来源增加的未知表也随库保存。SQLite 把主文件和 WAL 中参与这份一致状态的已提交数据纳入快照，每份恢复数据库都可以单文件独立打开。采集器取得整库快照，清单记 `method: sqlite-online-backup`；数据库内容的含义交给读出解释。
 
-采集记录用 `capturedAt` 和 `completedAt` 记这一轮的起止时间。数据库快照内部一致，日志、索引、数据库和附件各自在这个窗口中取得；它们之间可能对应不同时间。数据库缺失、损坏或锁定后重试仍失败时，已经采到的日志和附件照常写入清单，缺口记在 `failure` 中。
+采集记录用 `capturedAt` 和 `completedAt` 记这一轮的起止时间。每份数据库快照内部一致；不同数据库、日志、索引、音频和附件各自在这个窗口中取得，它们之间可能对应不同时间。必需数据库缺失，或数据库损坏、锁定后重试仍失败时，已经采到的日志和附件照常写入清单，缺口记在 `failure` 中。
+
+历史库有投影结构，但本次发现53个投影线程ID没有当前同名日志文件，其中部分仍有消息及回合内容。这没有证明那些内容全部独有，却足以说明可重建性尚未成立，因此历史库先完整留下。运行日志的最早可见时间也随观察向前移动，按现存范围定期取得。
+
+语音、听写、自动化定义和桌面草稿保持各自文件原形态。是否与日志或数据库重合，由后续读出核对；采集不因文件看起来像缓存或派生结果就假定可以重新生成。`auth.json` 和其他独立凭据文件不在这份明确来源范围内。
 
 每个 rollout 的 `session_meta` 记着写它的 Codex 版本。
 

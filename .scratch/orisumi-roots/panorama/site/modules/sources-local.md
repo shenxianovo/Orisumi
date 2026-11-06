@@ -258,7 +258,7 @@ sessions 与 archived_sessions 下现存 JSONL、JSONL.ZST 和完整标题索引
 
 ## Codex状态数据库范围
 
-**助手推论** · 两表之外已实际发现项目、目录、分组、工作树和 PR 关联。整库建议特指 state_5.sqlite，其他库另行盘点。
+**助手推论** · state_5 两表之外已发现项目、目录、分组、工作树和PR关联；该库的表示方式在此选择，其他数据库范围单独采用。
 
 **Agent采用 · 当前**
 
@@ -321,7 +321,7 @@ sessions 与 archived_sessions 下现存 JSONL、JSONL.ZST 和完整标题索引
 
 检验：样本显示哪些用户可见关系无法由两表恢复。
 
-实现现状：state_5.sqlite 通过 SQLite online backup 保存完整结构与类型；实际恢复库有 17 张表且 quick_check 通过，其他数据库范围独立后置。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/SqliteSnapshotReader.cs](../../../../../src/Orisumi.Capturing/SqliteSnapshotReader.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
+实现现状：state_5.sqlite 通过 SQLite online backup 保存完整结构与类型；实际恢复库有17张表且quick_check通过，其他八个数据库按独立范围决定取得。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/SqliteSnapshotReader.cs](../../../../../src/Orisumi.Capturing/SqliteSnapshotReader.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
 
 审阅重点：建议 state_5 一致整库快照；相比两表导出，保住已知项目、分组与工作树等关系。其他数据库另查。
 
@@ -335,15 +335,15 @@ sessions 与 archived_sessions 下现存 JSONL、JSONL.ZST 和完整标题索引
 
 ## Codex附件与产物范围
 
-**助手推论** · attachments、generated_images 有已知外部内容，visualizations 混合产物、代码和工具依赖；会话引用与实际目录内容尚需对应。
+**助手推论** · 附件、生成图片、可视化、听写、自动化，以及语音连续和桌面全局状态文件共同保存已盘点的文件材料；目录混合产物和支持文件，重建关系后续验证。
 
 **Agent采用 · 当前**
 
-候选：已知附件目录与可视化目录整体收。
+候选：整体保存已盘点的文件材料。
 
-理由与代价：attachments、generated_images 和 visualizations 均已盘点；整体留存保护真实交互产物及运行依赖，接受约 245 MiB 可视化目录额外体量。
+理由与代价：已盘点的目录和文件含真实产物、语音及未发送草稿；先完整保存来源交付表示，接受混合支持文件的体量。worktree-backups另行勘探，独立凭据文件不在明确清单内。
 
-启动或重审条件：通过正文、图片和可视化样本离开来源目录后的恢复；只有实测成本成问题才评估可重建依赖。
+启动或重审条件：所选文件离开来源后逐字节恢复；实际成本成问题或新增形态时再评估范围与可重建关系。
 
 依据：
 
@@ -354,13 +354,13 @@ sessions 与 archived_sessions 下现存 JSONL、JSONL.ZST 和完整标题索引
 
 依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#codex-取得与恢复](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#codex-%E5%8F%96%E5%BE%97%E4%B8%8E%E6%81%A2%E5%A4%8D)。真实采集覆盖所选附件和产物目录，普通文件字节与符号链接目标分别恢复核对。
 
-### 已知附件目录与可视化目录整体收 · 助手推荐
+### 整体保存已盘点的文件材料 · 助手推荐
 
-保留现存附件、图片和可视化全部文件，出处分目录记录。
+完整保留附件、图片、可视化、听写和自动化目录，以及语音连续与桌面全局状态原文件，分别记录路径出处。
 
 收益：最早留住后来可能清理的产物和支持文件。
 
-代价：可视化目录本轮约 245 MiB，部分依赖可能可再建。
+代价：可视化含约245MiB支持文件；全局状态混合草稿与桌面设置，按完整原文件保存。
 
 适用条件：推荐先留底、再以实际成本决定是否筛选。
 
@@ -392,7 +392,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 继续展开：[附件与依赖的收集边界](sources.md#n-128cbd6f1a6dfa45)
 
-实现现状：已选的附件、生成图片和可视化目录完整枚举；1,981 个普通文件与 142 个链接的本机和 Linux 异机恢复均通过核对。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Raw/CaptureRecovery.cs](../../../../../src/Orisumi.Raw/CaptureRecovery.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
+实现现状：既有附件与产物已通过本机和Linux恢复；新增听写、自动化、语音连续与全局状态文件已随两轮2,021文件/142链接的本机完整恢复核对，新增范围的外部副本另验。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Raw/CaptureRecovery.cs](../../../../../src/Orisumi.Raw/CaptureRecovery.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
 
 审阅重点：按采用记录核对覆盖范围、接受的代价和实际证据；条件变化时沿触发条件重审。
 
@@ -837,26 +837,26 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 ## Codex其他数据库范围
 
-**助手推论** · state_5 的保存方法另选；thread_history、logs 等其他数据库是否有独有材料，是独立的范围选择。目录中可读取的数据库先枚举，凭据或不可读内容不因同目录而自动纳入。
+**助手推论** · state_5 之外已盘点八个数据库：运行日志、目标、历史、两个桌面库、队列、记忆与摘要。滚动日志及现存日志文件名未覆盖的历史线程支持先保存整库；后续再检验重建关系。
 
-**条件成立再做 · 下一步**
+**Agent采用 · 当前**
 
-候选：先核验其他库的独有信息。
+候选：直接保留可取得的其他整库。
 
-理由与代价：state_5 之外的库独有性与体量未查明，投影库可能可重建；先核验用途可避免把猜测写进采集边界，接受暂未覆盖其独有记录。
+理由与代价：实际存在滚动运行日志、目标和历史等材料；尚未证明它们可由现存日志完整重建。先整库留存，接受历史库约1.29GB的逻辑体积；扩大后的真实第二轮存储新增约7.53MB。
 
-启动或重审条件：各库只读查模式、版本、体量和最少样本，对照日志；发现独有且会流失事实时做一致快照导洞。
+启动或重审条件：固定范围按路径列明，每库独立一致。出现新的库或实际成本问题时重新勘探；当前空表不作为未来排除理由。
 
 依据：
 
 - [首先收集数据](roots.md#n-2c3dfbca22881d81)（选择依据）：先让材料存在并留下，此处展开取得材料的可执行方式。
 - [尽量完整留下](roots.md#n-77e7f6f84727e69e)（选择依据）：默认尽量留下选定范围内可得的信息，此处比较哪些材料会留下或丢失及实际代价。
 
-依据材料：[.scratch/requirements/survey-codex-20261106.md](../../../../requirements/survey-codex-20261106.md)。2026-11-06 只读盘点的日志格式、state_5 模式/计数及附件目录体量；计数对应当时观察，不代表持续来源的当前总量。
+依据材料：[.scratch/requirements/survey-codex-20261106.md](../../../../requirements/survey-codex-20261106.md)。八个额外数据库均取得实际一致样本；历史库有53个线程ID未匹配当前日志文件名，此项不证明其内容全部独有。
 
-依据材料：[.scratch/requirements/survey-assistant-sessions.md](../../../../requirements/survey-assistant-sessions.md)。其他数据库体量与投影判断来自 11 月 3 日样本。
+依据材料：[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#扩展数据库草稿与语音材料](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#%E6%89%A9%E5%B1%95%E6%95%B0%E6%8D%AE%E5%BA%93%E8%8D%89%E7%A8%BF%E4%B8%8E%E8%AF%AD%E9%9F%B3%E6%9D%90%E6%96%99)。两轮真实采集各含九份SQLite快照，全部独立可读；禁止读取来源目录时产品仍成功恢复。
 
-### 先核验其他库的独有信息 · 助手推荐
+### 先核验其他库的独有信息 · 可选路线
 
 先核对每个其他数据库与已有日志的内容关系；根据真实独有信息再选择整库或所需原始材料。
 
@@ -872,7 +872,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：若认定可重建，用固定输入实测重建覆盖；仅凭表名或旧推论不能排除。
 
-### 直接保留可取得的其他整库 · 可选路线
+### 直接保留可取得的其他整库 · 助手推荐
 
 在明确个人材料范围后，对可读取的其他数据库逐库取得一致副本；以后再判断哪些内容能从其他原件重建。
 
@@ -888,7 +888,7 @@ attachments 与 generated_images 入范围；可视化先单独完整样本勘�
 
 检验：快照能独立打开；实际含哪些独有字段及已知可重建部分列清；不可读库明确标缺口，不以裸主文件复制代替快照。
 
-实现现状：仅展开候选和检验，尚未实现此能力。
+实现现状：八个新增库使用固定可选路径与SQLite online backup；每轮重新检查，存在但不可读仍记缺口。真实两轮9库恢复通过，日常固定程序更新另验。（[src/Orisumi.Capturing/CodexSource.cs](../../../../../src/Orisumi.Capturing/CodexSource.cs)、[src/Orisumi.Capturing/Collector.cs](../../../../../src/Orisumi.Capturing/Collector.cs)、[tests/Orisumi.Capturing.Tests/CodexSourceTests.cs](../../../../../tests/Orisumi.Capturing.Tests/CodexSourceTests.cs)、[src/Docs/Orisumi.Docs/content/docs/model/validation.mdx](../../../../../src/Docs/Orisumi.Docs/content/docs/model/validation.mdx)）
 
 审阅重点：判断是否先核验其他库的独有信息，还是先保住可取得整库；这是独立于 state_5 保存方式的范围取舍。
 

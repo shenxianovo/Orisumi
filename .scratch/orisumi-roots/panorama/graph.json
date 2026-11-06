@@ -1426,7 +1426,7 @@
       "module": "sources-local",
       "type": "decision",
       "status": "proposed",
-      "summary": "两表之外已实际发现项目、目录、分组、工作树和 PR 关联。整库建议特指 state_5.sqlite，其他库另行盘点。",
+      "summary": "state_5 两表之外已发现项目、目录、分组、工作树和PR关联；该库的表示方式在此选择，其他数据库范围单独采用。",
       "basis": [
         {
           "id": "首先收集数据",
@@ -1508,7 +1508,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "state_5.sqlite 通过 SQLite online backup 保存完整结构与类型；实际恢复库有 17 张表且 quick_check 通过，其他数据库范围独立后置。",
+        "note": "state_5.sqlite 通过 SQLite online backup 保存完整结构与类型；实际恢复库有17张表且quick_check通过，其他八个数据库按独立范围决定取得。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Capturing/SqliteSnapshotReader.cs",
@@ -1533,7 +1533,7 @@
       "module": "sources-local",
       "type": "decision",
       "status": "proposed",
-      "summary": "attachments、generated_images 有已知外部内容，visualizations 混合产物、代码和工具依赖；会话引用与实际目录内容尚需对应。",
+      "summary": "附件、生成图片、可视化、听写、自动化，以及语音连续和桌面全局状态文件共同保存已盘点的文件材料；目录混合产物和支持文件，重建关系后续验证。",
       "basis": [
         {
           "id": "首先收集数据",
@@ -1561,11 +1561,11 @@
       "options": [
         {
           "id": "all-roots",
-          "title": "已知附件目录与可视化目录整体收",
+          "title": "整体保存已盘点的文件材料",
           "status": "recommended",
-          "summary": "保留现存附件、图片和可视化全部文件，出处分目录记录。",
+          "summary": "完整保留附件、图片、可视化、听写和自动化目录，以及语音连续与桌面全局状态原文件，分别记录路径出处。",
           "benefit": "最早留住后来可能清理的产物和支持文件。",
-          "cost": "可视化目录本轮约 245 MiB，部分依赖可能可再建。",
+          "cost": "可视化含约245MiB支持文件；全局状态混合草稿与桌面设置，按完整原文件保存。",
           "when": "推荐先留底、再以实际成本决定是否筛选。",
           "next": [
             "附件与依赖的收集边界",
@@ -1605,7 +1605,7 @@
       ],
       "implementation": {
         "state": "implemented",
-        "note": "已选的附件、生成图片和可视化目录完整枚举；1,981 个普通文件与 142 个链接的本机和 Linux 异机恢复均通过核对。",
+        "note": "既有附件与产物已通过本机和Linux恢复；新增听写、自动化、语音连续与全局状态文件已随两轮2,021文件/142链接的本机完整恢复核对，新增范围的外部副本另验。",
         "refs": [
           "src/Orisumi.Capturing/CodexSource.cs",
           "src/Orisumi.Raw/CaptureRecovery.cs",
@@ -1620,8 +1620,8 @@
         "choices": [
           "all-roots"
         ],
-        "reason": "attachments、generated_images 和 visualizations 均已盘点；整体留存保护真实交互产物及运行依赖，接受约 245 MiB 可视化目录额外体量。",
-        "trigger": "通过正文、图片和可视化样本离开来源目录后的恢复；只有实测成本成问题才评估可重建依赖。",
+        "reason": "已盘点的目录和文件含真实产物、语音及未发送草稿；先完整保存来源交付表示，接受混合支持文件的体量。worktree-backups另行勘探，独立凭据文件不在明确清单内。",
+        "trigger": "所选文件离开来源后逐字节恢复；实际成本成问题或新增形态时再评估范围与可重建关系。",
         "stage": "now"
       }
     },
@@ -6029,7 +6029,7 @@
       "module": "sources-local",
       "type": "decision",
       "status": "proposed",
-      "summary": "state_5 的保存方法另选；thread_history、logs 等其他数据库是否有独有材料，是独立的范围选择。目录中可读取的数据库先枚举，凭据或不可读内容不因同目录而自动纳入。",
+      "summary": "state_5 之外已盘点八个数据库：运行日志、目标、历史、两个桌面库、队列、记忆与摘要。滚动日志及现存日志文件名未覆盖的历史线程支持先保存整库；后续再检验重建关系。",
       "basis": [
         {
           "id": "首先收集数据",
@@ -6046,19 +6046,19 @@
         {
           "kind": "file",
           "ref": ".scratch/requirements/survey-codex-20261106.md",
-          "note": "2026-11-06 只读盘点的日志格式、state_5 模式/计数及附件目录体量；计数对应当时观察，不代表持续来源的当前总量。"
+          "note": "八个额外数据库均取得实际一致样本；历史库有53个线程ID未匹配当前日志文件名，此项不证明其内容全部独有。"
         },
         {
-          "kind": "file",
-          "ref": ".scratch/requirements/survey-assistant-sessions.md",
-          "note": "其他数据库体量与投影判断来自 11 月 3 日样本。"
+          "kind": "measurement",
+          "ref": "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx#扩展数据库草稿与语音材料",
+          "note": "两轮真实采集各含九份SQLite快照，全部独立可读；禁止读取来源目录时产品仍成功恢复。"
         }
       ],
       "options": [
         {
           "id": "investigate",
           "title": "先核验其他库的独有信息",
-          "status": "recommended",
+          "status": "alternative",
           "summary": "先核对每个其他数据库与已有日志的内容关系；根据真实独有信息再选择整库或所需原始材料。",
           "benefit": "不把库名当成可丢依据。",
           "cost": "额外体量可能远大于状态库。",
@@ -6076,7 +6076,7 @@
         {
           "id": "capture-accessible",
           "title": "直接保留可取得的其他整库",
-          "status": "alternative",
+          "status": "recommended",
           "summary": "在明确个人材料范围后，对可读取的其他数据库逐库取得一致副本；以后再判断哪些内容能从其他原件重建。",
           "benefit": "能先留下可能被清理的运行事实与未知字段。",
           "cost": "体量可能明显大于 state_5，逐库读取权限、写入方式和一致性仍要核对。",
@@ -6094,21 +6094,26 @@
         }
       ],
       "implementation": {
-        "state": "planned",
-        "note": "仅展开候选和检验，尚未实现此能力。",
-        "refs": []
+        "state": "implemented",
+        "note": "八个新增库使用固定可选路径与SQLite online backup；每轮重新检查，存在但不可读仍记缺口。真实两轮9库恢复通过，日常固定程序更新另验。",
+        "refs": [
+          "src/Orisumi.Capturing/CodexSource.cs",
+          "src/Orisumi.Capturing/Collector.cs",
+          "tests/Orisumi.Capturing.Tests/CodexSourceTests.cs",
+          "src/Docs/Orisumi.Docs/content/docs/model/validation.mdx"
+        ]
       },
       "review": "判断是否先核验其他库的独有信息，还是先保住可取得整库；这是独立于 state_5 保存方式的范围取舍。",
       "choice_mode": "one",
       "choice_note": "针对 state_5 之外的数据库选择当前接入策略；两条路线都先明确实际库清单与个人材料范围。state_5 自身三种表示另选。",
       "resolution": {
-        "state": "conditional",
+        "state": "adopted",
         "choices": [
-          "investigate"
+          "capture-accessible"
         ],
-        "reason": "state_5 之外的库独有性与体量未查明，投影库可能可重建；先核验用途可避免把猜测写进采集边界，接受暂未覆盖其独有记录。",
-        "trigger": "各库只读查模式、版本、体量和最少样本，对照日志；发现独有且会流失事实时做一致快照导洞。",
-        "stage": "next"
+        "reason": "实际存在滚动运行日志、目标和历史等材料；尚未证明它们可由现存日志完整重建。先整库留存，接受历史库约1.29GB的逻辑体积；扩大后的真实第二轮存储新增约7.53MB。",
+        "trigger": "固定范围按路径列明，每库独立一致。出现新的库或实际成本问题时重新勘探；当前空表不作为未来排除理由。",
+        "stage": "now"
       }
     },
     {
@@ -13696,8 +13701,8 @@
   "routes": [
     {
       "title": "当前交付：留下材料并能取回",
-      "summary": "Claude Code与Codex已选材料、出处、本机恢复和Linux手动副本已完成；持续采集中的149根已独立核对并恢复三个来源最新材料。",
-      "when": "当前已选目录与 state_5 范围；Codex 其他库仍待核对。手动副本之后的新采集等下一次备份，定时任务尚未建立。",
+      "summary": "Claude Code与Codex已选材料可独立恢复；Codex已扩到九库、草稿和语音等文件。日常149根的Linux副本验证完成，新增范围等下一次副本。",
+      "when": "每个来源范围均显式声明；新增Codex范围的两轮本机恢复与来源不可读验证通过，日常固定版本更新和新范围外部备份分别验收。",
       "choices": {
         "交付路线怎样排序": "independent",
         "来源接入顺序": "loss-cost",
@@ -13713,7 +13718,8 @@
         "运行保障怎样安排": "simple",
         "第一阶段怎样验收": "recovery",
         "同步交换与提交": "external-snapshot",
-        "导出与恢复": "portable-full"
+        "导出与恢复": "portable-full",
+        "Codex其他数据库范围": "capture-accessible"
       }
     },
     {
