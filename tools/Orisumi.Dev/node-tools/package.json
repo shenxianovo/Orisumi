@@ -1,9 +1,0 @@
-{
-  "name": "orisumi-quality-tools",
-  "private": true,
-  "license": "AGPL-3.0-only",
-  "devDependencies": {
-    "knip": "6.40.0",
-    "typescript": "6.0.3"
-  }
-}
