@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Orisumi Chrome Collector",
+  "version": "0.6.0",
+  "minimum_chrome_version": "115",
+  "permissions": ["alarms", "bookmarks", "downloads", "history", "nativeMessaging", "storage", "tabs"],
+  "background": { "service_worker": "worker.js", "type": "module" }
+}

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Orisumi.Collectors.Browser;
 using Orisumi.Collectors.MacOS;
 
 const string usage = """
@@ -9,6 +10,7 @@ const string usage = """
 
       foreground [SECONDS] [--windows] [--afk-threshold SECONDS] [--input]
       timeline --from TIMESTAMP --to TIMESTAMP
+      browser register-chrome EXTENSION_ID
 
     Raw databases are stored in DIRECTORY/raw, with .orisumi as the default DIRECTORY.
     """;
@@ -29,6 +31,23 @@ try
         case "timeline":
             var (from, to) = ParseTimelineRange(commandArgs);
             await ActivityTimeline.Write(store, from, to, Console.Out);
+            break;
+        case "browser":
+            if (commandArgs is ["register-chrome", var extensionId])
+            {
+                var executable = Path.Combine(AppContext.BaseDirectory, "Orisumi");
+                if (!File.Exists(executable))
+                    throw new IOException("could not find the Orisumi executable for Chrome");
+                Console.WriteLine(ChromeNativeHost.Register(store, extensionId, executable));
+            }
+            else if (commandArgs is ["native-host"])
+            {
+                await ChromeNativeHost.Run(store);
+            }
+            else
+            {
+                throw new ArgumentException("browser expects register-chrome EXTENSION_ID");
+            }
             break;
         default:
             throw new ArgumentException($"unknown command: {command}");

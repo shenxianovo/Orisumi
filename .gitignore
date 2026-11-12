@@ -1,4 +1,6 @@
 /.orisumi/
+/src/Collectors/Orisumi.Collectors.Browser/ChromeExtension/
 
 bin/
 obj/
+node_modules/

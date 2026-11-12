@@ -1,0 +1,13 @@
+{
+  "name": "orisumi-chrome-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc && node -e \"require('node:fs').copyFileSync('manifest.json', '../ChromeExtension/manifest.json')\"",
+    "test": "npm run build && node --test"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "typescript": "7.0.2"
+  }
+}
