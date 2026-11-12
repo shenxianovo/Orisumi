@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Collectors/Orisumi.Collectors.Browser/Orisumi.Collectors.Browser.csproj" />
+    <ProjectReference Include="../Collectors/Orisumi.Collectors.Codex/Orisumi.Collectors.Codex.csproj" />
     <ProjectReference Include="../Collectors/Orisumi.Collectors.MacOS/Orisumi.Collectors.MacOS.csproj" />
   </ItemGroup>
 </Project>

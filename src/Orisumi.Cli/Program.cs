@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Orisumi.Collectors.Browser;
+using Orisumi.Collectors.Codex;
 using Orisumi.Collectors.MacOS;
 
 const string usage = """
@@ -11,6 +12,7 @@ const string usage = """
       foreground [SECONDS] [--windows] [--afk-threshold SECONDS] [--input]
       timeline --from TIMESTAMP --to TIMESTAMP
       browser register-chrome EXTENSION_ID
+      codex capture [THREAD_ID | --all]
 
     Raw databases are stored in DIRECTORY/raw, with .orisumi as the default DIRECTORY.
     """;
@@ -48,6 +50,22 @@ try
             {
                 throw new ArgumentException("browser expects register-chrome EXTENSION_ID");
             }
+            break;
+        case "codex":
+            if (commandArgs is ["capture", "--all"])
+            {
+                Console.WriteLine(CodexCollector.Capture(store, threadId: null));
+                break;
+            }
+            var threadId = commandArgs switch
+            {
+                ["capture", var id] when !id.StartsWith("--", StringComparison.Ordinal) => id,
+                ["capture"] => Environment.GetEnvironmentVariable("CODEX_THREAD_ID"),
+                _ => throw new ArgumentException("codex expects capture [THREAD_ID | --all]"),
+            };
+            if (string.IsNullOrWhiteSpace(threadId))
+                throw new ArgumentException("provide THREAD_ID or --all when CODEX_THREAD_ID is not set");
+            Console.WriteLine(CodexCollector.Capture(store, threadId));
             break;
         default:
             throw new ArgumentException($"unknown command: {command}");
