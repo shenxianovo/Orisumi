@@ -1,0 +1,50 @@
+import ApplicationServices
+import CoreGraphics
+import Darwin
+
+func usage() -> Never {
+    fputs("Usage: orisumi-macos-foreground DATABASE [SECONDS] [--windows] [--afk-threshold=SECONDS] [--input]\n", stderr)
+    exit(2)
+}
+
+var arguments = CommandLine.arguments.dropFirst()
+let captureInput = arguments.count > 1 && arguments.last == "--input"
+if captureInput { arguments.removeLast() }
+var afkThresholdMS: Int64 = 300_000
+let thresholdOption = "--afk-threshold="
+if let option = arguments.last, option.hasPrefix(thresholdOption) {
+    guard let seconds = Int32(option.dropFirst(thresholdOption.count)), seconds > 0 else { usage() }
+    afkThresholdMS = Int64(seconds) * 1000
+    arguments.removeLast()
+}
+let captureWindows = arguments.count > 1 && arguments.last == "--windows"
+if captureWindows { arguments.removeLast() }
+var seconds: Int?
+if arguments.count == 2, let duration = Int32(arguments.last!), duration > 0 {
+    seconds = Int(duration)
+}
+guard let path = arguments.first,
+      arguments.count == 1 || seconds != nil
+else {
+    usage()
+}
+
+// The .NET parent handles terminal Ctrl+C and closes the pipe to request a clean stop.
+signal(SIGINT, SIG_IGN)
+umask(0o077)
+if captureWindows && !AXIsProcessTrusted() {
+    fputs("orisumi: window capture requires Accessibility permission for this process\n", stderr)
+    exit(1)
+}
+if captureInput && !CGPreflightListenEventAccess() {
+    fputs("orisumi: input capture requires Input Monitoring permission for this process\n", stderr)
+    exit(1)
+}
+do {
+    try captureForeground(in: ForegroundDatabase(path: path, captureWindows: captureWindows, captureInput: captureInput),
+                          seconds: seconds, captureWindows: captureWindows, afkThresholdMS: afkThresholdMS,
+                          captureInput: captureInput)
+} catch {
+    fputs("orisumi: macOS foreground capture failed: \(error.localizedDescription)\n", stderr)
+    exit(1)
+}

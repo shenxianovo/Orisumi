@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Collectors/Orisumi.Collectors.MacOS/Orisumi.Collectors.MacOS.csproj" />
+  <Project Path="src/Orisumi.Cli/Orisumi.Cli.csproj" />
+</Solution>
