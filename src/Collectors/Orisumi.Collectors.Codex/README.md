@@ -3,13 +3,13 @@
 在 Orisumi 仓库根目录采集本机 Codex 会话索引中的全部会话，包括已归档会话。
 
 ```sh
-dotnet run --project src/Orisumi.Cli -- codex capture --all
+orisumi codex capture --all
 ```
 
 采集单个会话时可以指定会话 ID。省略会话 ID 时，CLI 使用当前环境里的 `CODEX_THREAD_ID`。
 
 ```sh
-dotnet run --project src/Orisumi.Cli -- codex capture THREAD_ID
+orisumi codex capture THREAD_ID
 ```
 
 采集器只读打开 Codex 的本地状态库和分页消息历史库，把结果写入 `.orisumi/raw/codex.sqlite`。全局选项 `--store DIRECTORY` 可指定输出目录。Codex 数据目录优先使用 `CODEX_HOME`，默认是 `~/.codex`。

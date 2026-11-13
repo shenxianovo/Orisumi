@@ -10,8 +10,8 @@ description: 本地预览、内容目录与页面历史。
 在仓库根目录运行：
 
 ```sh
-dotnet run --project src/Orisumi.Dev -- docs install
-dotnet run --project src/Orisumi.Dev -- docs dev
+orisumi dev docs install
+orisumi dev docs
 ```
 
 打开 [本地文档站](http://127.0.0.1:3020/docs)。
@@ -34,9 +34,9 @@ dotnet run --project src/Orisumi.Dev -- docs dev
 ## 检查与构建
 
 ```sh
-dotnet run --project src/Orisumi.Dev -- docs check
-dotnet run --project src/Orisumi.Dev -- docs build
-dotnet run --project src/Orisumi.Dev -- docs start
+orisumi dev docs check
+orisumi dev docs build
+orisumi dev docs start
 ```
 
 `start` 启动已构建的站点，默认使用本地端口 3020。运行前先停止占用该端口的开发服务。

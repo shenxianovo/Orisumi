@@ -1,66 +1,99 @@
 ---
-title: 开发工具
-description: Orisumi.Dev 与 Orisumi.Cli 的职责和运行方式。
+title: 命令行与开发
+description: 使用全局 orisumi 入口运行当前仓库源码。
 ---
 
-例如修改浏览器扩展后，先用 `Orisumi.Dev browser build` 生成扩展，
-再在 Chrome 扩展页重载。扩展把观测交给 `Orisumi.Cli` 的本机接收端，写入浏览器数据库。
+例如修改采集器后，在仓库中运行 `orisumi codex capture --all`，
+入口会先增量构建这份源码，再启动刚生成的程序。普通源码修改无需重新安装全局工具。
 
-## 两个入口
+## 安装入口
 
-| 项目 | 用途 |
-| --- | --- |
-| `src/Orisumi.Dev` | 构建解决方案、运行文档站、构建扩展和注册本机接收端 |
-| `src/Orisumi.Cli` | 执行采集和查询，接收 Chrome 扩展发来的数据 |
-
-两者使用 `System.CommandLine` 声明命令与参数，使用 `Spectre.Console` 输出终端提示。
-Chrome 本机接收端的标准输出专用于 Native Messaging 二进制协议。
-
-在仓库根目录运行以下命令。需要 .NET 11 SDK；文档站需要 Node.js 24.14 或更新版本；
-在 macOS 上构建原生采集器还需要 Xcode Command Line Tools。
+需要 .NET 11 SDK；macOS 原生采集器还需要 Xcode Command Line Tools。
+在仓库根目录执行一次：
 
 ```sh
-dotnet run --project src/Orisumi.Dev -- --help
-dotnet run --project src/Orisumi.Cli -- --help
+dotnet pack src/Orisumi.Cli -c Release -o .orisumi/packages
+dotnet tool install --global Orisumi.Cli --source .orisumi/packages --version 0.1.1
 ```
 
-每个子命令也支持 `--help`。完成构建后可以加 `dotnet run --no-build`。
+.NET 全局工具目录需要在 `PATH` 中。在 macOS 和 Linux 上通常是 `~/.dotnet/tools`。
+安装后，在仓库根目录或其子目录中直接运行：
+
+```sh
+orisumi --help
+orisumi dev --help
+```
+
+全局入口从当前工作目录向上定位 `Orisumi.slnx` 和 CLI 项目，使用当前检出的源码，
+包括尚未提交的修改。遇到其他 Git 仓库会停止向上查找，仓库外会提示进入 Orisumi 仓库。
+
+每次运行先由 .NET 增量构建 Debug 版本；构建失败立即退出，不运行上一次的产物。
+构建信息写入标准错误，实际命令保留标准输入、标准输出、参数和退出码。
+当前工作目录保持不变，相对路径以发起命令的位置为准。
+
+全局工具只承担源码启动。修改命令和采集器无需重新安装；修改全局启动机制或约定的项目路径后，需要重新打包安装入口。
+直接启动仓库中的构建产物会执行该产物，Chrome 本机接收端和后台采集使用这种方式。
+
+## 命令组织
+
+一个 `Orisumi.Cli` 项目提供 `orisumi` 命令，使用 `System.CommandLine` 与 `Spectre.Console`。
+开发命令组织在其中的 `Dev` 文件夹，采集器仍是独立项目。
+
+| 命令 | 用途 |
+| --- | --- |
+| `orisumi codex / claude / foreground` | 采集当前可观察的内容和变化 |
+| `orisumi timeline` | 查询活动时间线 |
+| `orisumi browser register-chrome` | 将 Chrome 扩展连接到当前构建的接收端 |
+| `orisumi dev` | 构建、预览文档、编译浏览器扩展 |
 
 ## 构建与文档
 
-```sh
-dotnet run --project src/Orisumi.Dev -- build
-dotnet run --project src/Orisumi.Dev -- build -c Release
+文档站需要 Node.js 24.14 或更新版本。
 
-dotnet run --project src/Orisumi.Dev -- docs install
-dotnet run --project src/Orisumi.Dev -- docs dev
-dotnet run --project src/Orisumi.Dev -- docs check
-dotnet run --project src/Orisumi.Dev -- docs build
+```sh
+orisumi dev build
+orisumi dev build -c Release
+
+orisumi dev docs install
+orisumi dev docs
+orisumi dev docs check
+orisumi dev docs build
 ```
 
-`docs dev` 在本地端口 3020 启动开发服务，按 Ctrl+C 停止。
-`docs start` 运行生产构建。内容写法与历史插件说明见[文档维护](./contributing.mdx)。
+`orisumi dev docs` 在本地端口 3020 启动开发服务，按 Ctrl+C 停止。
+`orisumi dev docs start` 运行生产构建。内容写法与历史插件说明见[文档维护](./contributing.mdx)。
 
 ## 浏览器扩展开发
 
 ```sh
-dotnet run --project src/Orisumi.Dev -- browser install
-dotnet run --project src/Orisumi.Dev -- browser build
-dotnet run --project src/Orisumi.Dev -- build
-dotnet run --project src/Orisumi.Dev -- browser register-chrome EXTENSION_ID --store .orisumi
+orisumi dev browser install
+orisumi dev browser build
+orisumi browser register-chrome EXTENSION_ID --store .orisumi
 ```
 
-在 Chrome 的扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，
-将页面显示的扩展 ID 传给 `register-chrome`。注册默认指向 CLI 的 Debug 构建；
-使用 Release 构建时加 `-c Release`。修改扩展后，重新构建并在 Chrome 中重载。
+在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，
+将页面显示的扩展 ID 传给 `register-chrome`。注册指向当前运行的构建产物。
+修改扩展后，重新构建并在 Chrome 中重载。
+
+Chrome 本机接收端的标准输出专用于 Native Messaging 二进制协议。
+
+## 验证源码入口
+
+安装全局入口后，在仓库根目录运行 .NET 行为检查：
+
+```sh
+dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
+```
+
+检查使用临时仓库，覆盖源码更新、构建失败、参数和退出码、二进制输入输出及 Unix 终止信号。
 
 ## 采集与查询
 
 ```sh
-dotnet run --project src/Orisumi.Cli -- codex capture --all
-dotnet run --project src/Orisumi.Cli -- claude capture
-dotnet run --project src/Orisumi.Cli -- foreground --windows --input
-dotnet run --project src/Orisumi.Cli -- timeline --from 2026-11-13T09:00:00+08:00 --to 2026-11-13T10:00:00+08:00
+orisumi codex capture --all
+orisumi claude capture
+orisumi foreground --windows --input
+orisumi timeline --from 2026-11-13T09:00:00+08:00 --to 2026-11-13T10:00:00+08:00
 ```
 
 `--store` 默认为当前工作目录下的 `.orisumi`，各来源数据库放在其中的 `raw/`。

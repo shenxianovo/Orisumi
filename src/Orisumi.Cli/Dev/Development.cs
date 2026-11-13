@@ -1,19 +1,10 @@
 using System.Diagnostics;
 using Spectre.Console;
 
-namespace Orisumi.Dev;
+namespace Orisumi.Cli.Dev;
 
 internal static class Development
 {
-    internal static string RepositoryRoot()
-    {
-        foreach (var start in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
-            for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
-                if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")))
-                    return directory.FullName;
-        throw new DirectoryNotFoundException("请从 Orisumi 仓库中运行开发工具。");
-    }
-
     internal static async Task<int> Run(string executable, string directory, CancellationToken token, params string[] arguments)
     {
         token.ThrowIfCancellationRequested();

@@ -70,9 +70,9 @@ python3 -m unittest discover -s tests -v
 测试使用临时源库、日志和输出库，覆盖属性独立变化、A→B→A、重复扫描与重复投递、消息修订、窗口标题、PID 复用、监听中断。真实来源只读；清空输出库不会清空 Codex、Claude 或 Chrome 的来源数据。
 
 ```sh
-dotnet run --no-build --project src/Orisumi.Cli -- codex capture --all
-dotnet run --no-build --project src/Orisumi.Cli -- claude capture
-dotnet run --no-build --project src/Orisumi.Cli -- foreground --windows --input
+orisumi codex capture --all
+orisumi claude capture
+orisumi foreground --windows --input
 ```
 
 浏览器通过已加载的扩展监听、每分钟对齐。Codex/Claude 是一次性命令，由 macOS LaunchAgent 每分钟执行；前台采集常驻。前台采集继承启动环境已经取得的窗口和输入权限。启动配置指向实际构建产物和同一个输出目录。

@@ -3,6 +3,11 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
     <AssemblyName>Orisumi</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>orisumi</ToolCommandName>
+    <PackageId>Orisumi.Cli</PackageId>
+    <Version>0.1.1</Version>
+    <Description>Run Orisumi commands from the current source checkout.</Description>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
