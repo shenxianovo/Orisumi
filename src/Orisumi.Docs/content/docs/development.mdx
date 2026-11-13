@@ -44,7 +44,7 @@ orisumi dev --help
 | `orisumi codex / claude / foreground` | 采集当前可观察的内容和变化 |
 | `orisumi timeline` | 查询活动时间线 |
 | `orisumi browser register-chrome` | 将 Chrome 扩展连接到当前构建的接收端 |
-| `orisumi dev` | 构建、预览文档、编译浏览器扩展 |
+| `orisumi dev` | 构建、预览文档、编译浏览器扩展、统计行数 |
 
 ## 构建与文档
 
@@ -76,6 +76,33 @@ orisumi browser register-chrome EXTENSION_ID --store .orisumi
 修改扩展后，重新构建并在 Chrome 中重载。
 
 Chrome 本机接收端的标准输出专用于 Native Messaging 二进制协议。
+
+## 行数统计
+
+```sh
+orisumi dev loc
+orisumi dev loc --json
+```
+
+统计整个当前工作区，包括已跟踪文件的修改和未被 Git 忽略的新文件，跳过已删除文件和符号链接。
+按项目、语言分别展示有效行数，排除空行和纯注释行。`Impl` 是实现，`Tests` 是测试；蓝色实条和绿色虚条使用相同刻度。
+文档、构建配置和生成文件（包括锁文件）单列在 `Outside code`，不进入代码总数。
+
+项目由工作区中的 `.csproj` 和 `package.json` 识别；嵌套项目优先归属最近的项目。
+C# 项目显示项目文件名，Node 项目显示 `package.json` 的 `name`。
+项目目录中的测试归该项目；独立 C# 测试项目只引用一个非测试项目时归那个项目，其他独立测试归 `Cross-module`。
+`scripts/` 中的独立脚本列入 `Scripts`；CLI 的 `Dev/` 代码计入 CLI 的实现。
+其他无法归属的已识别语言文件列在 `Unclassified files`，不进入代码总数。
+
+`--json` 仅向标准输出写入统计结果：`code` 为总计，`roles` 按用途分类，`modules` 按项目分类，
+`languages` 按语言分类，`unclassifiedPaths` 列出未归属文件。
+重定向的普通文本输出保持相同表格，不带终端控制码；设置 `NO_COLOR` 可以关闭配色。
+
+统计行为检查使用临时 Git 仓库：
+
+```sh
+dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
+```
 
 ## 验证源码入口
 

@@ -28,7 +28,7 @@ internal static class DevCommand
         const string extensionDirectory = "src/Collectors/Orisumi.Collectors.Browser/Extension";
         AddNpmCommand(browser, "install", "安装锁定版本的扩展开发依赖。", extensionDirectory, "ci");
         AddNpmCommand(browser, "build", "构建扩展；随后在 Chrome 扩展页重新加载。", extensionDirectory, "run", "build");
-        return new Command("dev", "构建、文档站与扩展开发。") { build, docs, browser };
+        return new Command("dev", "构建、文档站、扩展开发与行数统计。") { build, docs, browser, Loc.LocCommand.Create() };
     }
 
     private static void AddNpmCommand(Command parent, string name, string description, string directory, params string[] arguments)
