@@ -30,7 +30,8 @@ def main():
     agents.mkdir(parents=True, exist_ok=True)
     base = [dotnet, str(dll), '--store', str(store)]
     if args.extension_id:
-        subprocess.run([*base, 'browser', 'register-chrome', args.extension_id], check=True)
+        dev = root / 'src/Orisumi.Dev/bin/Debug/net11.0/Orisumi.Dev.dll'
+        subprocess.run([dotnet, str(dev), 'browser', 'register-chrome', args.extension_id, '--store', str(store)], check=True)
     domain = f'gui/{os.getuid()}'
     # Launchd is a different macOS permission context. Window/input capture uses
     # the already-authorized caller's context, and remains running after this command exits.

@@ -1,5 +1,9 @@
 项目正在重写。不用兼容。
 
+# 文档
+
+- 新增项目文档统一放在 `src/Orisumi.Docs/content/docs`；文档站维护方式见其中的 `contributing.mdx`。
+
 # 采集与存储
 
 - 每个采集来源使用独立的 SQLite 数据库。

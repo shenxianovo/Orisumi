@@ -1,3 +1,4 @@
+using System.CommandLine;
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
@@ -6,208 +7,107 @@ using Orisumi.Collectors.Browser;
 using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
 using Orisumi.Collectors.MacOS;
+using Spectre.Console;
 
-const string usage = """
-    Usage: orisumi [--store DIRECTORY] <command>
+var store = new Option<string>("--store")
+{
+    Description = "采集存储目录；各来源数据库放在 raw/ 下。",
+    DefaultValueFactory = _ => ".orisumi",
+    Recursive = true,
+};
+var root = new RootCommand("Orisumi · 采集与查询") { store };
+root.HelpName = "orisumi";
 
-      foreground [SECONDS] [--windows] [--afk-threshold SECONDS] [--input]
-      timeline --from TIMESTAMP --to TIMESTAMP
-      browser register-chrome EXTENSION_ID
-      codex capture [THREAD_ID | --all]
-      claude capture
+var seconds = new Argument<int?>("seconds")
+{
+    Description = "采集秒数；省略时持续运行，按 Ctrl+C 停止。",
+    Arity = ArgumentArity.ZeroOrOne,
+};
+var windows = new Option<bool>("--windows") { Description = "采集窗口焦点和标题。" };
+var input = new Option<bool>("--input") { Description = "采集键盘和鼠标事件。" };
+var afkThreshold = new Option<int?>("--afk-threshold") { Description = "进入离开状态前的无输入秒数。" };
+var foreground = new Command("foreground", "监听 macOS 前台活动。") { seconds, windows, input, afkThreshold };
+foreground.SetAction(result =>
+{
+    var duration = result.GetValue(seconds);
+    var threshold = result.GetValue(afkThreshold);
+    if (duration is <= 0 || threshold is <= 0)
+        throw new ArgumentException("seconds 和 --afk-threshold 必须是正整数。");
+    return MacOSForeground.Run(result.GetRequiredValue(store), duration,
+        result.GetValue(windows), threshold, result.GetValue(input));
+});
+root.Add(foreground);
 
-    Raw databases are stored in DIRECTORY/raw, with .orisumi as the default DIRECTORY.
-    """;
+var from = TimestampOption("--from", "查询起点（含），必须带 Z 或 UTC 偏移。");
+var to = TimestampOption("--to", "查询终点（不含），必须带 Z 或 UTC 偏移。");
+var timeline = new Command("timeline", "查询指定时间段的活动时间线。") { from, to };
+timeline.SetAction(result =>
+{
+    if (result.GetValue(from) >= result.GetValue(to))
+        throw new ArgumentException("--from 必须早于 --to。");
+    return ActivityTimeline.Write(result.GetRequiredValue(store), result.GetValue(from), result.GetValue(to), Console.Out);
+});
+root.Add(timeline);
+
+// Chrome uses a binary protocol on stdout. Keep this action free of terminal rendering.
+var nativeHost = new Command("native-host", "接收 Chrome Native Messaging 消息。") { Hidden = true };
+nativeHost.SetAction(result => ChromeNativeHost.Run(result.GetRequiredValue(store)));
+root.Add(new Command("browser", "浏览器采集接收端。") { Hidden = true, Subcommands = { nativeHost } });
+
+var threadId = new Argument<string?>("thread-id")
+{
+    Description = "Codex 会话 ID；省略时读取 CODEX_THREAD_ID。",
+    Arity = ArgumentArity.ZeroOrOne,
+};
+var all = new Option<bool>("--all") { Description = "采集所有 Codex 会话。" };
+var codexCapture = new Command("capture", "导入 Codex 会话的当前可见内容与变化。") { threadId, all };
+codexCapture.SetAction(result =>
+{
+    var id = result.GetValue(threadId);
+    if (result.GetValue(all) && id is not null)
+        throw new ArgumentException("thread-id 和 --all 只能选择一个。");
+    id = result.GetValue(all) ? null : id ?? Environment.GetEnvironmentVariable("CODEX_THREAD_ID");
+    if (!result.GetValue(all) && string.IsNullOrWhiteSpace(id))
+        throw new ArgumentException("请提供 thread-id 或 --all，或设置 CODEX_THREAD_ID。");
+    AnsiConsole.Write(new Text(CodexCollector.Capture(result.GetRequiredValue(store), id) + Environment.NewLine));
+});
+root.Add(new Command("codex", "Codex 会话采集。") { codexCapture });
+
+var claudeCapture = new Command("capture", "导入 Claude Code 会话的当前可见内容与变化。");
+claudeCapture.SetAction(result =>
+    AnsiConsole.Write(new Text(ClaudeCollector.Capture(result.GetRequiredValue(store)) + Environment.NewLine)));
+root.Add(new Command("claude", "Claude Code 会话采集。") { claudeCapture });
 
 try
 {
-    var (store, command, commandArgs) = ParseArguments(args);
-    if (command is "-h" or "--help" || commandArgs.TakeWhile(arg => arg != "--").Any(arg => arg is "-h" or "--help"))
+    return await root.Parse(args).InvokeAsync(new InvocationConfiguration
     {
-        Console.WriteLine(usage);
-        return 0;
-    }
+        EnableDefaultExceptionHandler = false,
+        // MacOSForeground owns signal handling and closes its helper's input to flush the final events.
+        ProcessTerminationTimeout = null,
+    });
+}
+catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or
+    InvalidDataException or JsonException or Win32Exception)
+{
+    var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(Console.Error) });
+    console.Write(new Text($"orisumi: {error.Message}{Environment.NewLine}", new Style(Color.Red)));
+    return error is ArgumentException ? 2 : 1;
+}
 
-    switch (command)
+static Option<DateTimeOffset> TimestampOption(string name, string description) => new(name)
+{
+    Description = description,
+    Required = true,
+    CustomParser = result =>
     {
-        case "foreground":
-            return await CaptureForeground(store, commandArgs);
-        case "timeline":
-            var (from, to) = ParseTimelineRange(commandArgs);
-            await ActivityTimeline.Write(store, from, to, Console.Out);
-            break;
-        case "browser":
-            if (commandArgs is ["register-chrome", var extensionId])
-            {
-                var executable = Path.Combine(AppContext.BaseDirectory, "Orisumi");
-                if (!File.Exists(executable))
-                    throw new IOException("could not find the Orisumi executable for Chrome");
-                Console.WriteLine(ChromeNativeHost.Register(store, extensionId, executable));
-            }
-            else if (commandArgs is ["native-host"])
-            {
-                await ChromeNativeHost.Run(store);
-            }
-            else
-            {
-                throw new ArgumentException("browser expects register-chrome EXTENSION_ID");
-            }
-            break;
-        case "codex":
-            if (commandArgs is ["capture", "--all"])
-            {
-                Console.WriteLine(CodexCollector.Capture(store, threadId: null));
-                break;
-            }
-            var threadId = commandArgs switch
-            {
-                ["capture", var id] when !id.StartsWith("--", StringComparison.Ordinal) => id,
-                ["capture"] => Environment.GetEnvironmentVariable("CODEX_THREAD_ID"),
-                _ => throw new ArgumentException("codex expects capture [THREAD_ID | --all]"),
-            };
-            if (string.IsNullOrWhiteSpace(threadId))
-                throw new ArgumentException("provide THREAD_ID or --all when CODEX_THREAD_ID is not set");
-            Console.WriteLine(CodexCollector.Capture(store, threadId));
-            break;
-        case "claude":
-            if (commandArgs is not ["capture"])
-                throw new ArgumentException("claude expects capture");
-            Console.WriteLine(ClaudeCollector.Capture(store));
-            break;
-        default:
-            throw new ArgumentException($"unknown command: {command}");
-    }
-
-    return 0;
-}
-catch (ArgumentException error)
-{
-    Console.Error.WriteLine($"orisumi: {error.Message}");
-    Console.Error.WriteLine(usage);
-    return 2;
-}
-catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or Win32Exception)
-{
-    Console.Error.WriteLine($"orisumi: {error.Message}");
-    return 1;
-}
-
-static Task<int> CaptureForeground(string store, string[] arguments)
-{
-    var positionals = new List<string>();
-    var captureWindows = false;
-    var captureInput = false;
-    int? afkThresholdSeconds = null;
-    for (var index = 0; index < arguments.Length; index++)
-    {
-        var argument = arguments[index];
-        if (argument == "--")
-        {
-            positionals.AddRange(arguments[(index + 1)..]);
-            break;
-        }
-
-        if (argument == "--windows")
-        {
-            if (captureWindows)
-                throw new ArgumentException("duplicate foreground option: --windows");
-            captureWindows = true;
-        }
-        else if (argument == "--input")
-        {
-            if (captureInput)
-                throw new ArgumentException("duplicate foreground option: --input");
-            captureInput = true;
-        }
-        else if (argument == "--afk-threshold" || argument.StartsWith("--afk-threshold=", StringComparison.Ordinal))
-        {
-            if (afkThresholdSeconds is not null)
-                throw new ArgumentException("duplicate foreground option: --afk-threshold");
-            var value = argument == "--afk-threshold"
-                ? OptionValue(arguments, ref index)
-                : argument["--afk-threshold=".Length..];
-            if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var threshold) || threshold <= 0)
-                throw new ArgumentException("--afk-threshold expects a positive number of seconds");
-            afkThresholdSeconds = threshold;
-        }
-        else if (argument.StartsWith("--", StringComparison.Ordinal))
-        {
-            throw new ArgumentException($"unknown foreground option: {argument}");
-        }
-        else
-        {
-            positionals.Add(argument);
-        }
-    }
-
-    if (positionals.Count > 1)
-        throw new ArgumentException("foreground expects an optional positive number of seconds");
-
-    int? seconds = null;
-    if (positionals.Count == 1)
-    {
-        if (!int.TryParse(positionals[0], NumberStyles.None, CultureInfo.InvariantCulture, out var duration) || duration <= 0)
-            throw new ArgumentException("foreground expects an optional positive number of seconds");
-        seconds = duration;
-    }
-
-    return MacOSForeground.Run(store, seconds, captureWindows, afkThresholdSeconds, captureInput);
-}
-
-static (DateTimeOffset From, DateTimeOffset To) ParseTimelineRange(string[] arguments)
-{
-    var options = new Dictionary<string, string>(StringComparer.Ordinal);
-    for (var index = 0; index < arguments.Length; index++)
-    {
-        var option = arguments[index].Split('=', 2);
-        var name = option[0];
-        if (name is not ("--from" or "--to"))
-            throw new ArgumentException($"unknown timeline option: {name}");
-        var value = option.Length == 2 ? option[1] : OptionValue(arguments, ref index);
-        if (!options.TryAdd(name, value))
-            throw new ArgumentException($"duplicate timeline option: {name}");
-    }
-
-    var from = ParseTimelineTimestamp(RequiredOption(options, "--from"), "--from");
-    var to = ParseTimelineTimestamp(RequiredOption(options, "--to"), "--to");
-    if (from >= to)
-        throw new ArgumentException("--from must be earlier than --to");
-    return (from, to);
-}
-
-static DateTimeOffset ParseTimelineTimestamp(string value, string option)
-{
-    if (!Regex.IsMatch(value, @"(?:Z|[+-]\d{2}:\d{2})\z") ||
-        !DateTimeOffset.TryParseExact(value, ["yyyy-MM-dd'T'HH:mmK", "yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"],
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out var timestamp))
-        throw new ArgumentException($"{option} must be an ISO 8601 timestamp with Z or a UTC offset");
-    return timestamp;
-}
-
-static (string Store, string Command, string[] Arguments) ParseArguments(string[] args)
-{
-    var store = ".orisumi";
-    var index = 0;
-    for (; index < args.Length; index++)
-    {
-        if (args[index] == "--store")
-            store = OptionValue(args, ref index);
-        else if (args[index].StartsWith("--store=", StringComparison.Ordinal))
-            store = args[index]["--store=".Length..];
-        else
-            return (store, args[index], args[(index + 1)..]);
-    }
-
-    throw new ArgumentException("a command is required");
-}
-
-static string OptionValue(string[] arguments, ref int index)
-{
-    var option = arguments[index++];
-    if (index == arguments.Length || arguments[index].StartsWith("--", StringComparison.Ordinal))
-        throw new ArgumentException($"expected a value for {option}");
-    return arguments[index];
-}
-
-static string RequiredOption(Dictionary<string, string> options, string name) =>
-    options.TryGetValue(name, out var value) ? value : throw new ArgumentException($"{name} is required");
+        var value = result.Tokens.Single().Value;
+        if (Regex.IsMatch(value, @"(?:Z|[+-]\d{2}:\d{2})\z") &&
+            DateTimeOffset.TryParseExact(value,
+                ["yyyy-MM-dd'T'HH:mmK", "yyyy-MM-dd'T'HH:mm:ssK", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK"],
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var timestamp))
+            return timestamp;
+        result.AddError($"{name} 必须是带 Z 或 UTC 偏移的 ISO 8601 时间。");
+        return default;
+    },
+};

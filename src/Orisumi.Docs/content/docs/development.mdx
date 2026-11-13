@@ -1,0 +1,68 @@
+---
+title: 开发工具
+description: Orisumi.Dev 与 Orisumi.Cli 的职责和运行方式。
+---
+
+例如修改浏览器扩展后，先用 `Orisumi.Dev browser build` 生成扩展，
+再在 Chrome 扩展页重载。扩展把观测交给 `Orisumi.Cli` 的本机接收端，写入浏览器数据库。
+
+## 两个入口
+
+| 项目 | 用途 |
+| --- | --- |
+| `src/Orisumi.Dev` | 构建解决方案、运行文档站、构建扩展和注册本机接收端 |
+| `src/Orisumi.Cli` | 执行采集和查询，接收 Chrome 扩展发来的数据 |
+
+两者使用 `System.CommandLine` 声明命令与参数，使用 `Spectre.Console` 输出终端提示。
+Chrome 本机接收端的标准输出专用于 Native Messaging 二进制协议。
+
+在仓库根目录运行以下命令。需要 .NET 11 SDK；文档站需要 Node.js 24.14 或更新版本；
+在 macOS 上构建原生采集器还需要 Xcode Command Line Tools。
+
+```sh
+dotnet run --project src/Orisumi.Dev -- --help
+dotnet run --project src/Orisumi.Cli -- --help
+```
+
+每个子命令也支持 `--help`。完成构建后可以加 `dotnet run --no-build`。
+
+## 构建与文档
+
+```sh
+dotnet run --project src/Orisumi.Dev -- build
+dotnet run --project src/Orisumi.Dev -- build -c Release
+
+dotnet run --project src/Orisumi.Dev -- docs install
+dotnet run --project src/Orisumi.Dev -- docs dev
+dotnet run --project src/Orisumi.Dev -- docs check
+dotnet run --project src/Orisumi.Dev -- docs build
+```
+
+`docs dev` 在本地端口 3020 启动开发服务，按 Ctrl+C 停止。
+`docs start` 运行生产构建。内容写法与历史插件说明见[文档维护](./contributing.mdx)。
+
+## 浏览器扩展开发
+
+```sh
+dotnet run --project src/Orisumi.Dev -- browser install
+dotnet run --project src/Orisumi.Dev -- browser build
+dotnet run --project src/Orisumi.Dev -- build
+dotnet run --project src/Orisumi.Dev -- browser register-chrome EXTENSION_ID --store .orisumi
+```
+
+在 Chrome 的扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，
+将页面显示的扩展 ID 传给 `register-chrome`。注册默认指向 CLI 的 Debug 构建；
+使用 Release 构建时加 `-c Release`。修改扩展后，重新构建并在 Chrome 中重载。
+
+## 采集与查询
+
+```sh
+dotnet run --project src/Orisumi.Cli -- codex capture --all
+dotnet run --project src/Orisumi.Cli -- claude capture
+dotnet run --project src/Orisumi.Cli -- foreground --windows --input
+dotnet run --project src/Orisumi.Cli -- timeline --from 2026-11-13T09:00:00+08:00 --to 2026-11-13T10:00:00+08:00
+```
+
+`--store` 默认为当前工作目录下的 `.orisumi`，各来源数据库放在其中的 `raw/`。
+Codex 可指定单个会话 ID，省略时读取 `CODEX_THREAD_ID`；`--all` 采集所有会话。
+`foreground` 省略采集秒数时持续监听，按 Ctrl+C 停止并写入采集结束时间。
