@@ -13,7 +13,7 @@ struct InputObservation {
     let event: InputEvent
 }
 
-private enum InputCaptureError: LocalizedError {
+enum InputCaptureError: LocalizedError {
     case tapUnavailable
     case bufferFull
 
@@ -89,6 +89,7 @@ final class InputEventObserver {
         if !paused && !CGEvent.tapIsEnabled(tap: tap) {
             throw InputCaptureError.tapUnavailable
         }
+        try database.appendChannel("input", available: !paused, reason: paused ? "session_paused" : "listener_resumed")
     }
 
     func stop() {
@@ -118,11 +119,16 @@ final class InputEventObserver {
         guard let tap, !paused else { return }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             fputs("orisumi: the input event tap was interrupted; some input events may be missing\n", stderr)
+            do { try database.appendChannel("input", available: false, reason: "tap_interrupted") }
+            catch { stop(); failed(error); return }
             pending.append(contentsOf: keyboard.interrupt())
             CGEvent.tapEnable(tap: tap, enable: true)
             if !CGEvent.tapIsEnabled(tap: tap) {
                 stop()
                 failed(InputCaptureError.tapUnavailable)
+            } else {
+                do { try database.appendChannel("input", available: true, reason: "tap_reenabled") }
+                catch { stop(); failed(error) }
             }
             return
         }

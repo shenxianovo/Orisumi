@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreFoundation
 import CoreGraphics
 
@@ -34,6 +35,71 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
     var sessionInactive = false
     var afkState: AFKState?
     var inputObserver: InputEventObserver?
+    var windowPermission = CapturePermissionState()
+    var inputPermission = CapturePermissionState()
+    var reportedTapFailure = false
+
+    func stopInput() throws {
+        inputObserver?.stop()
+        try inputObserver?.flush()
+        inputObserver = nil
+        if captureInput { try database.appendChannel("input", available: false, reason: "listener_stopped") }
+    }
+
+    func sampleInputPermission() throws {
+        guard captureInput else { return }
+        let granted = CGPreflightListenEventAccess()
+        try inputPermission.observe(granted) { event in
+            try database.appendPermission(.inputMonitoring, kind: event, at: Date())
+        }
+        if !granted { try stopInput() }
+    }
+
+    func handleInputFailure(_ error: Error) {
+        guard case InputCaptureError.tapUnavailable = error else {
+            fail(error)
+            return
+        }
+        do {
+            try stopInput()
+            try sampleInputPermission()
+        } catch {
+            fail(error)
+        }
+    }
+
+    func refreshPermissions() throws {
+        if let windowObserver {
+            let granted = AXIsProcessTrusted()
+            let previous = windowPermission.granted
+            try windowPermission.observe(granted) { event in
+                try database.appendPermission(.accessibility, kind: event, at: Date())
+            }
+            if previous && !granted {
+                windowObserver.detach()
+                try database.appendChannel("windows", available: false, reason: "permission_lost")
+            } else if !previous && granted && !asleep && !sessionInactive {
+                try windowObserver.watch(workspace.frontmostApplication, kind: .snapshot)
+            }
+        }
+
+        try sampleInputPermission()
+        if captureInput && inputPermission.granted && !asleep && !sessionInactive && inputObserver == nil {
+            do {
+                inputObserver = try InputEventObserver(database: database, failed: handleInputFailure)
+                try database.appendChannel("input", available: true, reason: "listener_started")
+                reportedTapFailure = false
+            } catch InputCaptureError.tapUnavailable {
+                try database.appendChannel("input", available: false, reason: "tap_unavailable")
+                if !reportedTapFailure {
+                    fputs("orisumi: input listener unavailable; will retry\n", stderr)
+                    reportedTapFailure = true
+                }
+                try sampleInputPermission()
+            }
+        }
+    }
+
     var lastTimeZoneID: String?
     func sampleTimeZone(at observedAt: Date) throws {
         let identifier = TimeZone.autoupdatingCurrent.identifier
@@ -84,12 +150,18 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
                 case .activated, .snapshot: break
                 }
                 if kind == .sleep || kind == .sessionInactive || kind == .wake || kind == .sessionActive {
-                    try inputObserver?.setPaused(asleep || sessionInactive)
+                    try sampleInputPermission()
+                    do {
+                        try inputObserver?.setPaused(asleep || sessionInactive)
+                    } catch InputCaptureError.tapUnavailable {
+                        handleInputFailure(InputCaptureError.tapUnavailable)
+                    }
                 }
-                if let windowObserver {
+                if let windowObserver, windowPermission.granted {
                     switch kind {
                     case .sleep, .sessionInactive:
                         windowObserver.detach()
+                        try database.appendChannel("windows", available: false, reason: "session_paused")
                     case .wake:
                         if !sessionInactive {
                             try windowObserver.watch(workspace.frontmostApplication, kind: .snapshot)
@@ -104,7 +176,7 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
                                 try windowObserver.watch(app, kind: .focusChanged)
                             } else {
                                 DispatchQueue.main.async {
-                                    guard !stopping && !asleep && !sessionInactive,
+                                    guard !stopping && !asleep && !sessionInactive && windowPermission.granted,
                                           workspace.frontmostApplication?.processIdentifier == app.processIdentifier
                                     else { return }
                                     do {
@@ -127,6 +199,7 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
 
     let startedAt = Date()
     try database.start(at: startedAt, afkThresholdMS: afkThresholdMS)
+    defer { try? database.stop(at: Date()) }
     try sampleTimeZone(at: startedAt)
     let timeZoneObserver = NotificationCenter.default.addObserver(
         forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
@@ -143,16 +216,17 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
     defer { lifecycleObserver.stop() }
     if let failure { throw failure }
     try database.append(.snapshot, at: Date(), app: workspace.frontmostApplication.map(ForegroundApplication.init))
-    try windowObserver?.watch(workspace.frontmostApplication, kind: .snapshot)
     try sampleAFK()
-    if captureInput {
-        inputObserver = try InputEventObserver(database: database, failed: fail)
-    }
+    try refreshPermissions()
     let refresh = Timer(timeInterval: 1, repeats: true) { _ in
-        guard !stopping && !asleep && !sessionInactive else { return }
+        guard !stopping else { return }
         do {
+            try refreshPermissions()
+            guard !asleep && !sessionInactive else { return }
             try sampleAFK()
-            try windowObserver?.watch(workspace.frontmostApplication, kind: .focusChanged)
+            if windowPermission.granted {
+                try windowObserver?.watch(workspace.frontmostApplication, kind: .focusChanged)
+            }
         } catch {
             fail(error)
         }
@@ -173,5 +247,4 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
     inputObserver?.stop()
     if let failure { throw failure }
     try inputObserver?.flush()
-    try database.stop(at: Date())
 }

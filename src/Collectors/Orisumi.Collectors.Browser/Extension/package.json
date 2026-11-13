@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc && node -e \"require('node:fs').copyFileSync('manifest.json', '../ChromeExtension/manifest.json')\"",
+    "build": "node -e \"require('node:fs').rmSync('../ChromeExtension', {recursive:true, force:true})\" && tsc && node -e \"require('node:fs').copyFileSync('manifest.json', '../ChromeExtension/manifest.json')\"",
     "test": "npm run build && node --test"
   },
   "devDependencies": {

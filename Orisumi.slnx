@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="src/Collectors/Orisumi.Collectors.Browser/Orisumi.Collectors.Browser.csproj" />
+  <Project Path="src/Collectors/Orisumi.Collectors.Claude/Orisumi.Collectors.Claude.csproj" />
   <Project Path="src/Collectors/Orisumi.Collectors.Codex/Orisumi.Collectors.Codex.csproj" />
   <Project Path="src/Collectors/Orisumi.Collectors.MacOS/Orisumi.Collectors.MacOS.csproj" />
   <Project Path="src/Orisumi.Cli/Orisumi.Cli.csproj" />

@@ -1,0 +1,20 @@
+import Foundation
+
+let path = CommandLine.arguments[1]
+let db = try ForegroundDatabase(path: path, captureWindows: true, captureInput: true)
+let now = Date()
+try db.start(at: now, afkThresholdMS: 300000)
+let app = ObservedApplication(bundleID: "test.app", name: "Test", pid: 123456, launchedAt: now)
+try db.appendApplicationLifecycle(.snapshot, at: now, app: app)
+try db.append(.snapshot, at: now, app: ForegroundApplication(bundleID: "test.app", name: "Test", pid: 123456))
+try db.appendWindow(.snapshot, at: now, pid: 123456, title: "A", hasWindow: true)
+try db.appendWindow(.titleChanged, at: now.addingTimeInterval(1), pid: 123456, title: "B", hasWindow: true)
+try db.appendWindow(.focusChanged, at: now.addingTimeInterval(2), pid: 123456, title: "C", hasWindow: true)
+try db.appendWindow(.focusChanged, at: now.addingTimeInterval(3), pid: 123456, title: nil, hasWindow: false)
+try db.appendApplicationLifecycle(.disappeared, at: now.addingTimeInterval(4), app: app)
+try db.appendApplicationLifecycle(.appeared, at: now.addingTimeInterval(5), app: ObservedApplication(bundleID: "other.app", name: "Other", pid: 123456, launchedAt: now.addingTimeInterval(5)))
+try db.appendChannel("input", available: true, reason: "started", at: now)
+try db.appendChannel("input", available: true, reason: "unchanged", at: now)
+try db.appendChannel("input", available: false, reason: "interrupted", at: now)
+try db.appendChannel("input", available: true, reason: "resumed", at: now)
+try db.stop(at: now.addingTimeInterval(6))

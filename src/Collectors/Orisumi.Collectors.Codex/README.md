@@ -14,7 +14,26 @@ dotnet run --project src/Orisumi.Cli -- codex capture THREAD_ID
 
 采集器只读打开 Codex 的本地状态库和分页消息历史库，把结果写入 `.orisumi/raw/codex.sqlite`。全局选项 `--store DIRECTORY` 可指定输出目录。Codex 数据目录优先使用 `CODEX_HOME`，默认是 `~/.codex`。
 
-- `threads` 每个会话一行，记录显示标题、工作目录、创建和更新时间及当前归档标志 `archived`。Codex 有显示名称时优先采集该名称。
-- `messages` 每条用户或助手消息一行，记录角色、时间和 Codex 的原始消息 JSON。消息 ID 使用 Codex 的 `item_id`，与会话 ID、回合 ID 一起构成主键。`rollout_ordinal` 可用于还原会话中的消息顺序。
+事实表保存初值和观测到的变化，查询视图还原最新已知状态。
 
-再次采集时，对照源端和目标库中的行，插入新行并更新有变化的行。源端移除的记录保留在采集库中。会话改名历史和消息编辑历史需要单独采集事件。
+| 事实表 | 一行记录什么 |
+|---|---|
+| `threads` | 会话身份 `thread_id` 和来源创建时间 `created_at_utc_ms` |
+| `thread_title_observations` | 一次标题初值或变化；显示名称优先于默认标题 |
+| `thread_cwd_observations` | 一次工作目录初值或变化 |
+| `thread_archive_observations` | 一次归档状态初值或变化 |
+| `turns` | 一轮执行的身份：`thread_id`、`turn_id` |
+| `turn_timing_observations` | 来源报告的开始和完成时间；未知时间为空 |
+| `turn_status_observations` | 一次执行状态初值或变化 |
+| `messages` | 消息身份、所属会话和回合、角色、创建时间、`rollout_ordinal` 顺序 |
+| `message_content_observations` | 一份发生变化的来源消息 `item_json` |
+| `response_token_usage_observations` | 日志中一条响应用量记录，保留来源 `source_line` 和 `recorded_at_utc_ms` |
+| `capture_runs` | 一次读取源库的开始、结束和可选 `thread_filter`；它表示导入批次 |
+
+属性观测通过 `run_id` 关联采集时间；源库没有提供每个属性的变化时间，因此不使用会话整体更新时间代替它。连续两次导入之间发生又恢复的变化无法从源库快照中还原。重复读取相同状态不重复写属性。
+
+`current_threads`、`current_turns`、`current_messages` 分别组合最新属性。`response_token_usage` 取每个响应的最后一条已采集用量，统计时使用这个视图，避免把修订重复相加。
+
+用量包含 `total_input_tokens`、`cache_read_input_tokens`、`cache_write_input_tokens`、`total_output_tokens`、`reasoning_output_tokens`；来源未报告的值为空。`model` 来自相应回合的 `turn_context`，无法关联时为空。支持普通 JSONL 和 Zstandard 归档。`_token_usage_rollouts` 只保存文件指纹以跳过未修改文件，是可更新的采集进度。
+
+来源文件和数据库以只读方式访问。移除源记录不会删除已采集事实。运行与分层约定见 [采集与存储](../../../docs/capture-storage.md)。

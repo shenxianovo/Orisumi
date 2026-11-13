@@ -1,28 +1,32 @@
 import { observeActiveTabs } from "./active-tabs.js";
-import { syncBookmarks, syncDownloads } from "./bookmarks-downloads.js";
-import { syncHistory } from "./history.js";
+import { observeDownloads } from "./downloads.js";
+import { observeBookmarks } from "./bookmarks.js";
+import { syncHistory, syncHistoryPages } from "./history.js";
 
 const alarm = "sync-history";
 const activeTabs = observeActiveTabs();
-let activeSync: Promise<void> | undefined;
+const bookmarks = observeBookmarks();
+const downloads = observeDownloads();
+const jobs: Record<string, () => Promise<void>> = {
+  history: syncHistory,
+  historyPages: syncHistoryPages,
+  activeTabs: () => activeTabs.flush(),
+  bookmarks: () => bookmarks.sync(),
+  downloads: () => downloads.sync(),
+};
+const running = new Map<string, Promise<void>>();
 
-async function sync() {
-  const tasks = {
-    history: syncHistory(),
-    activeTabs: activeTabs.flush(),
-    bookmarks: syncBookmarks(),
-    downloads: syncDownloads(),
-  };
-  const results = await Promise.allSettled(Object.values(tasks));
-  Object.keys(tasks).forEach((name, index) => {
-    const result = results[index];
-    if (result.status === "rejected") console.error(`Could not sync ${name}`, result.reason);
-  });
-}
-
-function requestSync() {
-  activeSync ??= sync().finally(() => { activeSync = undefined; });
-  return activeSync;
+async function requestSync() {
+  // A long history backfill must not hold up the other event queues.
+  await Promise.all(Object.entries(jobs).map(([name, job]) => {
+    let pending = running.get(name);
+    if (!pending) {
+      pending = job().catch(error => console.error(`Could not sync ${name}`, error))
+        .finally(() => running.delete(name));
+      running.set(name, pending);
+    }
+    return pending;
+  }));
 }
 
 async function ensureAlarm() {
@@ -49,4 +53,4 @@ chrome.runtime.onStartup.addListener(startInBackground);
 chrome.alarms.onAlarm.addListener(event => {
   if (event.name === alarm) void requestSync();
 });
-void ensureAlarm().catch(error => console.error("Could not schedule browser collection", error));
+startInBackground();

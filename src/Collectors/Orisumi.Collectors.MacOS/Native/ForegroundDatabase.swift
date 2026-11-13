@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import SQLite3
 
 enum EventKind: String {
@@ -13,6 +14,22 @@ enum AFKEventKind: String {
 
 enum AFKState: String {
     case active, idle
+}
+
+enum CapturePermission: String {
+    case accessibility
+    case inputMonitoring = "input_monitoring"
+}
+
+struct CapturePermissionState {
+    private var previous: Bool?
+    var granted: Bool { previous ?? false }
+
+    mutating func observe(_ granted: Bool, record: (String) throws -> Void) rethrows {
+        guard granted != previous else { return }
+        try record(previous == nil ? (granted ? "snapshot_granted" : "snapshot_denied") : (granted ? "restored" : "lost"))
+        previous = granted
+    }
 }
 
 enum WindowEventKind: String {
@@ -66,14 +83,19 @@ final class ForegroundDatabase {
     private let database: OpaquePointer
     private var inserts: [EventKind.Table: OpaquePointer] = [:]
     private var afkInsert: OpaquePointer?
-    private var windowInsert: OpaquePointer?
-    private var appLifecycleInsert: OpaquePointer?
     private var keyboardInsert: OpaquePointer?
     private var mouseInsert: OpaquePointer?
     private let runID = UUID().uuidString.lowercased()
     private var sequence: Int64 = 0
+    private let captureWindows: Bool
+    private let captureInput: Bool
+    private var processes: [Int32: (id: String, launch: Date?)] = [:]
+    private var focusID: String?
+    private var channels: [String: Bool] = [:]
 
     init(path: String, captureWindows: Bool, captureInput: Bool) throws {
+        self.captureWindows = captureWindows
+        self.captureInput = captureInput
         var connection: OpaquePointer?
         guard sqlite3_open(path, &connection) == SQLITE_OK, let connection else {
             let error = DatabaseError(connection)
@@ -87,7 +109,16 @@ final class ForegroundDatabase {
                 run_id TEXT NOT NULL PRIMARY KEY,
                 started_at_utc_ms INTEGER NOT NULL,
                 stopped_at_utc_ms INTEGER,
-                afk_threshold_ms INTEGER CHECK (afk_threshold_ms > 0)
+                afk_threshold_ms INTEGER CHECK (afk_threshold_ms > 0),
+                capture_windows INTEGER NOT NULL, capture_input INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS capture_permission_events (
+                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
+                run_sequence INTEGER NOT NULL,
+                observed_at_utc_ms INTEGER NOT NULL,
+                permission TEXT NOT NULL CHECK (permission IN ('accessibility', 'input_monitoring')),
+                event_kind TEXT NOT NULL CHECK (event_kind IN ('lost', 'restored', 'snapshot_granted', 'snapshot_denied')),
+                PRIMARY KEY (run_id, run_sequence)
             );
             CREATE TABLE IF NOT EXISTS time_zone_events (
                 run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
@@ -107,25 +138,29 @@ final class ForegroundDatabase {
                 idle_ms INTEGER NOT NULL CHECK (idle_ms >= 0),
                 PRIMARY KEY (run_id, run_sequence)
             );
+            CREATE TABLE IF NOT EXISTS process_instances (
+                process_instance_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
+                pid INTEGER NOT NULL,bundle_id TEXT,app_name TEXT,app_launched_at_utc_ms INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS capture_channel_events (
+                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),run_sequence INTEGER NOT NULL,
+                observed_at_utc_ms INTEGER NOT NULL,channel TEXT NOT NULL,available INTEGER NOT NULL,reason TEXT NOT NULL,
+                PRIMARY KEY(run_id,run_sequence)
+            );
             CREATE TABLE IF NOT EXISTS foreground_app_events (
                 run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
                 run_sequence INTEGER NOT NULL,
                 observed_at_utc_ms INTEGER NOT NULL,
                 event_kind TEXT NOT NULL CHECK (event_kind IN ('activated', 'snapshot')),
-                bundle_id TEXT,
-                app_name TEXT,
-                pid INTEGER,
+                process_instance_id TEXT REFERENCES process_instances(process_instance_id),
                 PRIMARY KEY (run_id, run_sequence)
             );
-            CREATE TABLE IF NOT EXISTS app_lifecycle_events (
+            CREATE TABLE IF NOT EXISTS running_app_observations (
                 run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
                 run_sequence INTEGER NOT NULL,
                 observed_at_utc_ms INTEGER NOT NULL,
                 event_kind TEXT NOT NULL CHECK (event_kind IN ('snapshot', 'appeared', 'disappeared')),
-                pid INTEGER NOT NULL,
-                bundle_id TEXT,
-                app_name TEXT,
-                app_launched_at_utc_ms INTEGER,
+                process_instance_id TEXT NOT NULL REFERENCES process_instances(process_instance_id),
                 PRIMARY KEY (run_id, run_sequence)
             );
             CREATE TABLE IF NOT EXISTS system_sleep_events (
@@ -144,13 +179,22 @@ final class ForegroundDatabase {
             );
             """
         let windowSchema = """
+            CREATE TABLE IF NOT EXISTS window_focus_instances (
+                focus_id TEXT PRIMARY KEY NOT NULL,run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
+                process_instance_id TEXT NOT NULL REFERENCES process_instances(process_instance_id)
+            );
+            CREATE TABLE IF NOT EXISTS window_title_observations (
+                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),run_sequence INTEGER NOT NULL,
+                observed_at_utc_ms INTEGER NOT NULL,focus_id TEXT NOT NULL REFERENCES window_focus_instances(focus_id),title TEXT,
+                PRIMARY KEY(run_id,run_sequence)
+            );
+            CREATE INDEX IF NOT EXISTS window_titles_by_focus ON window_title_observations(focus_id,run_sequence);
             CREATE TABLE IF NOT EXISTS focused_window_events (
                 run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
                 run_sequence INTEGER NOT NULL,
                 observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('snapshot', 'focus_changed', 'title_changed')),
-                pid INTEGER NOT NULL,
-                window_title TEXT,
+                event_kind TEXT NOT NULL CHECK (event_kind IN ('snapshot', 'focus_changed')),
+                focus_id TEXT REFERENCES window_focus_instances(focus_id),
                 PRIMARY KEY (run_id, run_sequence)
             );
             """
@@ -185,13 +229,32 @@ final class ForegroundDatabase {
             throw error
         }
         database = connection
+        let views = """
+            CREATE VIEW IF NOT EXISTS foreground_app_history AS SELECT e.*,p.pid,p.bundle_id,p.app_name
+            FROM foreground_app_events e LEFT JOIN process_instances p USING(process_instance_id);
+            CREATE VIEW IF NOT EXISTS running_app_history AS SELECT e.*,p.pid,p.bundle_id,p.app_name,p.app_launched_at_utc_ms
+            FROM running_app_observations e JOIN process_instances p USING(process_instance_id);
+            """
+        guard sqlite3_exec(database, views, nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        if captureWindows {
+            let views = """
+                CREATE VIEW IF NOT EXISTS window_history AS
+                WITH events AS (
+                    SELECT run_id,run_sequence,observed_at_utc_ms,event_kind,focus_id FROM focused_window_events
+                    UNION ALL SELECT t.run_id,t.run_sequence,t.observed_at_utc_ms,'title_changed',t.focus_id FROM window_title_observations t
+                    WHERE NOT EXISTS (SELECT 1 FROM focused_window_events f WHERE f.run_id=t.run_id AND f.run_sequence=t.run_sequence)
+                )
+                SELECT e.*,p.pid,
+                    (SELECT title FROM window_title_observations t WHERE t.focus_id=e.focus_id AND t.run_sequence<=e.run_sequence ORDER BY t.run_sequence DESC LIMIT 1) AS window_title
+                FROM events e LEFT JOIN window_focus_instances f USING(focus_id) LEFT JOIN process_instances p USING(process_instance_id);
+                """
+            guard sqlite3_exec(database, views, nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        }
     }
 
     deinit {
         for statement in inserts.values { sqlite3_finalize(statement) }
         sqlite3_finalize(afkInsert)
-        sqlite3_finalize(windowInsert)
-        sqlite3_finalize(appLifecycleInsert)
         sqlite3_finalize(keyboardInsert)
         sqlite3_finalize(mouseInsert)
         sqlite3_close(database)
@@ -213,8 +276,8 @@ final class ForegroundDatabase {
         let statement: OpaquePointer
         if table == .foreground {
             statement = try prepare("""
-                INSERT INTO \(table.rawValue) (\(columns), bundle_id, app_name, pid)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO \(table.rawValue) (\(columns), process_instance_id)
+                VALUES (?, ?, ?, ?, ?)
                 """)
         } else {
             statement = try prepare("INSERT INTO \(table.rawValue) (\(columns)) VALUES (?, ?, ?, ?)")
@@ -246,12 +309,23 @@ final class ForegroundDatabase {
 
     func start(at time: Date, afkThresholdMS: Int64) throws {
         try writeRunTime("""
-            INSERT INTO capture_runs (run_id, started_at_utc_ms, afk_threshold_ms) VALUES (?1, ?2, ?3)
+            INSERT INTO capture_runs (run_id, started_at_utc_ms, afk_threshold_ms,capture_windows,capture_input) VALUES (?1, ?2, ?3,\(captureWindows ? 1 : 0),\(captureInput ? 1 : 0))
             """, at: time, afkThresholdMS: afkThresholdMS)
     }
 
     func stop(at time: Date) throws {
         try writeRunTime("UPDATE capture_runs SET stopped_at_utc_ms = ?2 WHERE run_id = ?1", at: time)
+    }
+
+    func appendPermission(_ permission: CapturePermission, kind: String, at time: Date) throws {
+        let insert = try prepare("""
+            INSERT INTO capture_permission_events (run_id, run_sequence, observed_at_utc_ms, event_kind, permission)
+            VALUES (?, ?, ?, ?, ?)
+            """)
+        defer { sqlite3_finalize(insert) }
+        try bindEvent(insert, kind: kind, at: time)
+        guard bindText(insert, 5, permission.rawValue) == SQLITE_OK else { throw DatabaseError(database) }
+        try commitEvent(insert)
     }
 
     func appendTimeZone(_ identifier: String, at time: Date) throws {
@@ -270,13 +344,8 @@ final class ForegroundDatabase {
         defer { sqlite3_reset(insert) }
         try bindEvent(insert, kind: kind.rawValue, at: time)
         if kind.table == .foreground {
-            let pid = app?.pid
-            guard bindText(insert, 5, app?.bundleID) == SQLITE_OK,
-                  bindText(insert, 6, app?.name) == SQLITE_OK,
-                  (pid.map { sqlite3_bind_int(insert, 7, $0) } ?? sqlite3_bind_null(insert, 7)) == SQLITE_OK
-            else {
-                throw DatabaseError(database)
-            }
+            let instance = try app.map { try processInstance(pid: $0.pid, bundle: $0.bundleID, name: $0.name) }
+            guard bindText(insert, 5, instance) == SQLITE_OK else { throw DatabaseError(database) }
         }
         try commitEvent(insert)
     }
@@ -299,50 +368,74 @@ final class ForegroundDatabase {
         try commitEvent(insert)
     }
 
-    func appendWindow(_ kind: WindowEventKind, at time: Date, pid: pid_t, title: String?) throws {
-        if windowInsert == nil {
-            windowInsert = try prepare("""
-                INSERT INTO focused_window_events
-                    (run_id, run_sequence, observed_at_utc_ms, event_kind, pid, window_title)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """)
-        }
-        let insert = windowInsert!
-        defer { sqlite3_reset(insert) }
-        try bindEvent(insert, kind: kind.rawValue, at: time)
-        guard sqlite3_bind_int(insert, 5, pid) == SQLITE_OK,
-              bindText(insert, 6, title) == SQLITE_OK
-        else {
-            throw DatabaseError(database)
-        }
+    private func processInstance(pid: Int32, bundle: String? = nil, name: String? = nil, launch: Date? = nil) throws -> String {
+        let app = NSRunningApplication(processIdentifier: pid)
+        let launched = launch ?? app?.launchDate
+        if let known = processes[pid], launched == nil || known.launch == nil || known.launch == launched { return known.id }
+        let id = UUID().uuidString.lowercased()
+        let insert = try prepare("INSERT INTO process_instances VALUES(?,?,?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
+        guard bindText(insert, 1, id) == SQLITE_OK, bindText(insert, 2, runID) == SQLITE_OK,
+              sqlite3_bind_int(insert, 3, pid) == SQLITE_OK,
+              bindText(insert, 4, bundle ?? app?.bundleIdentifier) == SQLITE_OK,
+              bindText(insert, 5, name ?? app?.localizedName) == SQLITE_OK,
+              bindOptionalInteger(insert, 6, launched.map(timestamp)) == SQLITE_OK,
+              sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+        processes[pid] = (id, launched)
+        return id
+    }
+
+    func appendChannel(_ channel: String, available: Bool, reason: String, at time: Date = Date()) throws {
+        guard channels[channel] != available else { return }
+        let insert = try prepare("INSERT INTO capture_channel_events VALUES(?,?,?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
+        try bindObservation(insert, at: time, runSequence: sequence + 1)
+        guard bindText(insert, 4, channel) == SQLITE_OK,
+              sqlite3_bind_int(insert, 5, available ? 1 : 0) == SQLITE_OK,
+              bindText(insert, 6, reason) == SQLITE_OK else { throw DatabaseError(database) }
         try commitEvent(insert)
+        channels[channel] = available
+    }
+
+    func appendWindow(_ kind: WindowEventKind, at time: Date, pid: pid_t, title: String?, hasWindow: Bool) throws {
+        guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        var committed = false
+        defer { if !committed { sqlite3_exec(database, "ROLLBACK", nil, nil, nil) } }
+        if kind != .titleChanged {
+            focusID = hasWindow ? UUID().uuidString.lowercased() : nil
+            if let focusID {
+                let instance = try processInstance(pid: pid)
+                let insert = try prepare("INSERT INTO window_focus_instances VALUES(?,?,?)")
+                defer { sqlite3_finalize(insert) }
+                guard bindText(insert, 1, focusID) == SQLITE_OK, bindText(insert, 2, runID) == SQLITE_OK,
+                      bindText(insert, 3, instance) == SQLITE_OK, sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+            }
+            let insert = try prepare("INSERT INTO focused_window_events VALUES(?,?,?,?,?)")
+            defer { sqlite3_finalize(insert) }
+            try bindEvent(insert, kind: kind.rawValue, at: time)
+            guard bindText(insert, 5, focusID) == SQLITE_OK else { throw DatabaseError(database) }
+            try commitEvent(insert)
+        }
+        if let focusID {
+            let insert = try prepare("INSERT INTO window_title_observations VALUES(?,?,?,?,?)")
+            defer { sqlite3_finalize(insert) }
+            try bindObservation(insert, at: time, runSequence: kind == .titleChanged ? sequence + 1 : sequence)
+            guard bindText(insert, 4, focusID) == SQLITE_OK, bindText(insert, 5, title) == SQLITE_OK else { throw DatabaseError(database) }
+            guard sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+            if kind == .titleChanged { sequence += 1 }
+        }
+        guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        committed = true
     }
 
     func appendApplicationLifecycle(_ kind: AppLifecycleEventKind, at time: Date, app: ObservedApplication) throws {
-        let insert: OpaquePointer
-        if let appLifecycleInsert {
-            insert = appLifecycleInsert
-        } else {
-            insert = try prepare("""
-                INSERT INTO app_lifecycle_events
-                    (run_id, run_sequence, observed_at_utc_ms, event_kind, pid, bundle_id, app_name, app_launched_at_utc_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """)
-            appLifecycleInsert = insert
-        }
-        defer { sqlite3_reset(insert) }
+        let instance = try processInstance(pid: app.pid, bundle: app.bundleID, name: app.name, launch: app.launchedAt)
+        let insert = try prepare("INSERT INTO running_app_observations VALUES(?,?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
         try bindEvent(insert, kind: kind.rawValue, at: time)
-        let launchTime = kind == .disappeared ? nil : app.launchedAt
-        let launchResult = launchTime.map { sqlite3_bind_int64(insert, 8, timestamp($0)) }
-            ?? sqlite3_bind_null(insert, 8)
-        guard sqlite3_bind_int(insert, 5, app.pid) == SQLITE_OK,
-              bindText(insert, 6, app.bundleID) == SQLITE_OK,
-              bindText(insert, 7, app.name) == SQLITE_OK,
-              launchResult == SQLITE_OK
-        else {
-            throw DatabaseError(database)
-        }
+        guard bindText(insert, 5, instance) == SQLITE_OK else { throw DatabaseError(database) }
         try commitEvent(insert)
+        if kind == .disappeared { processes.removeValue(forKey: app.pid) }
     }
 
     func reserveInputSequence() -> Int64 {

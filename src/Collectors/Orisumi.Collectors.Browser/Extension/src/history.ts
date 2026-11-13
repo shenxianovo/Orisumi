@@ -9,6 +9,12 @@ export type Visit = {
   isLocal: boolean | null;
 };
 
+export type HistoryPage = {
+  url: string;
+  title: string;
+  observedAtUtcMs: number;
+};
+
 type SyncState = {
   databaseId: string;
   nextStart: number;
@@ -19,18 +25,21 @@ const hourMs = 3_600_000;
 const weekMs = 7 * 24 * hourMs;
 const overlapMs = 60_000;
 
-async function* readVisits(startTime: number, endTime: number): AsyncGenerator<Visit> {
+async function* readPages(startTime: number, endTime: number): AsyncGenerator<chrome.history.HistoryItem> {
   const maxResults = 10_000;
   const pages = await chrome.history.search({ text: "", startTime, endTime, maxResults });
   if (pages.length >= maxResults) {
     const middle = Math.floor((startTime + endTime) / 2);
     if (middle === startTime) throw new Error("Chrome history exceeded the search limit.");
-    yield* readVisits(startTime, middle);
-    yield* readVisits(middle, endTime);
+    yield* readPages(startTime, middle);
+    yield* readPages(middle, endTime);
     return;
   }
+  yield* pages;
+}
 
-  for (const { url } of pages) {
+async function* readVisits(startTime: number, endTime: number): AsyncGenerator<Visit> {
+  for await (const { url } of readPages(startTime, endTime)) {
     if (!url) continue;
     for (const visit of await chrome.history.getVisits({ url })) {
       if (visit.visitTime === undefined || visit.visitTime < startTime || visit.visitTime >= endTime) continue;
@@ -63,20 +72,48 @@ async function syncRange(start: number, end: number): Promise<void> {
   if (visits.length) await sendBatch({ visits });
 }
 
-export async function syncHistory(): Promise<void> {
+async function syncPageRange(start: number, end: number): Promise<void> {
+  let historyPages: HistoryPage[] = [];
+  let bytes = 0;
+  for await (const { url, title } of readPages(start, end)) {
+    if (!url || !title?.trim()) continue;
+    const page = { url, title, observedAtUtcMs: Date.now() };
+    const size = jsonBytes(page) + 1;
+    if (size > batchBytesAvailable) throw new Error("A history page exceeds the local collector message limit.");
+    if (bytes + size > batchBytesAvailable || historyPages.length === 1000) {
+      await sendBatch({ historyPages });
+      historyPages = [];
+      bytes = 0;
+    }
+    historyPages.push(page);
+    bytes += size;
+  }
+  if (historyPages.length) await sendBatch({ historyPages });
+}
+
+export function syncHistory(): Promise<void> {
+  return syncRanges("visitSyncState", syncRange);
+}
+
+export function syncHistoryPages(): Promise<void> {
+  return syncRanges("historyPageSyncState", syncPageRange);
+}
+
+async function syncRanges(key: "visitSyncState" | "historyPageSyncState",
+  sync: (start: number, end: number) => Promise<void>): Promise<void> {
   const databaseId = await getDatabaseId();
-  const { visitSyncState } = await chrome.storage.local.get<{ visitSyncState?: SyncState }>("visitSyncState");
+  const previous = (await chrome.storage.local.get<Partial<Record<typeof key, SyncState>>>(key))[key];
   const now = Date.now();
-  const state = visitSyncState?.databaseId === databaseId
-    ? visitSyncState
+  const state = previous?.databaseId === databaseId
+    ? previous
     : { databaseId, nextStart: now, backfillBefore: now };
-  if (state !== visitSyncState) await chrome.storage.local.set({ visitSyncState: state });
+  if (state !== previous) await chrome.storage.local.set({ [key]: state });
 
   const start = Math.min(state.nextStart, now);
   const end = Math.min(start + hourMs, now);
-  await syncRange(Math.max(0, start - overlapMs), end);
+  await sync(Math.max(0, start - overlapMs), end);
   state.nextStart = end;
-  await chrome.storage.local.set({ visitSyncState: state });
+  await chrome.storage.local.set({ [key]: state });
 
   const deadline = Date.now() + 25_000;
   while (state.backfillBefore > 0 && Date.now() < deadline) {
@@ -86,11 +123,11 @@ export async function syncHistory(): Promise<void> {
     if (newest) {
       const end = Math.min(state.backfillBefore, Math.floor(newest.lastVisitTime ?? state.backfillBefore) + 1);
       const start = Math.max(0, end - weekMs);
-      await syncRange(start, end);
+      await sync(start, end);
       state.backfillBefore = start;
     } else {
       state.backfillBefore = 0;
     }
-    await chrome.storage.local.set({ visitSyncState: state });
+    await chrome.storage.local.set({ [key]: state });
   }
 }

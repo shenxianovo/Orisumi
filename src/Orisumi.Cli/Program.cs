@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Orisumi.Collectors.Browser;
+using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
 using Orisumi.Collectors.MacOS;
 
@@ -13,6 +14,7 @@ const string usage = """
       timeline --from TIMESTAMP --to TIMESTAMP
       browser register-chrome EXTENSION_ID
       codex capture [THREAD_ID | --all]
+      claude capture
 
     Raw databases are stored in DIRECTORY/raw, with .orisumi as the default DIRECTORY.
     """;
@@ -66,6 +68,11 @@ try
             if (string.IsNullOrWhiteSpace(threadId))
                 throw new ArgumentException("provide THREAD_ID or --all when CODEX_THREAD_ID is not set");
             Console.WriteLine(CodexCollector.Capture(store, threadId));
+            break;
+        case "claude":
+            if (commandArgs is not ["capture"])
+                throw new ArgumentException("claude expects capture");
+            Console.WriteLine(ClaudeCollector.Capture(store));
             break;
         default:
             throw new ArgumentException($"unknown command: {command}");

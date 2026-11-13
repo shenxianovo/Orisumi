@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+// Exercise scheduling through real worker entry points while a history API call never completes.
+test("history backfill does not block subsequent active-tab flushes", async () => {
+  const local = {}, session = {}, listeners = {}, sent = [];
+  const storage = data => ({ get: async keys => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key, structuredClone(data[key])])),
+    set: async values => Object.assign(data, structuredClone(values)) });
+  const event = name => ({ addListener: callback => { listeners[name] = callback; } });
+  let tab = { id: 1, windowId: 2, active: true, incognito: false, url: "https://example.com", title: "A" };
+  const window = () => ({ focused: true, tabs: [tab] });
+  globalThis.chrome = {
+    storage: { local: storage(local), session: storage(session) },
+    tabs: { onActivated: event("activated"), onUpdated: event("updated"), get: async () => tab },
+    windows: { WINDOW_ID_NONE: -1, onFocusChanged: event("focus"), get: async () => window(), getAll: async () => [window()] },
+    downloads: { onCreated: event("downloadCreated"), onChanged: event("downloadChanged"), search: async () => [] },
+    bookmarks: Object.fromEntries(["onCreated", "onChanged", "onMoved", "onRemoved", "onChildrenReordered"].map(name => [name, event(name)])),
+    alarms: { get: async () => ({}), create: async () => {}, onAlarm: event("alarm") },
+    history: { search: async options => options.maxResults === 1 ? [] : [{ url: tab.url, title: "A", lastVisitTime: Date.now() }],
+      getVisits: async () => new Promise(() => {}) },
+    runtime: { onInstalled: event("installed"), onStartup: event("startup"),
+      sendNativeMessage: async (_host, batch) => { if (batch.activeTabEvents) sent.push(...batch.activeTabEvents); return { ok: true, inserted: 1, databaseId: "test" }; } },
+  };
+  chrome.bookmarks.getTree = async () => [];
+  const settle = async () => { for (let i=0;i<12;i++) await new Promise(resolve => setImmediate(resolve)); };
+  await import("../../ChromeExtension/worker.js"); await settle();
+  assert.equal(sent[0].title, "A");
+  tab = { ...tab, title: "B" }; listeners.updated(1, { title: "B" }, tab); await settle();
+  listeners.alarm({ name: "sync-history" }); await settle();
+  assert.equal(sent.at(-1).title, "B");
+});

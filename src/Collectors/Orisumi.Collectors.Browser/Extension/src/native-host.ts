@@ -1,11 +1,13 @@
 import type { ActiveTabEvent } from "./active-tabs.js";
-import type { Bookmark, Download } from "./bookmarks-downloads.js";
-import type { Visit } from "./history.js";
+import type { Download } from "./downloads.js";
+import type { BookmarkObservation } from "./bookmarks.js";
+import type { HistoryPage, Visit } from "./history.js";
 
 type Batch =
   | { visits: Visit[] }
+  | { historyPages: HistoryPage[] }
   | { activeTabEvents: ActiveTabEvent[] }
-  | { bookmarks: Bookmark[] }
+  | { bookmarkObservation: BookmarkObservation }
   | { downloads: Download[] };
 
 const host = "com.orisumi.browser";

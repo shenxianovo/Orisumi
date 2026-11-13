@@ -88,8 +88,11 @@ final class FocusedWindowObserver {
         } else if focusResult == .noValue {
             focusedWindow = nil
         } else {
+            try database.appendChannel("windows", available: false, reason: "read_failed", at: observedAt)
+            hasSample = false
             return
         }
+        try database.appendChannel("windows", available: true, reason: "sample_received", at: observedAt)
 
         let windowChanged: Bool
         if let window, let focusedWindow {
@@ -117,11 +120,11 @@ final class FocusedWindowObserver {
             }
         }
         if !hasSample {
-            try database.appendWindow(pendingKind, at: observedAt, pid: pid, title: focusedTitle)
+            try database.appendWindow(pendingKind, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
         } else if windowChanged {
-            try database.appendWindow(.focusChanged, at: observedAt, pid: pid, title: focusedTitle)
+            try database.appendWindow(.focusChanged, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
         } else if focusedTitle != title {
-            try database.appendWindow(.titleChanged, at: observedAt, pid: pid, title: focusedTitle)
+            try database.appendWindow(.titleChanged, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
         }
         window = focusedWindow
         title = focusedTitle

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace Orisumi.Collectors.MacOS;
 
@@ -35,6 +36,11 @@ public static class MacOSForeground
             signal.Cancel = true;
             interrupted.TrySetResult();
         };
+        using var termination = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
+        {
+            signal.Cancel = true;
+            interrupted.TrySetResult();
+        });
         Console.CancelKeyPress += onInterrupt;
         try
         {

@@ -20,7 +20,7 @@ public static class ActivityTimeline
         const string windowTableQuery = """
             SELECT EXISTS (
                 SELECT 1 FROM sqlite_schema
-                WHERE type = 'table' AND name = 'focused_window_events'
+                WHERE type = 'view' AND name = 'window_history'
             ) AS present;
             """;
         using var tables = JsonDocument.Parse(await Query(database, windowTableQuery));
@@ -28,31 +28,39 @@ public static class ActivityTimeline
 
         var windowEvents = includeWindows ? """
             UNION ALL
-            SELECT observed_at_utc_ms, run_id, run_sequence, 'focused_window', event_kind, pid, NULL, NULL, window_title, NULL, NULL
-            FROM focused_window_events
+            SELECT observed_at_utc_ms, run_id, run_sequence, 'focused_window', event_kind, pid, NULL, NULL, window_title, NULL, NULL, NULL
+            FROM window_history
             """ : "";
         var sql = string.Create(CultureInfo.InvariantCulture, $"""
-            WITH events(observed_at_utc_ms, run_id, run_sequence, source, event_kind, pid, bundle_id, app_name, window_title, state, idle_ms) AS (
-                SELECT observed_at_utc_ms, run_id, run_sequence, 'foreground_app', event_kind, pid, bundle_id, app_name, NULL, NULL, NULL
-                FROM foreground_app_events
+            WITH events(observed_at_utc_ms, run_id, run_sequence, source, event_kind, pid, bundle_id, app_name, window_title, state, idle_ms, permission) AS (
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'foreground_app', event_kind, pid, bundle_id, app_name, NULL, NULL, NULL, NULL
+                FROM foreground_app_history
                 UNION ALL
-                SELECT observed_at_utc_ms, run_id, run_sequence, 'app_lifecycle', event_kind, pid, bundle_id, app_name, NULL, NULL, NULL
-                FROM app_lifecycle_events WHERE event_kind <> 'snapshot'
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'app_lifecycle', event_kind, pid, bundle_id, app_name, NULL, NULL, NULL, NULL
+                FROM running_app_history WHERE event_kind <> 'snapshot'
                 UNION ALL
-                SELECT observed_at_utc_ms, run_id, run_sequence, 'power', event_kind, NULL, NULL, NULL, NULL, NULL, NULL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'power', event_kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL
                 FROM system_sleep_events
                 UNION ALL
-                SELECT observed_at_utc_ms, run_id, run_sequence, 'session', event_kind, NULL, NULL, NULL, NULL, NULL, NULL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'session', event_kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL
                 FROM user_session_events
                 UNION ALL
-                SELECT observed_at_utc_ms, run_id, run_sequence, 'afk', event_kind, NULL, NULL, NULL, NULL, state, idle_ms
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'afk', event_kind, NULL, NULL, NULL, NULL, state, idle_ms, NULL
                 FROM afk_events
+                UNION ALL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'capture_permission', event_kind,
+                    NULL, NULL, NULL, NULL, NULL, NULL, permission
+                FROM capture_permission_events
+                UNION ALL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'capture_channel:' || channel, reason,
+                    NULL, NULL, NULL, NULL, CASE available WHEN 1 THEN 'available' ELSE 'unavailable' END, NULL, NULL
+                FROM capture_channel_events
                 {windowEvents}
                 UNION ALL
-                SELECT started_at_utc_ms, run_id, NULL, 'capture_run', 'started', NULL, NULL, NULL, NULL, NULL, NULL
+                SELECT started_at_utc_ms, run_id, NULL, 'capture_run', 'started', NULL, NULL, NULL, NULL, NULL, NULL, NULL
                 FROM capture_runs
                 UNION ALL
-                SELECT stopped_at_utc_ms, run_id, NULL, 'capture_run', 'stopped', NULL, NULL, NULL, NULL, NULL, NULL
+                SELECT stopped_at_utc_ms, run_id, NULL, 'capture_run', 'stopped', NULL, NULL, NULL, NULL, NULL, NULL, NULL
                 FROM capture_runs WHERE stopped_at_utc_ms IS NOT NULL
             )
             SELECT events.*, (
@@ -100,6 +108,8 @@ public static class ActivityTimeline
                 details.Add($"state={OneLine(state)}");
             if (row.IdleMs is long idleMs)
                 details.Add($"idle_ms={idleMs.ToString(CultureInfo.InvariantCulture)}");
+            if (row.Permission is { Length: > 0 } permission)
+                details.Add($"permission={OneLine(permission)}");
             var detail = details.Count == 0 ? "" : $"  {string.Join(", ", details)}";
             output.WriteLine($"{observedAt.ToString("yyyy-MM-dd HH:mm:ss.fff zzz", CultureInfo.InvariantCulture)}  {row.Source}  {row.EventKind}{detail}  [{reference}]");
         }
@@ -134,5 +144,5 @@ public static class ActivityTimeline
     private sealed record TimelineRow(
         long ObservedAtUtcMs, string RunId, long? RunSequence, string Source, string EventKind,
         int? Pid, string? BundleId, string? AppName, string? WindowTitle, string? State, long? IdleMs,
-        string? TimeZoneId);
+        string? TimeZoneId, string? Permission);
 }
