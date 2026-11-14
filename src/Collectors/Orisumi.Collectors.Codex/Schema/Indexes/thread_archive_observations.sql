@@ -1,0 +1,1 @@
+CREATE INDEX thread_archive_observations_by_thread ON thread_archive_observations(thread_id, observation_id);

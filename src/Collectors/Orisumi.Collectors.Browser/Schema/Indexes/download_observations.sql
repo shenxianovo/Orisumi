@@ -1,0 +1,1 @@
+CREATE INDEX download_observations_by_download ON download_observations(download_key,observation_id);

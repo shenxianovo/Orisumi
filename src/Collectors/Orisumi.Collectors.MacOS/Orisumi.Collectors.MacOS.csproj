@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
-    <MacOSForegroundSource Include="Native/main.swift;Native/ForegroundCapture.swift;Native/FocusedWindowObserver.swift;Native/ApplicationLifecycleObserver.swift;Native/InputEventObserver.swift;Native/KeyboardPressAccumulator.swift;Native/ForegroundDatabase.swift" />
+    <MacOSForegroundSource Include="Native/*.swift" />
   </ItemGroup>
 
   <Target Name="CompileMacOSForeground" Condition="$([MSBuild]::IsOSPlatform('OSX'))"
@@ -28,4 +28,11 @@
                CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
+  <ItemGroup>
+    <EmbeddedResource Include="Schema/Version.txt" LogicalName="$(AssemblyName).Schema.Version.txt" />
+    <Content Include="Schema/**/*"
+             Link="Orisumi.Collectors.MacOS/Schema/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

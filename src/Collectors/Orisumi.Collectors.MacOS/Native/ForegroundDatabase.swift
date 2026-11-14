@@ -103,153 +103,16 @@ final class ForegroundDatabase {
             throw error
         }
 
-        let schema = """
-            PRAGMA foreign_keys = ON;
-            CREATE TABLE IF NOT EXISTS capture_runs (
-                run_id TEXT NOT NULL PRIMARY KEY,
-                started_at_utc_ms INTEGER NOT NULL,
-                stopped_at_utc_ms INTEGER,
-                afk_threshold_ms INTEGER CHECK (afk_threshold_ms > 0),
-                capture_windows INTEGER NOT NULL, capture_input INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS capture_permission_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                permission TEXT NOT NULL CHECK (permission IN ('accessibility', 'input_monitoring')),
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('lost', 'restored', 'snapshot_granted', 'snapshot_denied')),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS time_zone_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                time_zone_id TEXT NOT NULL,
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE INDEX IF NOT EXISTS time_zone_events_by_run_and_time
-                ON time_zone_events (run_id, observed_at_utc_ms, run_sequence);
-            CREATE TABLE IF NOT EXISTS afk_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('snapshot', 'transition')),
-                state TEXT NOT NULL CHECK (state IN ('active', 'idle')),
-                idle_ms INTEGER NOT NULL CHECK (idle_ms >= 0),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS process_instances (
-                process_instance_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                pid INTEGER NOT NULL,bundle_id TEXT,app_name TEXT,app_launched_at_utc_ms INTEGER
-            );
-            CREATE TABLE IF NOT EXISTS capture_channel_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,channel TEXT NOT NULL,available INTEGER NOT NULL,reason TEXT NOT NULL,
-                PRIMARY KEY(run_id,run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS foreground_app_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('activated', 'snapshot')),
-                process_instance_id TEXT REFERENCES process_instances(process_instance_id),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS running_app_observations (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('snapshot', 'appeared', 'disappeared')),
-                process_instance_id TEXT NOT NULL REFERENCES process_instances(process_instance_id),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS system_sleep_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('sleep', 'wake')),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS user_session_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('session_active', 'session_inactive')),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            """
-        let windowSchema = """
-            CREATE TABLE IF NOT EXISTS window_focus_instances (
-                focus_id TEXT PRIMARY KEY NOT NULL,run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                process_instance_id TEXT NOT NULL REFERENCES process_instances(process_instance_id)
-            );
-            CREATE TABLE IF NOT EXISTS window_title_observations (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,focus_id TEXT NOT NULL REFERENCES window_focus_instances(focus_id),title TEXT,
-                PRIMARY KEY(run_id,run_sequence)
-            );
-            CREATE INDEX IF NOT EXISTS window_titles_by_focus ON window_title_observations(focus_id,run_sequence);
-            CREATE TABLE IF NOT EXISTS focused_window_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('snapshot', 'focus_changed')),
-                focus_id TEXT REFERENCES window_focus_instances(focus_id),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            """
-        let inputSchema = """
-            CREATE TABLE IF NOT EXISTS keyboard_presses (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                key_code INTEGER NOT NULL CHECK (key_code >= 0),
-                pressed_at_utc_ms INTEGER NOT NULL,
-                released_at_utc_ms INTEGER,
-                modifiers_at_press INTEGER NOT NULL,
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            CREATE TABLE IF NOT EXISTS mouse_button_events (
-                run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-                run_sequence INTEGER NOT NULL,
-                observed_at_utc_ms INTEGER NOT NULL,
-                event_kind TEXT NOT NULL CHECK (event_kind IN ('button_down', 'button_up')),
-                x_points REAL NOT NULL,
-                y_points REAL NOT NULL,
-                button INTEGER NOT NULL CHECK (button >= 0),
-                PRIMARY KEY (run_id, run_sequence)
-            );
-            """
-        guard sqlite3_busy_timeout(connection, 3000) == SQLITE_OK,
-              sqlite3_exec(connection, schema, nil, nil, nil) == SQLITE_OK,
-              !captureWindows || sqlite3_exec(connection, windowSchema, nil, nil, nil) == SQLITE_OK,
-              !captureInput || sqlite3_exec(connection, inputSchema, nil, nil, nil) == SQLITE_OK
-        else {
-            let error = DatabaseError(connection)
+        do {
+            guard sqlite3_busy_timeout(connection, 3000) == SQLITE_OK,
+                  sqlite3_exec(connection, "PRAGMA foreign_keys = ON", nil, nil, nil) == SQLITE_OK
+            else { throw DatabaseError(connection) }
+            try DatabaseSchema.ensureCreated(connection)
+        } catch {
             sqlite3_close(connection)
             throw error
         }
         database = connection
-        let views = """
-            CREATE VIEW IF NOT EXISTS foreground_app_history AS SELECT e.*,p.pid,p.bundle_id,p.app_name
-            FROM foreground_app_events e LEFT JOIN process_instances p USING(process_instance_id);
-            CREATE VIEW IF NOT EXISTS running_app_history AS SELECT e.*,p.pid,p.bundle_id,p.app_name,p.app_launched_at_utc_ms
-            FROM running_app_observations e JOIN process_instances p USING(process_instance_id);
-            """
-        guard sqlite3_exec(database, views, nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
-        if captureWindows {
-            let views = """
-                CREATE VIEW IF NOT EXISTS window_history AS
-                WITH events AS (
-                    SELECT run_id,run_sequence,observed_at_utc_ms,event_kind,focus_id FROM focused_window_events
-                    UNION ALL SELECT t.run_id,t.run_sequence,t.observed_at_utc_ms,'title_changed',t.focus_id FROM window_title_observations t
-                    WHERE NOT EXISTS (SELECT 1 FROM focused_window_events f WHERE f.run_id=t.run_id AND f.run_sequence=t.run_sequence)
-                )
-                SELECT e.*,p.pid,
-                    (SELECT title FROM window_title_observations t WHERE t.focus_id=e.focus_id AND t.run_sequence<=e.run_sequence ORDER BY t.run_sequence DESC LIMIT 1) AS window_title
-                FROM events e LEFT JOIN window_focus_instances f USING(focus_id) LEFT JOIN process_instances p USING(process_instance_id);
-                """
-            guard sqlite3_exec(database, views, nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
-        }
     }
 
     deinit {

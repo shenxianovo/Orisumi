@@ -1,0 +1,1 @@
+CREATE INDEX window_titles_by_focus ON window_title_observations(focus_id,run_sequence);

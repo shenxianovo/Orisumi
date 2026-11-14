@@ -1,3 +1,4 @@
+using Orisumi.Collectors.Storage;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -13,38 +14,6 @@ public static class ClaudeCollector
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
     };
 
-    private const string Schema = """
-        CREATE TABLE IF NOT EXISTS capture_runs (run_id INTEGER PRIMARY KEY, started_at_utc_ms INTEGER NOT NULL, stopped_at_utc_ms INTEGER);
-        CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY NOT NULL);
-        CREATE TABLE IF NOT EXISTS source_records (
-         observation_id INTEGER PRIMARY KEY,run_id INTEGER NOT NULL REFERENCES capture_runs(run_id),
-         source_path TEXT NOT NULL,source_line INTEGER NOT NULL,record_hash TEXT NOT NULL,
-         UNIQUE(source_path,source_line,record_hash));
-        CREATE TABLE IF NOT EXISTS session_title_observations (
-         observation_id INTEGER PRIMARY KEY REFERENCES source_records(observation_id),session_id TEXT NOT NULL REFERENCES sessions(session_id),title TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS titles_by_session ON session_title_observations(session_id,observation_id);
-        CREATE TABLE IF NOT EXISTS messages (
-         session_id TEXT NOT NULL REFERENCES sessions(session_id),message_uuid TEXT NOT NULL,parent_uuid TEXT,
-         role TEXT NOT NULL CHECK(role IN ('user','assistant')),created_at_utc_ms INTEGER NOT NULL,cwd TEXT,response_id TEXT,
-         PRIMARY KEY(session_id,message_uuid));
-        CREATE TABLE IF NOT EXISTS message_content_observations (
-         observation_id INTEGER NOT NULL REFERENCES source_records(observation_id),session_id TEXT NOT NULL,message_uuid TEXT NOT NULL,content_json TEXT NOT NULL,
-         PRIMARY KEY(session_id,message_uuid,observation_id),FOREIGN KEY(session_id,message_uuid) REFERENCES messages(session_id,message_uuid));
-        CREATE VIEW IF NOT EXISTS current_messages AS SELECT m.*,
-         (SELECT content_json FROM message_content_observations o WHERE (o.session_id,o.message_uuid)=(m.session_id,m.message_uuid) ORDER BY observation_id DESC LIMIT 1) AS content_json FROM messages m;
-        CREATE VIEW IF NOT EXISTS current_sessions AS SELECT s.*,
-         (SELECT title FROM session_title_observations t WHERE t.session_id=s.session_id ORDER BY observation_id DESC LIMIT 1) AS title,
-         (SELECT MIN(created_at_utc_ms) FROM messages m WHERE m.session_id=s.session_id) AS first_message_at_utc_ms,
-         (SELECT MAX(created_at_utc_ms) FROM messages m WHERE m.session_id=s.session_id) AS last_message_at_utc_ms FROM sessions s;
-        CREATE TABLE IF NOT EXISTS response_token_usage_observations (
-         observation_id INTEGER NOT NULL REFERENCES source_records(observation_id),session_id TEXT NOT NULL REFERENCES sessions(session_id),response_id TEXT NOT NULL,
-         recorded_at_utc_ms INTEGER NOT NULL,model TEXT NOT NULL,total_input_tokens INTEGER NOT NULL,
-         cache_read_input_tokens INTEGER NOT NULL,cache_write_input_tokens INTEGER NOT NULL,total_output_tokens INTEGER NOT NULL,reasoning_output_tokens INTEGER,
-         PRIMARY KEY(session_id,response_id,observation_id));
-        CREATE VIEW IF NOT EXISTS response_token_usage AS SELECT o.* FROM response_token_usage_observations o
-         WHERE observation_id=(SELECT MAX(n.observation_id) FROM response_token_usage_observations n WHERE (n.session_id,n.response_id)=(o.session_id,o.response_id));
-        """;
-
     public static string Capture(string store)
     {
         var claudeHome = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
@@ -58,6 +27,7 @@ public static class ClaudeCollector
         try
         {
             using var connection = OpenDatabase(database);
+            SqliteSchema.EnsureCreated(connection);
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
@@ -68,7 +38,6 @@ public static class ClaudeCollector
                 for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
                 return command.ExecuteScalar();
             }
-            Execute(Schema);
             var runId = (long)Execute("INSERT INTO capture_runs(started_at_utc_ms) VALUES($p0); SELECT last_insert_rowid();", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())!;
             var recordsWritten = 0;
             ReadRecords(projects, (path, lineNumber, line, row) =>

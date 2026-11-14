@@ -8,4 +8,10 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Schema/*/*.sql"
+                      LogicalName="$(AssemblyName).Schema.$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(Identity)')))).%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Schema/Version.txt" LogicalName="$(AssemblyName).Schema.Version.txt" />
+    <Compile Include="../Storage/SqliteSchema.cs" Link="Storage/SqliteSchema.cs" />
+  </ItemGroup>
 </Project>

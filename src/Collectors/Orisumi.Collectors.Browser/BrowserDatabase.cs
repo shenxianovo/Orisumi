@@ -1,4 +1,5 @@
-using System.Diagnostics;
+using Microsoft.Data.Sqlite;
+using Orisumi.Collectors.Storage;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -7,9 +8,6 @@ namespace Orisumi.Collectors.Browser;
 
 internal static class BrowserDatabase
 {
-    private const string Schema = VisitsSchema + "\n" + HistoryPagesSchema + "\n" + ActiveTabEventsSchema + "\n" +
-        DownloadsSchema + "\n" + CaptureRunsSchema;
-
     internal static async Task<Reply> HandleMessage(string store, ReadOnlyMemory<byte> message)
     {
         var batch = JsonSerializer.Deserialize<Batch>(message.Span, JsonSerializerOptions.Web);
@@ -19,15 +17,8 @@ internal static class BrowserDatabase
         if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, ActiveTabEvents: null, BookmarkObservation: null, Downloads: null })
         {
             // The extension ties its history cursor to this file's lifetime.
-            var databaseId = await Execute(store, $"""
-                BEGIN IMMEDIATE;
-                {Schema}
-                CREATE TABLE IF NOT EXISTS _collector_state (
-                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                    database_id TEXT NOT NULL
-                );
+            var databaseId = await Execute(store, """
                 INSERT OR IGNORE INTO _collector_state VALUES (1, lower(hex(randomblob(16))));
-                COMMIT;
                 SELECT database_id FROM _collector_state WHERE singleton = 1;
                 """);
             if (!Guid.TryParseExact(databaseId, "N", out _))
@@ -55,11 +46,7 @@ internal static class BrowserDatabase
             _ => throw new InvalidDataException("invalid browser batch"),
         };
         var result = await Execute(store, $"""
-            PRAGMA foreign_keys=ON;
-            BEGIN IMMEDIATE;
-            {Schema}
             {write}
-            COMMIT;
             SELECT changes();
             """);
         if (!long.TryParse(result, NumberStyles.Integer, CultureInfo.InvariantCulture, out var inserted))
@@ -69,67 +56,53 @@ internal static class BrowserDatabase
 
     private static async Task<string> Execute(string store, string sql)
     {
+        using var connection = OpenDatabase(store);
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        try
+        {
+            var result = await command.ExecuteScalarAsync();
+            transaction.Commit();
+            return Convert.ToString(result, CultureInfo.InvariantCulture) ?? "";
+        }
+        catch (SqliteException error)
+        {
+            throw new IOException($"could not save browser data: {error.Message}", error);
+        }
+    }
+
+    internal static SqliteConnection OpenDatabase(string store)
+    {
         var database = Path.GetFullPath(Path.Combine(store, "raw", "browser.sqlite"));
         Directory.CreateDirectory(Path.GetDirectoryName(database)!);
         var fileOptions = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.Write, Share = FileShare.ReadWrite };
         if (!OperatingSystem.IsWindows())
             fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         using (File.Open(database, fileOptions)) { }
-
-        var start = new ProcessStartInfo(OperatingSystem.IsMacOS() ? "/usr/bin/sqlite3" : "sqlite3")
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardInputEncoding = new UTF8Encoding(false),
-        };
-        var nullDevice = OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
-        foreach (var arg in new[] { "-batch", "-bail", "-init", nullDevice, "-cmd", ".timeout 3000", database })
-            start.ArgumentList.Add(arg);
-
-        using var process = Process.Start(start) ?? throw new IOException("could not start SQLite");
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        IOException? inputError = null;
+            DataSource = database, ForeignKeys = true, Pooling = false, DefaultTimeout = 3,
+        }.ToString());
         try
         {
-            await process.StandardInput.WriteLineAsync(sql);
-            await process.StandardInput.DisposeAsync();
+            connection.Open();
+            SqliteSchema.EnsureCreated(connection);
+            return connection;
         }
-        catch (IOException error)
+        catch (SqliteException error)
         {
-            inputError = error;
-            process.StandardInput.BaseStream.Close();
+            connection.Dispose();
+            throw new IOException($"could not open browser database: {error.Message}", error);
         }
-
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0)
-            throw new IOException($"could not save browser data: {(await stderr).Trim()}");
-        if (inputError is not null)
-            throw inputError;
-        return (await stdout).Trim();
+        catch { connection.Dispose(); throw; }
     }
 
     internal sealed record Reply(bool Ok, long? Inserted = null, string? DatabaseId = null);
 
     private sealed record Batch(Guid ProfileId, Visit?[]? Visits, HistoryPage?[]? HistoryPages, ActiveTabEvent?[]? ActiveTabEvents,
         BookmarkDatabase.Observation? BookmarkObservation, Download?[]? Downloads, bool GetDatabaseId);
-
-    private const string VisitsSchema = """
-        CREATE TABLE IF NOT EXISTS visits (
-            browser TEXT NOT NULL,
-            profile_id TEXT NOT NULL,
-            visit_id TEXT NOT NULL,
-            visited_at_utc_ms INTEGER NOT NULL,
-            url TEXT NOT NULL,
-            transition TEXT,
-            referring_visit_id TEXT,
-            is_local INTEGER CHECK (is_local IN (0, 1)),
-            PRIMARY KEY (browser, profile_id, visit_id)
-        );
-        CREATE INDEX IF NOT EXISTS visits_by_time ON visits (visited_at_utc_ms);
-        """;
 
     private static string WriteVisits(Guid profileId, string payload, Visit?[] entries)
     {
@@ -157,21 +130,6 @@ internal static class BrowserDatabase
     private sealed record Visit(string? VisitId, long VisitedAtUtcMs, string? Url, string? Transition,
         string? ReferringVisitId, bool? IsLocal);
 
-    private const string HistoryPagesSchema = """
-        CREATE TABLE IF NOT EXISTS history_page_title_observations (
-            observation_id INTEGER PRIMARY KEY,
-            browser TEXT NOT NULL,
-            profile_id TEXT NOT NULL,
-            url TEXT NOT NULL,
-            title TEXT NOT NULL,
-            observed_at_utc_ms INTEGER NOT NULL,
-            UNIQUE (browser, profile_id, url, observed_at_utc_ms, title)
-        );
-        CREATE INDEX IF NOT EXISTS history_titles_by_url ON history_page_title_observations(browser,profile_id,url,observation_id);
-        CREATE VIEW IF NOT EXISTS history_pages AS SELECT o.* FROM history_page_title_observations o WHERE observation_id=(
-            SELECT MAX(n.observation_id) FROM history_page_title_observations n WHERE (n.browser,n.profile_id,n.url)=(o.browser,o.profile_id,o.url));
-        """;
-
     private static string WriteHistoryPages(Guid profileId, string payload, HistoryPage?[] entries)
     {
         if (!entries.All(page => page is { Url.Length: > 0, ObservedAtUtcMs: > 0 } &&
@@ -191,36 +149,6 @@ internal static class BrowserDatabase
     }
 
     private sealed record HistoryPage(string? Url, string? Title, long ObservedAtUtcMs);
-
-    private const string CaptureRunsSchema = """
-        CREATE TABLE IF NOT EXISTS capture_runs (
-         run_id TEXT PRIMARY KEY NOT NULL,browser TEXT NOT NULL,profile_id TEXT NOT NULL,
-         scope TEXT NOT NULL CHECK(scope IN ('bookmarks','active_tabs','downloads')),
-         started_at_utc_ms INTEGER NOT NULL,stopped_at_utc_ms INTEGER);
-        """;
-
-    private const string ActiveTabEventsSchema = """
-        CREATE TABLE IF NOT EXISTS tab_observations (
-         observation_id INTEGER PRIMARY KEY,event_id TEXT NOT NULL UNIQUE,run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-         run_sequence INTEGER NOT NULL,observed_at_utc_ms INTEGER NOT NULL,event_kind TEXT NOT NULL,
-         UNIQUE(run_id,run_sequence));
-        CREATE TABLE IF NOT EXISTS active_tab_focus_events (
-         observation_id INTEGER PRIMARY KEY REFERENCES tab_observations(observation_id),window_id INTEGER,tab_id INTEGER,
-         CHECK((window_id IS NULL)=(tab_id IS NULL)));
-        CREATE TABLE IF NOT EXISTS tab_url_observations (
-         observation_id INTEGER PRIMARY KEY REFERENCES tab_observations(observation_id),tab_id INTEGER NOT NULL,url TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS tab_title_observations (
-         observation_id INTEGER PRIMARY KEY REFERENCES tab_observations(observation_id),tab_id INTEGER NOT NULL,title TEXT NOT NULL);
-        CREATE VIEW IF NOT EXISTS active_tab_history AS SELECT o.*,r.browser,r.profile_id,
-         (SELECT window_id FROM active_tab_focus_events f JOIN tab_observations p USING(observation_id) WHERE p.run_id=o.run_id AND p.run_sequence<=o.run_sequence ORDER BY p.run_sequence DESC LIMIT 1) AS window_id,
-         (SELECT tab_id FROM active_tab_focus_events f JOIN tab_observations p USING(observation_id) WHERE p.run_id=o.run_id AND p.run_sequence<=o.run_sequence ORDER BY p.run_sequence DESC LIMIT 1) AS tab_id
-         FROM tab_observations o JOIN capture_runs r USING(run_id);
-        CREATE VIEW IF NOT EXISTS active_tab_state_history AS SELECT h.*,
-         (SELECT url FROM tab_url_observations f JOIN tab_observations p USING(observation_id) WHERE p.run_id=h.run_id AND f.tab_id=h.tab_id AND p.run_sequence<=h.run_sequence ORDER BY p.run_sequence DESC LIMIT 1) AS url,
-         (SELECT title FROM tab_title_observations f JOIN tab_observations p USING(observation_id) WHERE p.run_id=h.run_id AND f.tab_id=h.tab_id AND p.run_sequence<=h.run_sequence ORDER BY p.run_sequence DESC LIMIT 1) AS title
-         FROM active_tab_history h;
-        CREATE VIEW IF NOT EXISTS current_active_tabs AS SELECT h.* FROM active_tab_state_history h WHERE observation_id=(SELECT MAX(p.observation_id) FROM tab_observations p WHERE p.run_id=h.run_id);
-        """;
 
     private static string WriteActiveTabEvents(Guid profileId, ActiveTabEvent?[] entries)
     {
@@ -257,31 +185,6 @@ internal static class BrowserDatabase
 
     private sealed record ActiveTabEvent(Guid EventId, Guid CaptureSessionId, long RunStartedAtUtcMs, long SessionSequence,
         long ObservedAtUtcMs, string? EventKind, int? WindowId, int? TabId, string? Url, string? Title);
-
-    private const string DownloadsSchema = """
-        CREATE TABLE IF NOT EXISTS downloads (
-         download_key INTEGER PRIMARY KEY,browser TEXT NOT NULL,profile_id TEXT NOT NULL,download_id INTEGER NOT NULL,
-         UNIQUE(browser,profile_id,download_id));
-        CREATE TABLE IF NOT EXISTS download_observations (
-         observation_id INTEGER PRIMARY KEY,event_id TEXT NOT NULL UNIQUE,run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-         run_sequence INTEGER NOT NULL,observed_at_utc_ms INTEGER NOT NULL,kind TEXT NOT NULL,
-         download_key INTEGER NOT NULL REFERENCES downloads(download_key),UNIQUE(run_id,run_sequence));
-        CREATE TABLE IF NOT EXISTS download_resource_observations (observation_id INTEGER PRIMARY KEY REFERENCES download_observations(observation_id),url TEXT,started_at_utc_ms INTEGER,final_url TEXT,total_bytes INTEGER,mime_type TEXT);
-        CREATE TABLE IF NOT EXISTS download_state_observations (observation_id INTEGER PRIMARY KEY REFERENCES download_observations(observation_id),state TEXT,ended_at_utc_ms INTEGER);
-        CREATE TABLE IF NOT EXISTS download_path_observations (observation_id INTEGER PRIMARY KEY REFERENCES download_observations(observation_id),local_path TEXT);
-        CREATE INDEX IF NOT EXISTS download_observations_by_download ON download_observations(download_key,observation_id);
-        CREATE VIEW IF NOT EXISTS download_history AS SELECT d.*,o.observation_id,o.run_id,o.observed_at_utc_ms,o.kind,
-            (SELECT url FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS url,
-            (SELECT started_at_utc_ms FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS started_at_utc_ms,
-            (SELECT final_url FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS final_url,
-            (SELECT total_bytes FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS total_bytes,
-            (SELECT mime_type FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS mime_type,
-            (SELECT state FROM download_state_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS state,
-            (SELECT ended_at_utc_ms FROM download_state_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS ended_at_utc_ms,
-            (SELECT local_path FROM download_path_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS local_path
-        FROM downloads d JOIN download_observations o USING(download_key);
-        CREATE VIEW IF NOT EXISTS current_downloads AS SELECT h.* FROM download_history h WHERE observation_id=(SELECT MAX(p.observation_id) FROM download_observations p WHERE p.download_key=h.download_key);
-        """;
 
     private static string WriteDownloads(Guid profileId, Download?[] entries)
     {

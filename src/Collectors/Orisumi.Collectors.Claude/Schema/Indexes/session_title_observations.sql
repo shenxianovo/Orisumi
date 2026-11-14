@@ -1,0 +1,1 @@
+CREATE INDEX titles_by_session ON session_title_observations(session_id,observation_id);

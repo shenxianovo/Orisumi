@@ -1,6 +1,19 @@
 import Foundation
+import Darwin
 
 let path = CommandLine.arguments[1]
+if CommandLine.arguments.contains("reject") {
+    do {
+        _ = try ForegroundDatabase(path: path, captureWindows: false, captureInput: false)
+        fatalError("accepted an unsupported or invalid schema")
+    } catch { print("Rejected schema: \(error.localizedDescription)") }
+    exit(0)
+}
+for _ in 0..<2 {
+    let disabled = try ForegroundDatabase(path: path + ".disabled", captureWindows: false, captureInput: false)
+    try disabled.start(at: Date(), afkThresholdMS: 300000)
+    try disabled.stop(at: Date())
+}
 let db = try ForegroundDatabase(path: path, captureWindows: true, captureInput: true)
 let now = Date()
 try db.start(at: now, afkThresholdMS: 300000)

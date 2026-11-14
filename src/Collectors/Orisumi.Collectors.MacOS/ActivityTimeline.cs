@@ -17,20 +17,13 @@ public static class ActivityTimeline
         if (!File.Exists(database))
             throw new FileNotFoundException($"macOS activity database not found: {database}");
 
-        const string windowTableQuery = """
-            SELECT EXISTS (
-                SELECT 1 FROM sqlite_schema
-                WHERE type = 'view' AND name = 'window_history'
-            ) AS present;
-            """;
-        using var tables = JsonDocument.Parse(await Query(database, windowTableQuery));
-        var includeWindows = tables.RootElement[0].GetProperty("present").GetInt32() != 0;
+        using var versionResult = JsonDocument.Parse(await Query(database, "PRAGMA user_version"));
+        using var versionStream = typeof(MacOSStore).Assembly.GetManifestResourceStream("Orisumi.Collectors.MacOS.Schema.Version.txt")!;
+        using var versionReader = new StreamReader(versionStream);
+        var expectedVersion = int.Parse(versionReader.ReadToEnd(), CultureInfo.InvariantCulture);
+        if (versionResult.RootElement[0].GetProperty("user_version").GetInt32() != expectedVersion)
+            throw new IOException($"Unsupported macOS database schema. Expected version {expectedVersion}.");
 
-        var windowEvents = includeWindows ? """
-            UNION ALL
-            SELECT observed_at_utc_ms, run_id, run_sequence, 'focused_window', event_kind, pid, NULL, NULL, window_title, NULL, NULL, NULL
-            FROM window_history
-            """ : "";
         var sql = string.Create(CultureInfo.InvariantCulture, $"""
             WITH events(observed_at_utc_ms, run_id, run_sequence, source, event_kind, pid, bundle_id, app_name, window_title, state, idle_ms, permission) AS (
                 SELECT observed_at_utc_ms, run_id, run_sequence, 'foreground_app', event_kind, pid, bundle_id, app_name, NULL, NULL, NULL, NULL
@@ -55,7 +48,9 @@ public static class ActivityTimeline
                 SELECT observed_at_utc_ms, run_id, run_sequence, 'capture_channel:' || channel, reason,
                     NULL, NULL, NULL, NULL, CASE available WHEN 1 THEN 'available' ELSE 'unavailable' END, NULL, NULL
                 FROM capture_channel_events
-                {windowEvents}
+                UNION ALL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'focused_window', event_kind, pid, NULL, NULL, window_title, NULL, NULL, NULL
+                FROM window_history
                 UNION ALL
                 SELECT started_at_utc_ms, run_id, NULL, 'capture_run', 'started', NULL, NULL, NULL, NULL, NULL, NULL, NULL
                 FROM capture_runs

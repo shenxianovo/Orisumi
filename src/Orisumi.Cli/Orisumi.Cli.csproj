@@ -17,6 +17,7 @@
     <ProjectReference Include="../Collectors/Orisumi.Collectors.Claude/Orisumi.Collectors.Claude.csproj" />
     <ProjectReference Include="../Collectors/Orisumi.Collectors.Codex/Orisumi.Collectors.Codex.csproj" />
     <ProjectReference Include="../Collectors/Orisumi.Collectors.MacOS/Orisumi.Collectors.MacOS.csproj" />
+    <ProjectReference Include="../Collectors/Orisumi.Collectors.Network/Orisumi.Collectors.Network.csproj" />
   </ItemGroup>
 
   <ItemGroup>

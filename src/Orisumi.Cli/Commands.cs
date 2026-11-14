@@ -52,6 +52,7 @@ internal static class Commands
             return ActivityTimeline.Write(result.GetRequiredValue(store), result.GetValue(from), result.GetValue(to), Console.Out);
         });
         root.Add(timeline);
+        root.Add(NetworkCommand.Create(store));
 
         // Chrome uses a binary protocol on stdout. Keep this action free of terminal rendering.
         var nativeHost = new Command("native-host", "接收 Chrome Native Messaging 消息。") { Hidden = true };
@@ -94,7 +95,7 @@ internal static class Commands
         return root;
     }
 
-    private static Option<DateTimeOffset> TimestampOption(string name, string description) => new(name)
+    internal static Option<DateTimeOffset> TimestampOption(string name, string description) => new(name)
     {
         Description = description,
         Required = true,

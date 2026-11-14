@@ -1,0 +1,1 @@
+CREATE INDEX history_titles_by_url ON history_page_title_observations(browser,profile_id,url,observation_id);

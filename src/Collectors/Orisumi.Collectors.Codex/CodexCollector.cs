@@ -1,49 +1,10 @@
+using Orisumi.Collectors.Storage;
 using Microsoft.Data.Sqlite;
 
 namespace Orisumi.Collectors.Codex;
 
 public static class CodexCollector
 {
-    private const string Schema = """
-        CREATE TABLE IF NOT EXISTS capture_runs (
-         run_id INTEGER PRIMARY KEY, started_at_utc_ms INTEGER NOT NULL, stopped_at_utc_ms INTEGER,
-         thread_filter TEXT
-        );
-        CREATE TABLE IF NOT EXISTS threads (thread_id TEXT PRIMARY KEY NOT NULL, created_at_utc_ms INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS thread_title_observations (
-         observation_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(thread_id),
-         run_id INTEGER NOT NULL REFERENCES capture_runs(run_id), title TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS thread_title_observations_by_thread ON thread_title_observations(thread_id, observation_id);
-        CREATE TABLE IF NOT EXISTS thread_cwd_observations (
-         observation_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(thread_id),
-         run_id INTEGER NOT NULL REFERENCES capture_runs(run_id), cwd TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS thread_cwd_observations_by_thread ON thread_cwd_observations(thread_id, observation_id);
-        CREATE TABLE IF NOT EXISTS thread_archive_observations (
-         observation_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(thread_id),
-         run_id INTEGER NOT NULL REFERENCES capture_runs(run_id), archived INTEGER NOT NULL);
-        CREATE INDEX IF NOT EXISTS thread_archive_observations_by_thread ON thread_archive_observations(thread_id, observation_id);
-        CREATE VIEW IF NOT EXISTS current_threads AS SELECT t.*,(SELECT title FROM thread_title_observations o WHERE o.thread_id=t.thread_id ORDER BY observation_id DESC LIMIT 1) AS title,(SELECT cwd FROM thread_cwd_observations o WHERE o.thread_id=t.thread_id ORDER BY observation_id DESC LIMIT 1) AS cwd,(SELECT archived FROM thread_archive_observations o WHERE o.thread_id=t.thread_id ORDER BY observation_id DESC LIMIT 1) AS archived FROM threads t;
-        CREATE TABLE IF NOT EXISTS turns (thread_id TEXT NOT NULL REFERENCES threads(thread_id), turn_id TEXT NOT NULL, PRIMARY KEY(thread_id,turn_id));
-        CREATE TABLE IF NOT EXISTS turn_timing_observations (observation_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL,turn_id TEXT NOT NULL,
-         run_id INTEGER NOT NULL REFERENCES capture_runs(run_id),started_at_utc_ms INTEGER, completed_at_utc_ms INTEGER, FOREIGN KEY(thread_id,turn_id) REFERENCES turns(thread_id,turn_id));
-         CREATE INDEX IF NOT EXISTS turn_timing_observations_by_turn ON turn_timing_observations(thread_id,turn_id,observation_id);
-        CREATE TABLE IF NOT EXISTS turn_status_observations (observation_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL,turn_id TEXT NOT NULL,
-         run_id INTEGER NOT NULL REFERENCES capture_runs(run_id),status TEXT NOT NULL, FOREIGN KEY(thread_id,turn_id) REFERENCES turns(thread_id,turn_id));
-         CREATE INDEX IF NOT EXISTS turn_status_observations_by_turn ON turn_status_observations(thread_id,turn_id,observation_id);
-        CREATE VIEW IF NOT EXISTS current_turns AS SELECT t.*,(SELECT started_at_utc_ms FROM turn_timing_observations o WHERE o.thread_id=t.thread_id AND o.turn_id=t.turn_id ORDER BY observation_id DESC LIMIT 1) AS started_at_utc_ms,(SELECT completed_at_utc_ms FROM turn_timing_observations o WHERE o.thread_id=t.thread_id AND o.turn_id=t.turn_id ORDER BY observation_id DESC LIMIT 1) AS completed_at_utc_ms,(SELECT status FROM turn_status_observations o WHERE o.thread_id=t.thread_id AND o.turn_id=t.turn_id ORDER BY observation_id DESC LIMIT 1) AS status FROM turns t;
-        CREATE TABLE IF NOT EXISTS messages (
-         thread_id TEXT NOT NULL REFERENCES threads(thread_id), turn_id TEXT NOT NULL,message_id TEXT NOT NULL,
-         role TEXT NOT NULL CHECK(role IN ('user','assistant')),created_at_utc_ms INTEGER NOT NULL, rollout_ordinal INTEGER NOT NULL,
-         PRIMARY KEY(thread_id,turn_id,message_id));
-        CREATE TABLE IF NOT EXISTS message_content_observations (
-         observation_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL,turn_id TEXT NOT NULL,message_id TEXT NOT NULL,
-         run_id INTEGER NOT NULL REFERENCES capture_runs(run_id),item_json TEXT NOT NULL,
-         FOREIGN KEY(thread_id,turn_id,message_id) REFERENCES messages(thread_id,turn_id,message_id));
-        CREATE INDEX IF NOT EXISTS message_content_by_message ON message_content_observations(thread_id,turn_id,message_id,observation_id);
-        CREATE VIEW IF NOT EXISTS current_messages AS SELECT m.*,
-         (SELECT item_json FROM message_content_observations o WHERE (o.thread_id,o.turn_id,o.message_id)=(m.thread_id,m.turn_id,m.message_id) ORDER BY observation_id DESC LIMIT 1) AS item_json FROM messages m;
-        """;
-
     private const string WriteThreads = """
         CREATE TEMP VIEW selected_threads AS SELECT id AS thread_id, coalesce(nullif(name, ''), title) AS title, cwd,
          coalesce(created_at_ms, created_at * 1000) AS created_at_utc_ms, archived FROM source_state.threads;
@@ -114,6 +75,7 @@ public static class CodexCollector
                 Pooling = false,
             }.ToString());
             connection.Open();
+            SqliteSchema.EnsureCreated(connection);
 
             using var command = connection.CreateCommand();
             command.CommandText = "ATTACH DATABASE $state AS source_state; ATTACH DATABASE $history AS source_history;";
@@ -138,8 +100,6 @@ public static class CodexCollector
                     throw new IOException("the selected threads include history outside the local paginated message database");
             }
 
-            command.CommandText = Schema;
-            command.ExecuteNonQuery();
             command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,thread_filter) VALUES ($started,$thread); SELECT last_insert_rowid();";
             command.Parameters.AddWithValue("$started", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             var runId = (long)command.ExecuteScalar()!;

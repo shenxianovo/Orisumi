@@ -1,0 +1,10 @@
+CREATE VIEW download_history AS SELECT d.*,o.observation_id,o.run_id,o.observed_at_utc_ms,o.kind,
+    (SELECT url FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS url,
+    (SELECT started_at_utc_ms FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS started_at_utc_ms,
+    (SELECT final_url FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS final_url,
+    (SELECT total_bytes FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS total_bytes,
+    (SELECT mime_type FROM download_resource_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS mime_type,
+    (SELECT state FROM download_state_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS state,
+    (SELECT ended_at_utc_ms FROM download_state_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS ended_at_utc_ms,
+    (SELECT local_path FROM download_path_observations f JOIN download_observations p USING(observation_id) WHERE p.download_key=d.download_key AND p.observation_id<=o.observation_id ORDER BY p.observation_id DESC LIMIT 1) AS local_path
+FROM downloads d JOIN download_observations o USING(download_key);

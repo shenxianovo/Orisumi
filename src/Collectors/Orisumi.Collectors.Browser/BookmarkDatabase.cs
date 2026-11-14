@@ -19,98 +19,12 @@ internal static class BookmarkDatabase
             node.AddedAtUtcMs, true, node.Title, node.Url, node.ParentId, node.Position, node.LastUsedAtUtcMs);
     }
 
-    private const string Schema = """
-        CREATE TABLE IF NOT EXISTS capture_runs (
-            run_id TEXT PRIMARY KEY NOT NULL, browser TEXT NOT NULL, profile_id TEXT NOT NULL,
-            scope TEXT NOT NULL CHECK(scope IN ('bookmarks','active_tabs','downloads')), started_at_utc_ms INTEGER NOT NULL,
-            stopped_at_utc_ms INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_observations (
-            observation_id INTEGER PRIMARY KEY,
-            event_id TEXT NOT NULL UNIQUE,
-            run_id TEXT NOT NULL REFERENCES capture_runs(run_id),
-            run_sequence INTEGER NOT NULL, observed_at_utc_ms INTEGER NOT NULL,
-            kind TEXT NOT NULL CHECK(kind IN ('snapshot','created','changed','moved','removed','reordered')),
-            UNIQUE(run_id, run_sequence)
-        );
-        CREATE TABLE IF NOT EXISTS bookmarks (
-            bookmark_key INTEGER PRIMARY KEY,
-            browser TEXT NOT NULL, profile_id TEXT NOT NULL, bookmark_id TEXT NOT NULL,
-            node_kind TEXT CHECK(node_kind IN ('bookmark','folder')), added_at_utc_ms INTEGER,
-            UNIQUE(browser, profile_id, bookmark_id)
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_presence_events (
-            bookmark_key INTEGER NOT NULL REFERENCES bookmarks(bookmark_key),
-            observation_id INTEGER NOT NULL REFERENCES bookmark_observations(observation_id),
-            present INTEGER NOT NULL CHECK(present IN (0,1)), PRIMARY KEY(bookmark_key, observation_id)
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_title_events (
-            bookmark_key INTEGER NOT NULL REFERENCES bookmarks(bookmark_key),
-            observation_id INTEGER NOT NULL REFERENCES bookmark_observations(observation_id),
-            title TEXT NOT NULL, PRIMARY KEY(bookmark_key, observation_id)
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_url_events (
-            bookmark_key INTEGER NOT NULL REFERENCES bookmarks(bookmark_key),
-            observation_id INTEGER NOT NULL REFERENCES bookmark_observations(observation_id),
-            url TEXT NOT NULL, PRIMARY KEY(bookmark_key, observation_id)
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_location_events (
-            bookmark_key INTEGER NOT NULL REFERENCES bookmarks(bookmark_key),
-            observation_id INTEGER NOT NULL REFERENCES bookmark_observations(observation_id),
-            parent_id TEXT, position INTEGER CHECK(position >= 0), PRIMARY KEY(bookmark_key, observation_id)
-        );
-        CREATE TABLE IF NOT EXISTS bookmark_last_used_observations (
-            bookmark_key INTEGER NOT NULL REFERENCES bookmarks(bookmark_key),
-            observation_id INTEGER NOT NULL REFERENCES bookmark_observations(observation_id),
-            last_used_at_utc_ms INTEGER NOT NULL, PRIMARY KEY(bookmark_key, observation_id)
-        );
-        """;
-
-    // Both projections read the same facts. History uses each change as an upper bound;
-    // current state uses the final observation. No second copy of the bookmark is maintained.
-    private static string Projection(string boundary) => $"""
-        SELECT b.*,
-            (SELECT present FROM bookmark_presence_events f WHERE f.bookmark_key=b.bookmark_key AND f.observation_id<={boundary} ORDER BY f.observation_id DESC LIMIT 1) AS present,
-            (SELECT title FROM bookmark_title_events f WHERE f.bookmark_key=b.bookmark_key AND f.observation_id<={boundary} ORDER BY f.observation_id DESC LIMIT 1) AS title,
-            (SELECT url FROM bookmark_url_events f WHERE f.bookmark_key=b.bookmark_key AND f.observation_id<={boundary} ORDER BY f.observation_id DESC LIMIT 1) AS url,
-            (SELECT parent_id FROM bookmark_location_events f WHERE f.bookmark_key=b.bookmark_key AND f.observation_id<={boundary} ORDER BY f.observation_id DESC LIMIT 1) AS parent_id,
-            (SELECT position FROM bookmark_location_events f WHERE f.bookmark_key=b.bookmark_key AND f.observation_id<={boundary} ORDER BY f.observation_id DESC LIMIT 1) AS position,
-            (SELECT last_used_at_utc_ms FROM bookmark_last_used_observations f WHERE f.bookmark_key=b.bookmark_key AND f.observation_id<={boundary} ORDER BY f.observation_id DESC LIMIT 1) AS last_used_at_utc_ms
-        """;
-
-    private static readonly string Views = $"""
-        CREATE VIEW IF NOT EXISTS bookmark_state AS
-            {Projection("9223372036854775807")} FROM bookmarks b;
-        CREATE VIEW IF NOT EXISTS current_bookmarks AS SELECT * FROM bookmark_state WHERE present=1;
-        CREATE VIEW IF NOT EXISTS bookmark_history AS
-            WITH changes AS (
-                SELECT bookmark_key, observation_id FROM bookmark_presence_events
-                UNION SELECT bookmark_key, observation_id FROM bookmark_title_events
-                UNION SELECT bookmark_key, observation_id FROM bookmark_url_events
-                UNION SELECT bookmark_key, observation_id FROM bookmark_location_events
-                UNION SELECT bookmark_key, observation_id FROM bookmark_last_used_observations
-            )
-            {Projection("c.observation_id")}, c.observation_id, o.event_id, o.run_id, o.run_sequence,
-                o.observed_at_utc_ms, o.kind
-            FROM changes c JOIN bookmarks b USING(bookmark_key)
-                JOIN bookmark_observations o USING(observation_id);
-        """;
-
     internal static long Capture(string store, Guid profileId, Observation observation)
     {
         Validate(observation);
-        var path = Path.GetFullPath(Path.Combine(store, "raw", "browser.sqlite"));
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.Write, Share = FileShare.ReadWrite };
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (File.Open(path, options)) { }
         try
         {
-            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-            {
-                DataSource = path, ForeignKeys = true, Pooling = false, DefaultTimeout = 3,
-            }.ToString());
-            connection.Open();
+            using var connection = BrowserDatabase.OpenDatabase(store);
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
@@ -128,9 +42,6 @@ internal static class BookmarkDatabase
                 for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
                 return command.ExecuteScalar();
             }
-            if (Scalar("SELECT 1 FROM pragma_table_info('bookmarks') WHERE name='title'") is not null)
-                throw new InvalidDataException("The browser database uses the old bookmark snapshot schema. Select a new store; no migration is provided.");
-            Execute(Schema + Views);
             if (Scalar("SELECT 1 FROM bookmark_observations WHERE event_id=$p0", observation.ObservationId.ToString()) is not null)
                 return 0;
             var profile = profileId.ToString();

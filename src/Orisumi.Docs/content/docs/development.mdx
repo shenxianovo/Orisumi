@@ -126,3 +126,35 @@ orisumi timeline --from 2026-11-13T09:00:00+08:00 --to 2026-11-13T10:00:00+08:00
 `--store` 默认为当前工作目录下的 `.orisumi`，各来源数据库放在其中的 `raw/`。
 Codex 可指定单个会话 ID，省略时读取 `CODEX_THREAD_ID`；`--all` 采集所有会话。
 `foreground` 省略采集秒数时持续监听，按 Ctrl+C 停止并写入采集结束时间。
+
+## 数据库定义
+
+每个采集器的持久化结构统一放在项目内的 `Schema/`：
+
+```text
+Schema/
+├── Tables/       # 一张表一个 SQL 文件，包含字段、主键、外键及其他约束
+├── Indexes/      # 普通索引按所属表归文件
+├── Views/        # 一个视图一个 SQL 文件
+└── Version.txt   # 这个来源的结构版本，正整数
+```
+
+例如增加网络采样表，在 Network 项目的 `Schema/Tables/` 新增 SQL 文件即可。
+构建自动收集这些文件，初始化按表、索引、视图依次执行，每组内按文件名排序。
+无需注册文件清单、编号或声明依赖；SQL 文件只定义结构，不放连接设置、事务控制或数据写入。
+
+C# 采集器将 SQL 嵌入各自程序集，使用 `Collectors/Storage/SqliteSchema.cs` 的共享实现。
+macOS 原生程序使用 `Native/DatabaseSchema.swift`，从可执行文件旁的
+`Orisumi.Collectors.MacOS/Schema/` 自动加载；构建和发布会复制该目录，运行不依赖源码路径。
+
+打开数据库后，存储入口在一个事务里检查版本：版本为零且没有用户定义对象的空库，
+执行完整结构并写入 `PRAGMA user_version`；版本符合则直接使用；其他情况报错并保留原库。
+初始化失败会回滚结构变更。外键检查、锁等待时间在打开连接时设置，Network 的 WAL 在初始化事务之外设置。
+
+每个来源独立维护版本。修改持久化结构后递增 `Version.txt`，使用新存储目录验证；当前不提供旧库迁移。
+macOS 始终创建完整结构，窗口和输入开关控制采集与写入，启用情况记录在 `capture_runs`。
+采集器内部用于导入源数据的临时视图属于该次导入，不属于持久化 Schema。
+
+`SchemaChecks.cs` 检查 C# 打包后的结构与源码一致、所有视图可查询、重复打开保留数据，
+以及拒绝不支持版本和未标记版本的旧库。`CaptureIntegrationChecks.cs` 验证各来源实际写入，
+并覆盖 macOS 关闭采集选项时的完整结构、版本拒绝和初始化失败回滚。

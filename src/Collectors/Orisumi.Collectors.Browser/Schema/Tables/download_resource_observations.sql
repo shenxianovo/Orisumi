@@ -1,0 +1,1 @@
+CREATE TABLE download_resource_observations (observation_id INTEGER PRIMARY KEY REFERENCES download_observations(observation_id),url TEXT,started_at_utc_ms INTEGER,final_url TEXT,total_bytes INTEGER,mime_type TEXT);

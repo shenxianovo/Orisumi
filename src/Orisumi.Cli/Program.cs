@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.ComponentModel;
 using System.Text.Json;
 using Orisumi.Cli;
+using Microsoft.Data.Sqlite;
 using Spectre.Console;
 
 try
@@ -20,7 +21,7 @@ catch (OperationCanceledException)
     return 130;
 }
 catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or
-    InvalidDataException or JsonException or Win32Exception)
+    InvalidDataException or JsonException or Win32Exception or SqliteException)
 {
     var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(Console.Error) });
     console.Write(new Text($"orisumi: {error.Message}{Environment.NewLine}", new Style(Color.Red)));

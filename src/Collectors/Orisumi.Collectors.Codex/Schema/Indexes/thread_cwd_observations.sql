@@ -1,0 +1,1 @@
+CREATE INDEX thread_cwd_observations_by_thread ON thread_cwd_observations(thread_id, observation_id);

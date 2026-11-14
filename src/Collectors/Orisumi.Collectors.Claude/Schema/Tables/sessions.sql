@@ -1,0 +1,1 @@
+CREATE TABLE sessions (session_id TEXT PRIMARY KEY NOT NULL);
