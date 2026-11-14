@@ -36,7 +36,7 @@ enum DatabaseSchema {
         if actual != version {
             guard actual == 0,
                   try scalar("SELECT COUNT(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'") == 0 else {
-                throw SchemaError("Unsupported macOS database schema. Expected version \(version). Preserve the database and use a fresh --store; no migration is provided.")
+                throw SchemaError("Unsupported macOS database schema. Expected version \(version). Stop this collector and rebuild its output database.")
             }
             for group in ["Tables", "Indexes", "Views"] {
                 let files = try FileManager.default.contentsOfDirectory(

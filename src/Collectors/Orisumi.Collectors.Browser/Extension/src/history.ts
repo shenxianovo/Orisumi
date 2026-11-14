@@ -1,4 +1,5 @@
 import { batchBytesAvailable, getDatabaseId, jsonBytes, sendBatch } from "./native-host.js";
+import { coverage } from "./coverage.js";
 
 export type Visit = {
   visitId: string;
@@ -10,6 +11,7 @@ export type Visit = {
 };
 
 export type HistoryPage = {
+  eventId?: string;
   url: string;
   title: string;
   observedAtUtcMs: number;
@@ -42,7 +44,9 @@ async function* readVisits(startTime: number, endTime: number): AsyncGenerator<V
   for await (const { url } of readPages(startTime, endTime)) {
     if (!url) continue;
     for (const visit of await chrome.history.getVisits({ url })) {
-      if (visit.visitTime === undefined || visit.visitTime < startTime || visit.visitTime >= endTime) continue;
+      // search() selects URLs by their latest visit. Older visits of the same URL
+      // would never be found by a past range, so ingest every retained visit here.
+      if (visit.visitTime === undefined) continue;
       yield {
         visitId: visit.visitId,
         visitedAtUtcMs: Math.trunc(visit.visitTime),
@@ -56,9 +60,13 @@ async function* readVisits(startTime: number, endTime: number): AsyncGenerator<V
 }
 
 async function syncRange(start: number, end: number): Promise<void> {
+  await sendVisits(readVisits(start, end));
+}
+
+async function sendVisits(source: AsyncIterable<Visit> | Visit[]): Promise<void> {
   let visits: Visit[] = [];
   let bytes = 0;
-  for await (const visit of readVisits(start, end)) {
+  for await (const visit of source) {
     const size = jsonBytes(visit) + 1;
     if (size > batchBytesAvailable) throw new Error("A visit exceeds the local collector message limit.");
     if (bytes + size > batchBytesAvailable || visits.length === 1000) {
@@ -99,6 +107,61 @@ export function syncHistoryPages(): Promise<void> {
   return syncRanges("historyPageSyncState", syncPageRange);
 }
 
+type PendingPage = { id: string; url: string; title?: string; observedAtUtcMs: number; visits: boolean };
+export function observeHistory() {
+  let operations: Promise<unknown> = Promise.resolve();
+  let flushing: Promise<void> | undefined;
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = operations.then(operation);
+    operations = result.catch(() => {});
+    return result;
+  }
+  async function pending(): Promise<PendingPage[]> {
+    return (await chrome.storage.local.get<{ pendingHistoryPages?: PendingPage[] }>("pendingHistoryPages")).pendingHistoryPages ?? [];
+  }
+  function enqueue(url: string, title: string | undefined, visits: boolean) {
+    const event = { id: crypto.randomUUID(), url, title, observedAtUtcMs: Date.now(), visits };
+    void serialize(async () => {
+      await chrome.storage.local.set({ pendingHistoryPages: [...await pending(), event] });
+    }).catch(async error => {
+      await coverage("history.events", "unavailable", "event_record_failed", "replay");
+      throw error;
+    }).then(flush).catch(error => console.error("Could not collect history event", error));
+  }
+  chrome.history.onVisited.addListener(item => { if (item.url) enqueue(item.url, item.title, true); });
+  chrome.history.onVisitRemoved.addListener(() => {
+    void coverage("history.events", "unavailable", "source_records_removed", "replay");
+  });
+  chrome.tabs.onUpdated.addListener((_id, change, tab) => {
+    if (!tab.incognito && tab.url && change.title?.trim()) enqueue(tab.url, change.title, false);
+  });
+  async function drain() {
+    while (true) {
+      const entry = (await serialize(pending))[0];
+      if (!entry) return;
+      if (entry.visits) {
+        let retained: chrome.history.VisitItem[];
+        try { retained = await chrome.history.getVisits({ url: entry.url }); }
+        catch (error) { await coverage("history.events", "read_failed", "getVisits_failed", "replay"); throw error; }
+        const visits = retained.filter(visit => visit.visitTime !== undefined)
+          .map(visit => ({ visitId: visit.visitId, url: entry.url, visitedAtUtcMs: Math.trunc(visit.visitTime!),
+            transition: visit.transition ?? null, referringVisitId: visit.referringVisitId === "0" ? null : visit.referringVisitId ?? null,
+            isLocal: visit.isLocal ?? null }));
+        if (!visits.length) await coverage("history.events", "unavailable", "visit_no_longer_available", "replay");
+        await sendVisits(visits);
+      }
+      if (entry.title?.trim()) await sendBatch({ historyPages: [{ eventId: entry.visits ? undefined : entry.id,
+        url: entry.url, title: entry.title, observedAtUtcMs: entry.observedAtUtcMs }] });
+      await serialize(async () => {
+        const entries = await pending(); entries.shift();
+        await chrome.storage.local.set({ pendingHistoryPages: entries });
+      });
+    }
+  }
+  function flush(): Promise<void> { return flushing ??= drain().finally(() => { flushing = undefined; }); }
+  return { flush };
+}
+
 async function syncRanges(key: "visitSyncState" | "historyPageSyncState",
   sync: (start: number, end: number) => Promise<void>): Promise<void> {
   const databaseId = await getDatabaseId();
@@ -111,19 +174,33 @@ async function syncRanges(key: "visitSyncState" | "historyPageSyncState",
 
   const start = Math.min(state.nextStart, now);
   const end = Math.min(start + hourMs, now);
-  await sync(Math.max(0, start - overlapMs), end);
+  const scope = key === "visitSyncState" ? "history" : "history.titles";
+  async function readRange(from: number, to: number) {
+    try {
+      await sync(from, to);
+      await coverage(scope, "range_read", "URLs selected by latest visit; retained records only", "replay", from, to);
+    } catch (error) {
+      await coverage(scope, "read_failed", error instanceof Error ? error.message : String(error), "replay", from, to);
+      throw error;
+    }
+  }
+  await readRange(Math.max(0, start - overlapMs), end);
   state.nextStart = end;
   await chrome.storage.local.set({ [key]: state });
 
   const deadline = Date.now() + 25_000;
   while (state.backfillBefore > 0 && Date.now() < deadline) {
-    const [newest] = await chrome.history.search({
-      text: "", startTime: 0, endTime: state.backfillBefore, maxResults: 1,
-    });
+    let newest: chrome.history.HistoryItem | undefined;
+    try {
+      [newest] = await chrome.history.search({ text: "", startTime: 0, endTime: state.backfillBefore, maxResults: 1 });
+    } catch (error) {
+      await coverage(scope, "read_failed", "history_search_failed", "replay", 0, state.backfillBefore);
+      throw error;
+    }
     if (newest) {
       const end = Math.min(state.backfillBefore, Math.floor(newest.lastVisitTime ?? state.backfillBefore) + 1);
       const start = Math.max(0, end - weekMs);
-      await sync(start, end);
+      await readRange(start, end);
       state.backfillBefore = start;
     } else {
       state.backfillBefore = 0;

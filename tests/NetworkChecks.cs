@@ -11,6 +11,7 @@ Directory.CreateDirectory(root);
 try
 {
     ParserChecks();
+    await SampleRecoveryChecks();
     SparseChecks();
     StorageChecks();
     UnverifiedIdentityChecks();
@@ -24,6 +25,22 @@ finally { Directory.Delete(root, recursive: true); }
 void Assert(bool valid, string message)
 {
     if (!valid) throw new Exception(message);
+}
+
+async Task SampleRecoveryChecks()
+{
+    var store = Path.Combine(root, "sample-recovery");
+    using var db = new NetworkDatabase(store, "boot", 1, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    using var log = new StringWriter();
+    foreach (var csv in new[] { "", ",interface,state,bytes_in,bytes_out,\n" })
+        await NetworkCapture.Sample(db, 1, clock, _ => Task.FromResult(csv), log, CancellationToken.None);
+    using var connection = new SqliteConnection($"Data Source={NetworkDatabase.PathFor(store)};Pooling=False");
+    connection.Open();
+    using var query = connection.CreateCommand();
+    query.CommandText = "SELECT COUNT(*)=2 AND SUM(error IS NOT NULL)=1 AND SUM(continuous)=0 FROM samples";
+    Assert((long)query.ExecuteScalar()! == 1 && log.ToString().Contains("no CSV header"),
+        "malformed output must record a failed sample and let the next sample establish a baseline");
 }
 
 void ParserChecks()

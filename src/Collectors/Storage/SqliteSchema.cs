@@ -61,5 +61,5 @@ internal static class SqliteSchema
     }
 
     private static IOException Unsupported(SqliteConnection connection) =>
-        new($"Unsupported database schema in {connection.DataSource}. Expected version {Version}. Preserve the database and use a fresh --store; no migration is provided.");
+        new($"Unsupported database schema in {connection.DataSource}. Expected version {Version}. Stop this collector and rebuild its output database.");
 }

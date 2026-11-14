@@ -92,6 +92,7 @@ final class ForegroundDatabase {
     private var processes: [Int32: (id: String, launch: Date?)] = [:]
     private var focusID: String?
     private var channels: [String: Bool] = [:]
+    private var methods: [String: String] = [:]
 
     init(path: String, captureWindows: Bool, captureInput: Bool) throws {
         self.captureWindows = captureWindows
@@ -176,8 +177,8 @@ final class ForegroundDatabase {
             """, at: time, afkThresholdMS: afkThresholdMS)
     }
 
-    func stop(at time: Date) throws {
-        try writeRunTime("UPDATE capture_runs SET stopped_at_utc_ms = ?2 WHERE run_id = ?1", at: time)
+    func stop(at time: Date, failed: Bool = false) throws {
+        try writeRunTime("UPDATE capture_runs SET stopped_at_utc_ms = ?2, stop_reason = '\(failed ? "failed" : "stopped")' WHERE run_id = ?1", at: time)
     }
 
     func appendPermission(_ permission: CapturePermission, kind: String, at time: Date) throws {
@@ -234,7 +235,7 @@ final class ForegroundDatabase {
     private func processInstance(pid: Int32, bundle: String? = nil, name: String? = nil, launch: Date? = nil) throws -> String {
         let app = NSRunningApplication(processIdentifier: pid)
         let launched = launch ?? app?.launchDate
-        if let known = processes[pid], launched == nil || known.launch == nil || known.launch == launched { return known.id }
+        if let known = processes[pid], known.launch == launched { return known.id }
         let id = UUID().uuidString.lowercased()
         let insert = try prepare("INSERT INTO process_instances VALUES(?,?,?,?,?,?)")
         defer { sqlite3_finalize(insert) }
@@ -248,6 +249,10 @@ final class ForegroundDatabase {
         return id
     }
 
+    func interruptUnverifiedProcesses() {
+        processes = processes.filter { $0.value.launch != nil }
+    }
+
     func appendChannel(_ channel: String, available: Bool, reason: String, at time: Date = Date()) throws {
         guard channels[channel] != available else { return }
         let insert = try prepare("INSERT INTO capture_channel_events VALUES(?,?,?,?,?,?)")
@@ -258,6 +263,17 @@ final class ForegroundDatabase {
               bindText(insert, 6, reason) == SQLITE_OK else { throw DatabaseError(database) }
         try commitEvent(insert)
         channels[channel] = available
+    }
+
+    func appendMethod(_ channel: String, mode: String, at time: Date = Date()) throws {
+        guard methods[channel] != mode else { return }
+        let insert = try prepare("INSERT INTO capture_method_events VALUES(?,?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
+        try bindObservation(insert, at: time, runSequence: sequence + 1)
+        guard bindText(insert, 4, channel) == SQLITE_OK,
+              bindText(insert, 5, mode) == SQLITE_OK else { throw DatabaseError(database) }
+        try commitEvent(insert)
+        methods[channel] = mode
     }
 
     func appendWindow(_ kind: WindowEventKind, at time: Date, pid: pid_t, title: String?, hasWindow: Bool) throws {

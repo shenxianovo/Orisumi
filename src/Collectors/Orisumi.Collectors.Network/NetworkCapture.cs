@@ -28,24 +28,8 @@ public static class NetworkCapture
             while (!stop.IsCancellationRequested)
             {
                 var cycleStarted = clock.Elapsed;
-                var startedAt = DateTimeOffset.UtcNow;
-                List<ProcessSample> processes = [];
-                string? error = null;
-                try
-                {
-                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
-                    timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(intervalSeconds, 10)));
-                    var csv = await Execute("/usr/bin/nettop", ["-L", "1", "-n", "-x", "-J", "interface,state,bytes_in,bytes_out"], timeout.Token);
-                    processes = NettopSnapshot.Parse(csv, pid => NettopSnapshot.Identify(pid, startedAt));
-                }
-                catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
-                catch (Exception exception) when (exception is IOException or OperationCanceledException or Microsoft.VisualBasic.FileIO.MalformedLineException)
-                {
-                    error = exception is OperationCanceledException ? "nettop sample timed out" : exception.Message;
-                    log.WriteLine($"Network sample failed: {error}");
-                }
-                database.Sample(startedAt.ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    clock.ElapsedMilliseconds, processes, error);
+                await Sample(database, intervalSeconds, clock,
+                    token => Execute("/usr/bin/nettop", ["-L", "1", "-n", "-x", "-J", "interface,state,bytes_in,bytes_out"], token), log, stop.Token);
                 var delay = TimeSpan.FromSeconds(intervalSeconds) - (clock.Elapsed - cycleStarted);
                 if (delay > TimeSpan.Zero) await Task.Delay(delay, stop.Token);
             }
@@ -57,6 +41,29 @@ public static class NetworkCapture
             Console.CancelKeyPress -= onInterrupt;
             database.Stop(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), reason);
         }
+    }
+
+    internal static async Task Sample(NetworkDatabase database, int intervalSeconds, Stopwatch clock,
+        Func<CancellationToken, Task<string>> read, TextWriter log, CancellationToken stop)
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        List<ProcessSample> processes = [];
+        string? error = null;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stop);
+            timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(intervalSeconds, 10)));
+            var csv = await read(timeout.Token);
+            processes = NettopSnapshot.Parse(csv, pid => NettopSnapshot.Identify(pid, startedAt));
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or OperationCanceledException or Microsoft.VisualBasic.FileIO.MalformedLineException)
+        {
+            error = exception is OperationCanceledException ? "nettop sample timed out" : exception.Message;
+            log.WriteLine($"Network sample failed: {error}");
+        }
+        database.Sample(startedAt.ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            clock.ElapsedMilliseconds, processes, error);
     }
 
     private static async Task<string> Execute(string executable, string[] arguments, CancellationToken cancellation)

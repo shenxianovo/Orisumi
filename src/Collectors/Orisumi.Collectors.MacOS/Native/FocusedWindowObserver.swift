@@ -12,6 +12,8 @@ final class FocusedWindowObserver {
     private var title: String?
     private var hasSample = false
     private var pendingKind: WindowEventKind = .snapshot
+    private var schedule = WindowObservationSchedule()
+    private var lastSubscriptionAttempt: TimeInterval?
 
     init(database: ForegroundDatabase, failed: @escaping (Error) -> Void) {
         self.database = database
@@ -27,7 +29,10 @@ final class FocusedWindowObserver {
             return
         }
         detach()
-        guard let pid = app?.processIdentifier, pid > 0 else { return }
+        guard let pid = app?.processIdentifier, pid > 0 else {
+            try suspend(reason: "no_foreground_application")
+            return
+        }
         self.pid = pid
         pendingKind = kind
         let application = AXUIElementCreateApplication(pid)
@@ -37,8 +42,25 @@ final class FocusedWindowObserver {
         try sample()
     }
 
+    func reconcile(_ app: NSRunningApplication?) throws {
+        if app?.processIdentifier != pid {
+            try watch(app, kind: .snapshot)
+        } else if schedule.shouldRead(at: ProcessInfo.processInfo.systemUptime) {
+            attachObserver()
+            try sample()
+        }
+    }
+
     private func attachObserver() {
-        guard observer == nil, let application, let pid else { return }
+        guard let application, let pid else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if let lastSubscriptionAttempt, uptime - lastSubscriptionAttempt < 60 { return }
+        lastSubscriptionAttempt = uptime
+        if observer != nil {
+            if !schedule.focusNotification { schedule.focusNotification = addNotification(kAXFocusedWindowChangedNotification, to: application) }
+            if !schedule.titleNotification, let window { schedule.titleNotification = addNotification(kAXTitleChangedNotification, to: window) }
+            return
+        }
         var created: AXObserver?
         let result = AXObserverCreate(pid, { observer, _, _, context in
             guard let context else { return }
@@ -55,8 +77,8 @@ final class FocusedWindowObserver {
         if result == .success, let created {
             observer = created
             CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .commonModes)
-            addNotification(kAXFocusedWindowChangedNotification, to: application)
-            if let window { addNotification(kAXTitleChangedNotification, to: window) }
+            schedule.focusNotification = addNotification(kAXFocusedWindowChangedNotification, to: application)
+            if let window { schedule.titleNotification = addNotification(kAXTitleChangedNotification, to: window) }
         }
     }
 
@@ -70,16 +92,26 @@ final class FocusedWindowObserver {
         window = nil
         title = nil
         hasSample = false
+        schedule = WindowObservationSchedule()
+        lastSubscriptionAttempt = nil
     }
 
-    private func addNotification(_ name: String, to element: AXUIElement) {
-        guard let observer else { return }
-        AXObserverAddNotification(observer, element, name as CFString, Unmanaged.passUnretained(self).toOpaque())
+    func suspend(reason: String) throws {
+        detach()
+        try database.appendChannel("windows", available: false, reason: reason)
+        try database.appendChannel("window_title", available: false, reason: reason)
+    }
+
+    private func addNotification(_ name: String, to element: AXUIElement) -> Bool {
+        guard let observer else { return false }
+        let result = AXObserverAddNotification(observer, element, name as CFString, Unmanaged.passUnretained(self).toOpaque())
+        return result == .success || result == .notificationAlreadyRegistered
     }
 
     private func sample() throws {
         guard let pid, let application else { return }
         let observedAt = Date()
+        schedule.lastRead = ProcessInfo.processInfo.systemUptime
         var focusedValue: CFTypeRef?
         let focusResult = AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &focusedValue)
         let focusedWindow: AXUIElement?
@@ -89,7 +121,10 @@ final class FocusedWindowObserver {
             focusedWindow = nil
         } else {
             try database.appendChannel("windows", available: false, reason: "read_failed", at: observedAt)
+            try database.appendChannel("window_title", available: false, reason: "focus_unavailable", at: observedAt)
             hasSample = false
+            pendingKind = .snapshot
+            schedule.readSucceeded = false
             return
         }
         try database.appendChannel("windows", available: true, reason: "sample_received", at: observedAt)
@@ -105,19 +140,25 @@ final class FocusedWindowObserver {
                 AXObserverRemoveNotification(observer, window, kAXTitleChangedNotification as CFString)
             }
             if let focusedWindow {
-                addNotification(kAXTitleChangedNotification, to: focusedWindow)
+                schedule.titleNotification = addNotification(kAXTitleChangedNotification, to: focusedWindow)
             }
         }
 
         var focusedTitle: String?
+        var titleReadSucceeded = true
         if let focusedWindow {
             var titleValue: CFTypeRef?
             let titleResult = AXUIElementCopyAttributeValue(focusedWindow, kAXTitleAttribute as CFString, &titleValue)
             if titleResult == .success {
                 focusedTitle = titleValue as? String
-            } else if !windowChanged && hasSample && titleResult != .noValue && titleResult != .attributeUnsupported {
-                focusedTitle = title
+            } else if titleResult != .noValue && titleResult != .attributeUnsupported {
+                titleReadSucceeded = false
             }
+        }
+        try database.appendChannel("window_title", available: titleReadSucceeded, reason: titleReadSucceeded ? "sample_received" : "read_failed", at: observedAt)
+        try database.appendMethod("window_focus", mode: schedule.focusNotification ? "notification" : "snapshot", at: observedAt)
+        if focusedWindow != nil {
+            try database.appendMethod("window_title", mode: schedule.titleNotification ? "notification" : "snapshot", at: observedAt)
         }
         if !hasSample {
             try database.appendWindow(pendingKind, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
@@ -129,5 +170,7 @@ final class FocusedWindowObserver {
         window = focusedWindow
         title = focusedTitle
         hasSample = true
+        schedule.hasWindow = focusedWindow != nil
+        schedule.readSucceeded = titleReadSucceeded
     }
 }

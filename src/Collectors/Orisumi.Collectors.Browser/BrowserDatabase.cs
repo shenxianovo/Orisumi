@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Storage;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -14,10 +13,10 @@ internal static class BrowserDatabase
         if (batch is null || batch.ProfileId == Guid.Empty)
             throw new InvalidDataException("invalid browser batch profile");
 
-        if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, ActiveTabEvents: null, BookmarkObservation: null, Downloads: null })
+        if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, ActiveTabEvents: null, BookmarkObservation: null, Downloads: null, Coverage: null })
         {
-            // The extension ties its history cursor to this file's lifetime.
-            var databaseId = await Execute(store, """
+            // All extension cursors and baselines follow this file's lifetime.
+            var databaseId = (string)await Execute(store, """
                 INSERT OR IGNORE INTO _collector_state VALUES (1, lower(hex(randomblob(16))));
                 SELECT database_id FROM _collector_state WHERE singleton = 1;
                 """);
@@ -27,6 +26,14 @@ internal static class BrowserDatabase
         }
         if (batch.GetDatabaseId)
             throw new InvalidDataException("database ID requests cannot contain data");
+
+        if (batch.Coverage is { } coverage)
+        {
+            if (batch.Visits is not null || batch.HistoryPages is not null || batch.ActiveTabEvents is not null ||
+                batch.BookmarkObservation is not null || batch.Downloads is not null)
+                throw new InvalidDataException("coverage observations cannot contain other data");
+            return new Reply(true, (long)await Execute(store, WriteCoverage(batch.ProfileId, coverage) + "SELECT changes();"));
+        }
 
         if (batch.BookmarkObservation is { } observation)
         {
@@ -45,16 +52,14 @@ internal static class BrowserDatabase
             (null, null, null, { } downloads) => WriteDownloads(batch.ProfileId, downloads),
             _ => throw new InvalidDataException("invalid browser batch"),
         };
-        var result = await Execute(store, $"""
+        var inserted = (long)await Execute(store, $"""
             {write}
             SELECT changes();
             """);
-        if (!long.TryParse(result, NumberStyles.Integer, CultureInfo.InvariantCulture, out var inserted))
-            throw new InvalidDataException("SQLite did not return a changed row count");
         return new Reply(true, Inserted: inserted);
     }
 
-    private static async Task<string> Execute(string store, string sql)
+    private static async Task<object> Execute(string store, string sql)
     {
         using var connection = OpenDatabase(store);
         using var transaction = connection.BeginTransaction();
@@ -65,7 +70,7 @@ internal static class BrowserDatabase
         {
             var result = await command.ExecuteScalarAsync();
             transaction.Commit();
-            return Convert.ToString(result, CultureInfo.InvariantCulture) ?? "";
+            return result!;
         }
         catch (SqliteException error)
         {
@@ -77,10 +82,7 @@ internal static class BrowserDatabase
     {
         var database = Path.GetFullPath(Path.Combine(store, "raw", "browser.sqlite"));
         Directory.CreateDirectory(Path.GetDirectoryName(database)!);
-        var fileOptions = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.Write, Share = FileShare.ReadWrite };
-        if (!OperatingSystem.IsWindows())
-            fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (File.Open(database, fileOptions)) { }
+        SqliteFile.CreateIfMissing(database);
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = database, ForeignKeys = true, Pooling = false, DefaultTimeout = 3,
@@ -102,7 +104,29 @@ internal static class BrowserDatabase
     internal sealed record Reply(bool Ok, long? Inserted = null, string? DatabaseId = null);
 
     private sealed record Batch(Guid ProfileId, Visit?[]? Visits, HistoryPage?[]? HistoryPages, ActiveTabEvent?[]? ActiveTabEvents,
-        BookmarkDatabase.Observation? BookmarkObservation, Download?[]? Downloads, bool GetDatabaseId);
+        BookmarkDatabase.Observation? BookmarkObservation, Download?[]? Downloads, bool GetDatabaseId, Coverage?[]? Coverage);
+
+    private sealed record Coverage(Guid EventId, string Scope, string Mode, long StartedAtUtcMs,
+        long? StoppedAtUtcMs, string Evidence, string? Detail, Guid? RunId);
+
+    private static string WriteCoverage(Guid profile, Coverage?[] entries)
+    {
+        var sql = new StringBuilder();
+        foreach (var value in entries)
+        {
+            if (value is null || value.EventId == Guid.Empty || string.IsNullOrWhiteSpace(value.Scope) ||
+                value.Mode is not ("notification" or "replay" or "snapshot") || value.StartedAtUtcMs < 0 ||
+                value.StoppedAtUtcMs < value.StartedAtUtcMs || string.IsNullOrWhiteSpace(value.Evidence))
+                throw new InvalidDataException("invalid capture coverage");
+            var json = JsonSql(value);
+            sql.AppendLine($"""
+                INSERT OR IGNORE INTO capture_channel_events
+                SELECT '{value.EventId:D}','chrome','{profile:D}',{json}->>'$.scope',{json}->>'$.mode',
+                  {value.StartedAtUtcMs},{json}->>'$.stoppedAtUtcMs',{json}->>'$.evidence',{json}->>'$.detail',{json}->>'$.runId';
+                """);
+        }
+        return sql.ToString();
+    }
 
     private static string WriteVisits(Guid profileId, string payload, Visit?[] entries)
     {
@@ -132,15 +156,16 @@ internal static class BrowserDatabase
 
     private static string WriteHistoryPages(Guid profileId, string payload, HistoryPage?[] entries)
     {
-        if (!entries.All(page => page is { Url.Length: > 0, ObservedAtUtcMs: > 0 } &&
+        if (!entries.All(page => page is { Url.Length: > 0, ObservedAtUtcMs: > 0 } && page.EventId != Guid.Empty &&
                 !string.IsNullOrWhiteSpace(page.Title)))
             throw new InvalidDataException("invalid history pages batch");
 
         return $"""
-            INSERT INTO history_page_title_observations (browser, profile_id, url, title, observed_at_utc_ms)
-            SELECT 'chrome', '{profileId:D}', value ->> '$.url', value ->> '$.title', value ->> '$.observedAtUtcMs'
+            INSERT OR IGNORE INTO history_page_title_observations (browser, profile_id, event_id, url, title, observed_at_utc_ms)
+            SELECT 'chrome', '{profileId:D}', value ->> '$.eventId', value ->> '$.url', value ->> '$.title', value ->> '$.observedAtUtcMs'
             FROM json_each({payload}, '$.historyPages')
-            WHERE value ->> '$.title' IS NOT (SELECT title FROM history_pages p
+            WHERE value ->> '$.eventId' IS NOT NULL
+            OR value ->> '$.title' IS NOT (SELECT title FROM history_pages p
                 WHERE p.browser='chrome' AND p.profile_id='{profileId:D}' AND p.url=value ->> '$.url')
               AND value ->> '$.observedAtUtcMs' >= (SELECT observed_at_utc_ms FROM history_pages p
                 WHERE p.browser='chrome' AND p.profile_id='{profileId:D}' AND p.url=value ->> '$.url')
@@ -148,7 +173,7 @@ internal static class BrowserDatabase
             """;
     }
 
-    private sealed record HistoryPage(string? Url, string? Title, long ObservedAtUtcMs);
+    private sealed record HistoryPage(string? Url, string? Title, long ObservedAtUtcMs, Guid? EventId);
 
     private static string WriteActiveTabEvents(Guid profileId, ActiveTabEvent?[] entries)
     {
@@ -173,9 +198,11 @@ internal static class BrowserDatabase
             foreach (var field in new[] { "url", "title" })
                 sql.AppendLine($"""
                     INSERT OR IGNORE INTO tab_{field}_observations SELECT observation_id,{json}->>'$.tabId',{json}->>'$.{field}'
-                    FROM tab_observations o WHERE event_id='{entry.EventId:D}' AND {json}->>'$.tabId' IS NOT NULL AND {json}->>'$.{field}' IS NOT NULL
-                    AND {json}->>'$.{field}' IS NOT (SELECT f.{field} FROM tab_{field}_observations f JOIN tab_observations p USING(observation_id)
-                        WHERE p.run_id=o.run_id AND f.tab_id={json}->>'$.tabId' AND p.run_sequence<o.run_sequence ORDER BY p.run_sequence DESC LIMIT 1);
+                    FROM tab_observations o WHERE event_id='{entry.EventId:D}' AND {json}->>'$.tabId' IS NOT NULL
+                    AND (NOT EXISTS (SELECT 1 FROM tab_{field}_observations f JOIN tab_observations p USING(observation_id)
+                        WHERE p.run_id=o.run_id AND f.tab_id={json}->>'$.tabId' AND p.run_sequence<o.run_sequence)
+                    OR {json}->>'$.{field}' IS NOT (SELECT f.{field} FROM tab_{field}_observations f JOIN tab_observations p USING(observation_id)
+                        WHERE p.run_id=o.run_id AND f.tab_id={json}->>'$.tabId' AND p.run_sequence<o.run_sequence ORDER BY p.run_sequence DESC LIMIT 1));
                     """);
         }
         return sql.ToString();
@@ -218,6 +245,7 @@ internal static class BrowserDatabase
                     INSERT OR IGNORE INTO {table} SELECT observation_id,{values} FROM download_observations o
                     WHERE event_id='{entry.EventId:D}' AND ({supplied})
                       AND (NOT EXISTS (SELECT 1 {previous})
+                        OR (o.kind='snapshot' AND NOT EXISTS (SELECT 1 FROM download_observations p WHERE p.download_key=o.download_key AND p.run_id=o.run_id AND p.kind='snapshot' AND p.observation_id<o.observation_id))
                         OR ({values}) IS NOT (SELECT {columns} {previous} ORDER BY p.observation_id DESC LIMIT 1));
                     """);
             }

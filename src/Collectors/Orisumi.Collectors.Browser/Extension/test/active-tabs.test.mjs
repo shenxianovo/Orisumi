@@ -10,8 +10,8 @@ test("title-only callbacks are collected and private focus closes regular-tab ob
   let tab = { id: 1, windowId: 2, active: true, incognito: false, url: "https://example.com", title: "A" };
   const window = () => ({ id: 2, focused: true, tabs: [tab] });
   globalThis.chrome = { storage: { local: storage(local), session: storage(session) },
-    tabs: { onActivated: event("activated"), onUpdated: event("updated"), get: async () => tab },
-    windows: { WINDOW_ID_NONE: -1, onFocusChanged: event("focus"), get: async () => window(), getAll: async () => [window()] },
+    tabs: { onActivated: event("activated"), onUpdated: event("updated"), onRemoved: event("tabRemoved"), get: async () => tab },
+    windows: { WINDOW_ID_NONE: -1, onFocusChanged: event("focus"), onRemoved: event("windowRemoved"), get: async () => window(), getAll: async () => [window()] },
     runtime: { sendNativeMessage: async (_host, batch) => { sent.push(...batch.activeTabEvents); return { ok: true, inserted: 1 }; } } };
   const collector = observeActiveTabs();
   await collector.snapshot(); await collector.flush();

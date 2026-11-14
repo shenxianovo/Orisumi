@@ -1,5 +1,3 @@
-import ApplicationServices
-import CoreGraphics
 import Darwin
 
 func usage() -> Never {
@@ -32,14 +30,6 @@ else {
 // The .NET parent handles terminal Ctrl+C and closes the pipe to request a clean stop.
 signal(SIGINT, SIG_IGN)
 umask(0o077)
-if captureWindows && !AXIsProcessTrusted() {
-    fputs("orisumi: window capture requires Accessibility permission for this process\n", stderr)
-    exit(1)
-}
-if captureInput && !CGPreflightListenEventAccess() {
-    fputs("orisumi: input capture requires Input Monitoring permission for this process\n", stderr)
-    exit(1)
-}
 do {
     try captureForeground(in: ForegroundDatabase(path: path, captureWindows: captureWindows, captureInput: captureInput),
                           seconds: seconds, captureWindows: captureWindows, afkThresholdMS: afkThresholdMS,

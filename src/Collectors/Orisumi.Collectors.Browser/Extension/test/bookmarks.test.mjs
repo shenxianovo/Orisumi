@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,8 +24,8 @@ function database(t) {
     return { observationId: randomUUID(), runId, runStartedAtUtcMs: 1000,
       runSequence: sequence, observedAtUtcMs: 1000 + sequence, ...change };
   }
-  function send(value, profile = profileId) {
-    const payload = Buffer.from(JSON.stringify({ profileId: profile, bookmarkObservation: value }));
+  function sendBatch(batch, profile = profileId) {
+    const payload = Buffer.from(JSON.stringify({ profileId: profile, ...batch }));
     const header = Buffer.alloc(4);
     header.writeUInt32LE(payload.length);
     const result = spawnSync(executable, ["--store", store, "browser", "native-host"], { input: Buffer.concat([header, payload]) });
@@ -34,13 +34,14 @@ function database(t) {
     const reply = JSON.parse(result.stdout.subarray(4).toString());
     return reply;
   }
+  const send = (value, profile = profileId) => sendBatch({ bookmarkObservation: value }, profile);
   const sql = query => JSON.parse(execFileSync("sqlite3", ["-json", join(store, "raw/browser.sqlite"), query], { encoding: "utf8" }) || "[]");
   function write(change) {
     const value = observation(change);
     assert.equal(send(value).ok, true, JSON.stringify(value));
     return value;
   }
-  return { send, write, observation, sql, profileId };
+  return { send, sendBatch, write, observation, sql, profileId, store };
 }
 
 const node = (id, parentId, position, title = id, url = `https://example.com/${id}`) => ({
@@ -114,6 +115,86 @@ test("invalid observations roll back and equal bookmark IDs in different profile
   assert.equal(db.send(second, randomUUID()).ok, true);
   assert.equal(db.sql("SELECT count(*) AS n FROM bookmarks")[0].n, 2);
   assert.equal(db.sql("SELECT count(*) AS n FROM bookmark_observations")[0].n, 2);
+});
+
+test("last-use samples write only the changed usage field", t => {
+  const db = database(t);
+  db.write({ kind: "snapshot", nodes: [node("B", "F", 0)] });
+  db.write({ kind: "last_used", usages: [{ bookmarkId: "B", lastUsedAtUtcMs: 2000 }] });
+  assert.deepEqual(db.sql("SELECT last_used_at_utc_ms FROM bookmark_last_used_observations"), [{ last_used_at_utc_ms: 2000 }]);
+  for (const table of ["bookmark_presence_events", "bookmark_title_events", "bookmark_url_events", "bookmark_location_events"])
+    assert.equal(db.sql(`SELECT count(*) AS n FROM ${table}`)[0].n, 1, table);
+});
+
+test("coverage retries are idempotent and an unconfirmed run remains open across restarts", t => {
+  const db = database(t), first = randomUUID(), second = randomUUID();
+  const event = (runId, startedAtUtcMs, evidence, stoppedAtUtcMs = null) => ({
+    eventId: randomUUID(), scope: "active_tabs", mode: "notification", startedAtUtcMs, stoppedAtUtcMs, evidence, detail: null, runId,
+  });
+  const entries = [event(first, 1000, "available"), event(first, 2000, "unavailable"), event(first, 3000, "available"),
+    event(second, 4000, "available"), { ...event(second, 4100, "sampled", 4200), scope: "bookmarks.last_used", mode: "snapshot" }];
+  assert.equal(db.sendBatch({ coverage: entries }).ok, true);
+  assert.equal(db.sendBatch({ coverage: entries }).ok, true);
+  assert.deepEqual(db.sql("SELECT started_at_utc_ms,stopped_at_utc_ms FROM capture_coverage ORDER BY started_at_utc_ms"), [
+    { started_at_utc_ms: 1000, stopped_at_utc_ms: 2000 }, { started_at_utc_ms: 2000, stopped_at_utc_ms: 3000 },
+    { started_at_utc_ms: 3000, stopped_at_utc_ms: null }, { started_at_utc_ms: 4000, stopped_at_utc_ms: null },
+    { started_at_utc_ms: 4100, stopped_at_utc_ms: 4200 },
+  ]);
+});
+
+test("unknown tab fields clear prior values and download baselines survive a new run", t => {
+  const db = database(t), run = randomUUID();
+  const tab = (sequence, title, url) => ({ eventId: randomUUID(), captureSessionId: run, runStartedAtUtcMs: 1000,
+    sessionSequence: sequence, observedAtUtcMs: 1000 + sequence, eventKind: sequence === 1 ? "snapshot" : "title_changed",
+    windowId: 2, tabId: 1, title, url });
+  assert.equal(db.sendBatch({ activeTabEvents: [tab(1, "A", "https://example.com"), tab(2, null, null)] }).ok, true);
+  assert.deepEqual(db.sql("SELECT title,url FROM active_tab_state_history ORDER BY run_sequence"), [
+    { title: "A", url: "https://example.com" }, { title: null, url: null },
+  ]);
+  const download = runId => ({ eventId: randomUUID(), runId, runStartedAtUtcMs: 1000, runSequence: 1,
+    observedAtUtcMs: 2000, kind: "snapshot", downloadId: 1, fields: { state: "complete", filename: "/tmp/a", url: "https://example.com/file" } });
+  assert.equal(db.sendBatch({ downloads: [download(randomUUID()), download(randomUUID())] }).ok, true);
+  for (const table of ["download_state_observations", "download_path_observations", "download_resource_observations"])
+    assert.equal(db.sql(`SELECT count(*) AS n FROM ${table}`)[0].n, 2, table);
+});
+
+test("delayed title callbacks survive newer samples and retry with the same identity", t => {
+  const db = database(t), url = "https://example.com";
+  const page = (title, observedAtUtcMs, eventId) => ({ url, title, observedAtUtcMs, eventId });
+  assert.equal(db.sendBatch({ historyPages: [page("A", 1000)] }).ok, true);
+  const delayed = page("B", 2000, randomUUID());
+  assert.equal(db.sendBatch({ historyPages: [page("C", 3000)] }).ok, true);
+  assert.equal(db.sendBatch({ historyPages: [delayed] }).ok, true);
+  assert.equal(db.sendBatch({ historyPages: [delayed] }).ok, true);
+  assert.deepEqual(db.sql("SELECT title FROM history_page_title_observations ORDER BY observed_at_utc_ms"), ["A", "B", "C"].map(title => ({ title })));
+  assert.equal(db.sql("SELECT title FROM history_pages")[0].title, "C");
+  assert.equal(db.sendBatch({ historyPages: [page("A", 4000, randomUUID()), page("B", 4000, randomUUID()), page("A", 4000, randomUUID())] }).ok, true);
+  assert.deepEqual(db.sql("SELECT title FROM history_page_title_observations WHERE observed_at_utc_ms=4000 ORDER BY observation_id"), ["A", "B", "A"].map(title => ({ title })));
+});
+
+test("native host waits for a concurrent SQLite writer without reopening the database as a file", async t => {
+  const db = database(t);
+  assert.equal(db.sendBatch({ getDatabaseId: true }).ok, true);
+  const writer = spawn("sqlite3", [join(db.store, "raw/browser.sqlite")]);
+  const exited = new Promise(resolve => writer.on("exit", resolve));
+  t.after(() => writer.kill());
+  const locked = new Promise(resolve => writer.stdout.once("data", resolve));
+  writer.stdin.write("BEGIN EXCLUSIVE;\nSELECT 'locked';\n");
+  await locked;
+  const payload = Buffer.from(JSON.stringify({ profileId: db.profileId,
+    visits: [{ visitId: "concurrent", visitedAtUtcMs: 1000, url: "https://example.com" }] }));
+  const header = Buffer.alloc(4); header.writeUInt32LE(payload.length);
+  const receiver = spawn(executable, ["--store", db.store, "browser", "native-host"]);
+  const output = [], errors = [];
+  receiver.stdout.on("data", value => output.push(value));
+  receiver.stderr.on("data", value => errors.push(value));
+  const replied = new Promise(resolve => receiver.on("exit", () => resolve(JSON.parse(Buffer.concat(output).subarray(4)))));
+  receiver.stdin.end(Buffer.concat([header, payload]));
+  setTimeout(() => writer.stdin.end("COMMIT;\n.quit\n"), 1000);
+  const reply = await replied;
+  await exited;
+  assert.equal(reply.ok, true, Buffer.concat(errors).toString());
+  assert.equal(db.sql("SELECT count(*) AS n FROM visits")[0].n, 1);
 });
 
 function browser() {

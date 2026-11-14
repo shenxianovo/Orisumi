@@ -6,17 +6,18 @@ test("history backfill does not block subsequent active-tab flushes", async () =
   const local = {}, session = {}, listeners = {}, sent = [];
   const storage = data => ({ get: async keys => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key, structuredClone(data[key])])),
     set: async values => Object.assign(data, structuredClone(values)) });
-  const event = name => ({ addListener: callback => { listeners[name] = callback; } });
+  const subscriptions = {};
+  const event = name => ({ addListener: callback => { (subscriptions[name] ??= []).push(callback); listeners[name] = (...args) => subscriptions[name].forEach(listener => listener(...args)); } });
   let tab = { id: 1, windowId: 2, active: true, incognito: false, url: "https://example.com", title: "A" };
   const window = () => ({ focused: true, tabs: [tab] });
   globalThis.chrome = {
     storage: { local: storage(local), session: storage(session) },
-    tabs: { onActivated: event("activated"), onUpdated: event("updated"), get: async () => tab },
-    windows: { WINDOW_ID_NONE: -1, onFocusChanged: event("focus"), get: async () => window(), getAll: async () => [window()] },
-    downloads: { onCreated: event("downloadCreated"), onChanged: event("downloadChanged"), search: async () => [] },
+    tabs: { onActivated: event("activated"), onUpdated: event("updated"), onRemoved: event("tabRemoved"), get: async () => tab },
+    windows: { WINDOW_ID_NONE: -1, onFocusChanged: event("focus"), onRemoved: event("windowRemoved"), get: async () => window(), getAll: async () => [window()] },
+    downloads: { onCreated: event("downloadCreated"), onChanged: event("downloadChanged"), onErased: event("downloadErased"), search: async () => [] },
     bookmarks: Object.fromEntries(["onCreated", "onChanged", "onMoved", "onRemoved", "onChildrenReordered"].map(name => [name, event(name)])),
     alarms: { get: async () => ({}), create: async () => {}, onAlarm: event("alarm") },
-    history: { search: async options => options.maxResults === 1 ? [] : [{ url: tab.url, title: "A", lastVisitTime: Date.now() }],
+    history: { onVisited: event("visited"), onVisitRemoved: event("visitsRemoved"), search: async options => options.maxResults === 1 ? [] : [{ url: tab.url, title: "A", lastVisitTime: Date.now() }],
       getVisits: async () => new Promise(() => {}) },
     runtime: { onInstalled: event("installed"), onStartup: event("startup"),
       sendNativeMessage: async (_host, batch) => { if (batch.activeTabEvents) sent.push(...batch.activeTabEvents); return { ok: true, inserted: 1, databaseId: "test" }; } },

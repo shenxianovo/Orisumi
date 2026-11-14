@@ -216,7 +216,9 @@ async Task MacOSChecks()
     var path = Path.Combine(fixture.Root, "macos.sqlite");
     await Run(binary, [path]);
     using var db = Open(path);
-    Count(db, "process_instances", 2);
+    // The fixture PID is absent from the OS: its window observations have an
+    // unverified identity, separate from both supplied lifecycle identities.
+    Count(db, "process_instances", 4);
     Count(db, "window_focus_instances", 2);
     Count(db, "focused_window_events", 3);
     Count(db, "window_title_observations", 3);
@@ -224,7 +226,7 @@ async Task MacOSChecks()
     Rows(db, "SELECT available FROM capture_channel_events ORDER BY run_sequence", [1], [0], [1]);
     Rows(db, "SELECT capture_windows,capture_input,stopped_at_utc_ms IS NOT NULL FROM capture_runs", [1, 1, 1]);
     Rows(db, "PRAGMA foreign_key_check");
-    Rows(db, "PRAGMA user_version", [1]);
+    Rows(db, "PRAGMA user_version", [long.Parse(File.ReadAllText(Path.Combine(schema, "Version.txt")))]);
     // The native fixture also opens twice with capture features disabled.
     using var disabled = Open(path + ".disabled");
     Rows(disabled, "SELECT COUNT(*) FROM window_history", [0]);
@@ -234,7 +236,7 @@ async Task MacOSChecks()
     Exec(db, "PRAGMA user_version=99");
     await Run(binary, [path, "reject"]);
     Rows(db, "PRAGMA user_version", [99]);
-    Count(db, "process_instances", 2);
+    Count(db, "process_instances", 4);
     var broken = Path.Combine(packagedSchema, "Indexes/invalid.sql");
     File.WriteAllText(broken, "CREATE INDEX invalid ON nonexistent(column_name);");
     var failedPath = Path.Combine(fixture.Root, "failed.sqlite");

@@ -62,8 +62,8 @@ public static class ChromeNativeHost
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or Win32Exception)
         {
-            Console.Error.WriteLine("orisumi: " + error.GetType().Name);
-            reply = JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = "The local collector could not save this batch." });
+            Console.Error.WriteLine("orisumi: " + error);
+            reply = JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = error.Message });
         }
 
         BinaryPrimitives.WriteInt32LittleEndian(header, reply.Length);

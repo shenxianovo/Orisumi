@@ -6,11 +6,12 @@ internal static class BookmarkDatabase
 {
     internal sealed record Node(string BookmarkId, string? ParentId, int? Position, string Title,
         string? Url, long? AddedAtUtcMs, long? LastUsedAtUtcMs);
+    internal sealed record Usage(string BookmarkId, long LastUsedAtUtcMs);
 
     internal sealed record Observation(Guid ObservationId, Guid RunId, long RunStartedAtUtcMs,
         long RunSequence, long ObservedAtUtcMs, string Kind, Node[]? Nodes = null, Node? Node = null,
         string? BookmarkId = null, string? Title = null, string? Url = null, string? ParentId = null,
-        int? Position = null, string[]? ChildIds = null);
+        int? Position = null, string[]? ChildIds = null, Usage[]? Usages = null);
 
     private sealed record State(string Id, string? Kind = null, long? Added = null, bool Present = true,
         string? Title = null, string? Url = null, string? Parent = null, int? Position = null, long? LastUsed = null)
@@ -131,6 +132,11 @@ internal static class BookmarkDatabase
         var previous = id is not null ? states.GetValueOrDefault(id) : null;
         switch (observation.Kind)
         {
+            case "last_used":
+                foreach (var usage in observation.Usages!)
+                    if (states.TryGetValue(usage.BookmarkId, out var used) && used.Present)
+                        states[usage.BookmarkId] = used with { LastUsed = usage.LastUsedAtUtcMs };
+                break;
             case "snapshot":
                 var incoming = observation.Nodes!.ToDictionary(node => node.BookmarkId, Observe, StringComparer.Ordinal);
                 foreach (var state in states.Values.ToArray())
@@ -185,6 +191,8 @@ internal static class BookmarkDatabase
         var valid = value.Kind switch
         {
             "snapshot" => value.Nodes is { } nodes && nodes.All(ValidNode) && nodes.Select(node => node.BookmarkId).Distinct().Count() == nodes.Length,
+            "last_used" => value.Usages is { } usages && usages.All(usage => !string.IsNullOrEmpty(usage.BookmarkId) && usage.LastUsedAtUtcMs > 0)
+                && usages.Select(usage => usage.BookmarkId).Distinct().Count() == usages.Length,
             "created" => ValidNode(value.Node),
             "changed" => !string.IsNullOrEmpty(value.BookmarkId) && value.Title is not null,
             "moved" => !string.IsNullOrEmpty(value.BookmarkId) && !string.IsNullOrEmpty(value.ParentId) && value.Position is >= 0,

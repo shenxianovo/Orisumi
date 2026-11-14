@@ -26,6 +26,7 @@ enum InputCaptureError: LocalizedError {
 }
 
 final class InputEventObserver {
+    private static let activityTypes: Set<CGEventType> = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel, .tabletPointer, .tabletProximity]
     private static let keyboardTypes: Set<CGEventType> = [.keyDown, .keyUp, .flagsChanged]
     private static let mouseKinds: [CGEventType: String] = [
         .leftMouseDown: "button_down", .rightMouseDown: "button_down", .otherMouseDown: "button_down",
@@ -34,6 +35,8 @@ final class InputEventObserver {
 
     private let database: ForegroundDatabase
     private let failed: (Error) -> Void
+    private let activity: () -> Void
+    private let interrupted: () -> Void
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var timer: Timer?
@@ -41,11 +44,14 @@ final class InputEventObserver {
     private var keyboard = KeyboardPressAccumulator()
     private var paused = false
 
-    init(database: ForegroundDatabase, failed: @escaping (Error) -> Void) throws {
+    init(database: ForegroundDatabase, failed: @escaping (Error) -> Void,
+         activity: @escaping () -> Void = {}, interrupted: @escaping () -> Void = {}) throws {
         self.database = database
         self.failed = failed
+        self.activity = activity
+        self.interrupted = interrupted
 
-        let eventMask = Self.keyboardTypes.union(Self.mouseKinds.keys)
+        let eventMask = Self.keyboardTypes.union(Self.mouseKinds.keys).union(Self.activityTypes)
             .reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
                                            eventsOfInterest: eventMask, callback: { _, type, event, context in
@@ -122,6 +128,7 @@ final class InputEventObserver {
             do { try database.appendChannel("input", available: false, reason: "tap_interrupted") }
             catch { stop(); failed(error); return }
             pending.append(contentsOf: keyboard.interrupt())
+            interrupted()
             CGEvent.tapEnable(tap: tap, enable: true)
             if !CGEvent.tapIsEnabled(tap: tap) {
                 stop()
@@ -134,6 +141,7 @@ final class InputEventObserver {
         }
 
         let observedAt = Date()
+        activity()
         if Self.keyboardTypes.contains(type) {
             let isRepeat = type == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             if let press = keyboard.consume(type, keyCode: event.getIntegerValueField(.keyboardEventKeycode),

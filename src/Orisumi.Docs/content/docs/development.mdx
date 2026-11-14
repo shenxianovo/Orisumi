@@ -1,69 +1,48 @@
 ---
 title: 命令行与开发
-description: 使用全局 orisumi 入口运行当前仓库源码。
+description: 源码入口、采集运行与验证。
 ---
 
-例如修改采集器后，在仓库中运行 `orisumi codex capture --all`，
-入口会先增量构建这份源码，再启动刚生成的程序。普通源码修改无需重新安装全局工具。
+## 安装与源码入口
 
-## 安装入口
-
-需要 .NET 11 SDK；macOS 原生采集器还需要 Xcode Command Line Tools。
-在仓库根目录执行一次：
+需要 .NET 11 SDK；macOS 原生采集器另需 Xcode Command Line Tools。在仓库根目录安装全局入口：
 
 ```sh
 dotnet pack src/Orisumi.Cli -c Release -o .orisumi/packages
 dotnet tool install --global Orisumi.Cli --source .orisumi/packages --version 0.1.1
 ```
 
-.NET 全局工具目录需要在 `PATH` 中。在 macOS 和 Linux 上通常是 `~/.dotnet/tools`。
-安装后，在仓库根目录或其子目录中直接运行：
+将全局工具目录加入 `PATH`（macOS/Linux 通常为 `~/.dotnet/tools`）。`orisumi` 从当前目录向上定位 `Orisumi.slnx` 与 CLI 项目，遇到其他 Git 仓库即停止；仓库外不能使用源码入口。
 
-```sh
-orisumi --help
-orisumi dev --help
-```
+每次调用先增量构建当前检出的 Debug 源码，包括未提交修改；失败即退出。构建信息写 stderr，命令保留 stdin/stdout、参数、退出码和工作目录，相对路径以调用位置为准。
 
-全局入口从当前工作目录向上定位 `Orisumi.slnx` 和 CLI 项目，使用当前检出的源码，
-包括尚未提交的修改。遇到其他 Git 仓库会停止向上查找，仓库外会提示进入 Orisumi 仓库。
+普通源码修改无需重装；修改入口机制或项目路径后重新打包安装。直接运行构建产物不会自动构建；后台采集和 Chrome 接收端使用这种方式。
 
-每次运行先由 .NET 增量构建 Debug 版本；构建失败立即退出，不运行上一次的产物。
-构建信息写入标准错误，实际命令保留标准输入、标准输出、参数和退出码。
-当前工作目录保持不变，相对路径以发起命令的位置为准。
+## 命令与运行
 
-全局工具只承担源码启动。修改命令和采集器无需重新安装；修改全局启动机制或约定的项目路径后，需要重新打包安装入口。
-直接启动仓库中的构建产物会执行该产物，Chrome 本机接收端和后台采集使用这种方式。
-
-## 命令组织
-
-一个 `Orisumi.Cli` 项目提供 `orisumi` 命令，使用 `System.CommandLine` 与 `Spectre.Console`。
-开发命令组织在其中的 `Dev` 文件夹，采集器仍是独立项目。
+CLI 使用 `System.CommandLine`、`Spectre.Console`，开发命令在 `Orisumi.Cli/Dev`，各采集器独立成项目。完整选项见各命令 `--help`。
 
 | 命令 | 用途 |
 | --- | --- |
-| `orisumi codex / claude / foreground` | 采集当前可观察的内容和变化 |
-| `orisumi timeline` | 查询活动时间线 |
-| `orisumi browser register-chrome` | 将 Chrome 扩展连接到当前构建的接收端 |
-| `orisumi dev` | 构建、预览文档、编译浏览器扩展、统计行数 |
+| `orisumi dev build [-c Release]` | 构建项目 |
+| `orisumi capture start --store .orisumi` | 启动或重启系统采集器，保留数据 |
+| `orisumi capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](./recovery.mdx) |
+| `orisumi codex capture --all` | 导入所有 Codex 会话；单会话可传 ID，省略时读 `CODEX_THREAD_ID` |
+| `orisumi claude capture` | 导入 Claude 会话 |
+| `orisumi foreground --windows --input` | 持续采集 macOS；可指定秒数，Ctrl+C 正常停止 |
+| `orisumi network capture / query` | [设备网络采集与查询](./network.mdx) |
+| `orisumi timeline --from … --to …` | 查询活动时间线，时间参数包含 UTC 偏移或 `Z` |
+| `orisumi dev docs` | 文档预览；安装、检查和构建见[文档维护](./contributing.mdx) |
 
-## 构建与文档
+`--store` 默认是当前目录的 `.orisumi`，数据库在 `raw/`，日志在 `logs/`。
 
-文档站需要 Node.js 24.14 或更新版本。
+`capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动，以继承窗口和输入权限；PID 写入 `foreground.pid`，日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
 
-```sh
-orisumi dev build
-orisumi dev build -c Release
+Codex、Claude 以 `capture --watch` 常驻监听，网络默认每 5 秒采样；三者由用户 LaunchAgent 保活。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
 
-orisumi dev docs install
-orisumi dev docs
-orisumi dev docs check
-orisumi dev docs build
-```
+重建输出库前停止相关监听和导入；重建后重启采集并重载扩展，建立新初值。来源数据保持只读，清空输出库不会删除来源内容。
 
-`orisumi dev docs` 在本地端口 3020 启动开发服务，按 Ctrl+C 停止。
-`orisumi dev docs start` 运行生产构建。内容写法与历史插件说明见[文档维护](./contributing.mdx)。
-
-## 浏览器扩展开发
+## 浏览器扩展
 
 ```sh
 orisumi dev browser install
@@ -71,90 +50,36 @@ orisumi dev browser build
 orisumi browser register-chrome EXTENSION_ID --store .orisumi
 ```
 
-在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，
-将页面显示的扩展 ID 传给 `register-chrome`。注册指向当前运行的构建产物。
-修改扩展后，重新构建并在 Chrome 中重载。
-
-Chrome 本机接收端的标准输出专用于 Native Messaging 二进制协议。
+在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，使用页面显示的 ID 注册。修改扩展后重新构建并重载；注册指向当前构建的接收端，其 stdout 专用于 Native Messaging 二进制协议。
 
 ## 行数统计
 
-```sh
-orisumi dev loc
-orisumi dev loc --json
-```
+`orisumi dev loc [--json]` 统计当前工作区，包括未提交修改和未忽略的新文件；跳过已删除文件、符号链接、空行和纯注释。`Impl`/`Tests` 按同一刻度显示，文档、配置和生成文件（含锁文件）归 `Outside code`，不计入代码总数。
 
-统计整个当前工作区，包括已跟踪文件的修改和未被 Git 忽略的新文件，跳过已删除文件和符号链接。
-按项目、语言分别展示有效行数，排除空行和纯注释行。`Impl` 是实现，`Tests` 是测试；蓝色实条和绿色虚条使用相同刻度。
-文档、构建配置和生成文件（包括锁文件）单列在 `Outside code`，不进入代码总数。
+项目从 `.csproj`、`package.json` 识别，嵌套文件归最近项目；名称分别取项目文件名和包名。项目内测试归该项目；独立 C# 测试只引用一个非测试项目时归该项目，其余归 `Cross-module`。独立脚本归 `Scripts`，CLI 的 `Dev/` 归 CLI 实现。无法归属的已识别语言文件列入 `Unclassified files`，不计入总数。
 
-项目由工作区中的 `.csproj` 和 `package.json` 识别；嵌套项目优先归属最近的项目。
-C# 项目显示项目文件名，Node 项目显示 `package.json` 的 `name`。
-项目目录中的测试归该项目；独立 C# 测试项目只引用一个非测试项目时归那个项目，其他独立测试归 `Cross-module`。
-`scripts/` 中的独立脚本列入 `Scripts`；CLI 的 `Dev/` 代码计入 CLI 的实现。
-其他无法归属的已识别语言文件列在 `Unclassified files`，不进入代码总数。
+JSON stdout 包含 `code`、`roles`、`modules`、`languages`、`unclassifiedPaths`。文本重定向保持表格且不含终端控制码；`NO_COLOR` 关闭配色。
 
-`--json` 仅向标准输出写入统计结果：`code` 为总计，`roles` 按用途分类，`modules` 按项目分类，
-`languages` 按语言分类，`unclassifiedPaths` 列出未归属文件。
-重定向的普通文本输出保持相同表格，不带终端控制码；设置 `NO_COLOR` 可以关闭配色。
+## 验证
 
-统计行为检查使用临时 Git 仓库：
+在仓库根目录运行；测试使用临时数据和进程，结束后清理。
 
 ```sh
+dotnet build Orisumi.slnx
+dotnet run --file tests/CaptureStartupChecks.cs
+dotnet run --file tests/SchemaChecks.cs
+dotnet run --file tests/CaptureIntegrationChecks.cs
+dotnet run --file tests/CaptureCoverageChecks.cs
+dotnet run --file tests/ClaudeIncrementalChecks.cs
+dotnet run --file tests/CodexIncrementalChecks.cs
+dotnet run --file tests/MacOSObservationChecks.cs
+dotnet run --file tests/NetworkChecks.cs
+dotnet run --file tests/NetworkIntegrationChecks.cs
+npm --prefix src/Collectors/Orisumi.Collectors.Browser/Extension test
+dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
 dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
 ```
 
-## 验证源码入口
+启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查结构打包、视图、重复打开和版本拒绝；采集检查覆盖独立变化、修订、重试、身份与中断。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
 
-安装全局入口后，在仓库根目录运行 .NET 行为检查：
-
-```sh
-dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
-```
-
-检查使用临时仓库，覆盖源码更新、构建失败、参数和退出码、二进制输入输出及 Unix 终止信号。
-
-## 采集与查询
-
-```sh
-orisumi codex capture --all
-orisumi claude capture
-orisumi foreground --windows --input
-orisumi timeline --from 2026-11-13T09:00:00+08:00 --to 2026-11-13T10:00:00+08:00
-```
-
-`--store` 默认为当前工作目录下的 `.orisumi`，各来源数据库放在其中的 `raw/`。
-Codex 可指定单个会话 ID，省略时读取 `CODEX_THREAD_ID`；`--all` 采集所有会话。
-`foreground` 省略采集秒数时持续监听，按 Ctrl+C 停止并写入采集结束时间。
-
-## 数据库定义
-
-每个采集器的持久化结构统一放在项目内的 `Schema/`：
-
-```text
-Schema/
-├── Tables/       # 一张表一个 SQL 文件，包含字段、主键、外键及其他约束
-├── Indexes/      # 普通索引按所属表归文件
-├── Views/        # 一个视图一个 SQL 文件
-└── Version.txt   # 这个来源的结构版本，正整数
-```
-
-例如增加网络采样表，在 Network 项目的 `Schema/Tables/` 新增 SQL 文件即可。
-构建自动收集这些文件，初始化按表、索引、视图依次执行，每组内按文件名排序。
-无需注册文件清单、编号或声明依赖；SQL 文件只定义结构，不放连接设置、事务控制或数据写入。
-
-C# 采集器将 SQL 嵌入各自程序集，使用 `Collectors/Storage/SqliteSchema.cs` 的共享实现。
-macOS 原生程序使用 `Native/DatabaseSchema.swift`，从可执行文件旁的
-`Orisumi.Collectors.MacOS/Schema/` 自动加载；构建和发布会复制该目录，运行不依赖源码路径。
-
-打开数据库后，存储入口在一个事务里检查版本：版本为零且没有用户定义对象的空库，
-执行完整结构并写入 `PRAGMA user_version`；版本符合则直接使用；其他情况报错并保留原库。
-初始化失败会回滚结构变更。外键检查、锁等待时间在打开连接时设置，Network 的 WAL 在初始化事务之外设置。
-
-每个来源独立维护版本。修改持久化结构后递增 `Version.txt`，使用新存储目录验证；当前不提供旧库迁移。
-macOS 始终创建完整结构，窗口和输入开关控制采集与写入，启用情况记录在 `capture_runs`。
-采集器内部用于导入源数据的临时视图属于该次导入，不属于持久化 Schema。
-
-`SchemaChecks.cs` 检查 C# 打包后的结构与源码一致、所有视图可查询、重复打开保留数据，
-以及拒绝不支持版本和未标记版本的旧库。`CaptureIntegrationChecks.cs` 验证各来源实际写入，
-并覆盖 macOS 关闭采集选项时的完整结构、版本拒绝和初始化失败回滚。
+新增采集器的来源、恢复和数据库要求见[采集开发](./capture.mdx)。

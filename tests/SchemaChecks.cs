@@ -39,6 +39,7 @@ try
             {
                 "Browser" => "INSERT INTO capture_runs VALUES('test','chrome','profile','bookmarks',1,NULL)",
                 "Network" => "INSERT INTO capture_runs VALUES('test','nettop','boot',5,1,NULL,NULL)",
+                "Codex" => "INSERT INTO capture_runs(started_at_utc_ms,trigger) VALUES(1,'manual')",
                 _ => "INSERT INTO capture_runs(started_at_utc_ms) VALUES(1)",
             };
             Execute(actual, insertRun);

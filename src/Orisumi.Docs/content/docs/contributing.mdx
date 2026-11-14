@@ -1,42 +1,26 @@
 ---
 title: 文档维护
-description: 本地预览、内容目录与页面历史。
+description: 内容约定、预览、检查与页面历史。
 ---
 
-## 本地运行
+文档集中在 `src/Orisumi.Docs/content/docs`，使用 Markdown/MDX；frontmatter 声明 `title`、`description`，页面间用相对文件链接，`meta.json` 控制侧栏。
 
-文档站位于 `src/Orisumi.Docs`，需要 Node.js 24.14 或更新版本。
+写当前有效结论，简短准确；保留必要语义、操作和限制，删除重复解释。规则只在一处维护，其他页面引用；实现可直接查到的字段和参数按需链接，优先说明代码不能表达的含义。计划与现状明确区分，完成改动后更新正文。
 
-在仓库根目录运行：
+## 运行与检查
+
+需要 Node.js 24.14+，在仓库根目录运行：
 
 ```sh
 orisumi dev docs install
 orisumi dev docs
-```
-
-打开 [本地文档站](http://127.0.0.1:3020/docs)。
-
-## 编写内容
-
-文档放在 `src/Orisumi.Docs/content/docs`，使用 Markdown 或 MDX。
-每个页面通过 frontmatter 声明 `title` 和 `description`，相邻页面使用相对文件路径链接。
-同一目录的 `meta.json` 控制侧栏顺序。
-
-需要固化设计时，先把目标、依据和取舍讨论清楚，再把当前有效的结论写入对应页面。
-
-## 页面历史
-
-`fumadocs-page-history` 在构建时读取当前仓库的 Git 历史，自动在页面末尾显示贡献者和提交记录，历史列表默认展开。
-新文件首次提交前没有历史页脚。只发生 Git 提交而正文没有变化时，重启开发服务以刷新记录。
-
-构建环境需要完整的 Git 历史；使用 GitHub Actions 时，checkout 设置 `fetch-depth: 0`。
-
-## 检查与构建
-
-```sh
 orisumi dev docs check
 orisumi dev docs build
 orisumi dev docs start
 ```
 
-`start` 启动已构建的站点，默认使用本地端口 3020。运行前先停止占用该端口的开发服务。
+预览地址为 [127.0.0.1:3020/docs](http://127.0.0.1:3020/docs)，Ctrl+C 停止。`start` 运行生产构建，先停止占用相同端口的开发服务。
+
+## 页面历史
+
+`fumadocs-page-history` 构建时读取 Git 历史，在页尾显示贡献者和默认展开的提交列表。未提交的新页没有历史；仅新增提交而正文不变时，重启开发服务刷新。构建需完整历史，GitHub Actions checkout 使用 `fetch-depth: 0`。

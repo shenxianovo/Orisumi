@@ -30,6 +30,15 @@ final class ApplicationLifecycleObserver {
         observation?.invalidate()
     }
 
+    func pause() { observing = false }
+
+    func resume(_ running: [NSRunningApplication]) {
+        applications.removeAll()
+        hasSnapshot = false
+        observing = true
+        record(running, at: Date())
+    }
+
     private func record(_ running: [NSRunningApplication], at observedAt: Date) {
         guard observing else { return }
         var current: [NSRunningApplication: ObservedApplication] = [:]

@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Orisumi.Collectors.Codex;
 
-public static class CodexCollector
+public static partial class CodexCollector
 {
     private const string WriteThreads = """
         CREATE TEMP VIEW selected_threads AS SELECT id AS thread_id, coalesce(nullif(name, ''), title) AS title, cwd,
@@ -47,95 +47,127 @@ public static class CodexCollector
 
     public static string Capture(string store, string? threadId)
     {
-        var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
-        if (string.IsNullOrWhiteSpace(codexHome))
-            codexHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
-        var stateUri = ReadOnlySourceUri(codexHome, "state_5.sqlite");
-        var historyUri = ReadOnlySourceUri(codexHome, "thread_history_1.sqlite");
-        var database = Path.GetFullPath(Path.Combine(store, "raw", "codex.sqlite"));
-        Directory.CreateDirectory(Path.GetDirectoryName(database)!);
-        var fileOptions = new FileStreamOptions
-        {
-            Mode = FileMode.OpenOrCreate,
-            Access = FileAccess.Write,
-            Share = FileShare.ReadWrite,
-        };
-        if (!OperatingSystem.IsWindows())
-            fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (File.Open(database, fileOptions)) { }
+        using var captureLock = Lock(store);
+        return CaptureCore(store, threadId, "manual");
+    }
 
+    private static string CaptureCore(string store, string? threadId, string trigger)
+    {
+        var codexHome = SourceHome();
+        var database = Path.GetFullPath(Path.Combine(store, "raw", "codex.sqlite"));
+        using var connection = OpenDatabase(database);
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,thread_filter,trigger) VALUES($started,$thread,$trigger); SELECT last_insert_rowid();";
+        command.Parameters.AddWithValue("$started", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        command.Parameters.AddWithValue("$thread", (object?)threadId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$trigger", trigger);
+        var runId = (long)command.ExecuteScalar()!;
         try
         {
-            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-            {
-                // Open in URI mode so SQLite honors mode=ro on both ATTACH paths.
-                DataSource = new Uri(database).AbsoluteUri,
-                Mode = SqliteOpenMode.ReadWrite,
-                ForeignKeys = true,
-                Pooling = false,
-            }.ToString());
-            connection.Open();
-            SqliteSchema.EnsureCreated(connection);
-
-            using var command = connection.CreateCommand();
             command.CommandText = "ATTACH DATABASE $state AS source_state; ATTACH DATABASE $history AS source_history;";
-            command.Parameters.AddWithValue("$state", stateUri);
-            command.Parameters.AddWithValue("$history", historyUri);
+            command.Parameters.Clear();
+            command.Parameters.AddWithValue("$state", ReadOnlySourceUri(codexHome, "state_5.sqlite"));
+            command.Parameters.AddWithValue("$history", ReadOnlySourceUri(codexHome, "thread_history_1.sqlite"));
             command.ExecuteNonQuery();
             command.Parameters.Clear();
-
-            using var transaction = connection.BeginTransaction();
-            command.Transaction = transaction;
-            command.Parameters.AddWithValue("$thread", (object?)threadId ?? DBNull.Value);
-            command.CommandText = """
-                SELECT count(*), count(*) FILTER (WHERE history_mode <> 'paginated')
-                FROM source_state.threads WHERE $thread IS NULL OR id = $thread;
-                """;
-            using (var threads = command.ExecuteReader())
+            int threadsChanged, turnsChanged, messagesChanged, usageChanged, unavailable;
+            long bytesRead;
+            using (var transaction = connection.BeginTransaction())
             {
-                threads.Read();
-                if (threadId is not null && threads.GetInt64(0) == 0)
-                    throw new IOException("the Codex thread was not found in local storage");
-                if (threads.GetInt64(1) > 0)
-                    throw new IOException("the selected threads include history outside the local paginated message database");
+                command.Transaction = transaction;
+                command.Parameters.AddWithValue("$thread", (object?)threadId ?? DBNull.Value);
+                var observedStart = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                command.CommandText = """
+                    SELECT count(*), count(*) FILTER (WHERE history_mode <> 'paginated')
+                    FROM source_state.threads WHERE $thread IS NULL OR id = $thread;
+                    """;
+                using (var threads = command.ExecuteReader())
+                {
+                    threads.Read();
+                    if (threadId is not null && threads.GetInt64(0) == 0)
+                        throw new IOException("the Codex thread was not found in local storage");
+                    if (threads.GetInt64(1) > 0)
+                        throw new IOException("the selected threads include history outside the local paginated message database");
+                }
+                command.Parameters.AddWithValue("$run", runId);
+                var readCurrent = trigger != "usage_change";
+                threadsChanged = turnsChanged = messagesChanged = 0;
+                if (readCurrent)
+                {
+                    command.CommandText = WriteThreads;
+                    threadsChanged = command.ExecuteNonQuery();
+                    command.CommandText = WriteTurns;
+                    turnsChanged = command.ExecuteNonQuery();
+                    command.CommandText = WriteMessages;
+                    messagesChanged = command.ExecuteNonQuery();
+                }
+                command.CommandText = "SELECT id, rollout_path FROM source_state.threads WHERE ($thread IS NULL OR id = $thread) AND id IN (SELECT thread_id FROM threads);";
+                var rollouts = new List<(string ThreadId, string Path)>();
+                using (var reader = command.ExecuteReader())
+                    while (reader.Read()) rollouts.Add((reader.GetString(0), reader.GetString(1)));
+                if (readCurrent)
+                {
+                    command.CommandText = "INSERT INTO database_observations VALUES($run,$from,$to)";
+                    command.Parameters.AddWithValue("$from", observedStart);
+                    command.Parameters.AddWithValue("$to", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                    command.ExecuteNonQuery();
+                }
+                (usageChanged, unavailable, bytesRead) = CodexUsage.Capture(connection, transaction, codexHome, rollouts, runId);
+                transaction.Commit();
             }
-
-            command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,thread_filter) VALUES ($started,$thread); SELECT last_insert_rowid();";
-            command.Parameters.AddWithValue("$started", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            var runId = (long)command.ExecuteScalar()!;
-            command.Parameters.AddWithValue("$run", runId);
-            command.CommandText = WriteThreads;
-            var threadsChanged = command.ExecuteNonQuery();
-            command.CommandText = WriteTurns;
-            var turnsChanged = command.ExecuteNonQuery();
-            command.CommandText = WriteMessages;
-            var messagesChanged = command.ExecuteNonQuery();
-            command.CommandText = "SELECT id, rollout_path FROM source_state.threads WHERE $thread IS NULL OR id = $thread;";
-            var rollouts = new List<(string ThreadId, string Path)>();
-            using (var reader = command.ExecuteReader())
-                while (reader.Read())
-                    rollouts.Add((reader.GetString(0), reader.GetString(1)));
-            var (usageChanged, unavailable) = CodexUsage.Capture(connection, transaction, codexHome, rollouts, runId);
-            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$stopped WHERE run_id=$run";
-            command.Parameters.AddWithValue("$stopped", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            command.ExecuteNonQuery();
-            transaction.Commit();
-
+            Finish(connection, runId, null);
             var selection = threadId is null ? "Codex all threads" : $"Codex thread {threadId}";
             return $"{selection}: {threadsChanged} thread row(s), {turnsChanged} turn row(s), {messagesChanged} message row(s), " +
-                $"{usageChanged} usage row(s) written to {database}, {unavailable} rollouts unavailable";
+                $"{usageChanged} usage row(s), {bytesRead} rollout bytes read in {database}, {unavailable} rollouts unavailable";
         }
-        catch (SqliteException error)
+        catch (Exception error)
         {
-            throw new IOException($"could not capture Codex thread: {error.Message}", error);
+            Finish(connection, runId, error.Message);
+            if (error is SqliteException) throw new IOException($"could not capture Codex thread: {error.Message}", error);
+            throw;
         }
+    }
+
+    private static void Finish(SqliteConnection connection, long runId, string? error)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$end,error=$error WHERE run_id=$run";
+        command.Parameters.AddWithValue("$end", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
+        command.Parameters.AddWithValue("$run", runId);
+        command.ExecuteNonQuery();
+    }
+
+    private static SqliteConnection OpenDatabase(string path)
+    {
+        SqliteFile.CreateIfMissing(path);
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = new Uri(path).AbsoluteUri, Mode = SqliteOpenMode.ReadWrite,
+            ForeignKeys = true, Pooling = false,
+        }.ToString());
+        try { connection.Open(); SqliteSchema.EnsureCreated(connection); return connection; }
+        catch { connection.Dispose(); throw; }
+    }
+
+    private static FileStream Lock(string store)
+    {
+        var directory = Path.GetFullPath(Path.Combine(store, "raw"));
+        Directory.CreateDirectory(directory);
+        return new FileStream(Path.Combine(directory, "codex.sqlite.capture.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    private static string SourceHome()
+    {
+        var configured = Environment.GetEnvironmentVariable("CODEX_HOME");
+        return Path.GetFullPath(string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex") : configured);
     }
 
     private static string ReadOnlySourceUri(string directory, string filename)
     {
         var path = Path.GetFullPath(Path.Combine(directory, filename));
-        if (!File.Exists(path))
-            throw new FileNotFoundException($"Codex source database not found: {path}");
+        if (!File.Exists(path)) throw new FileNotFoundException($"Codex source database not found: {path}");
         return new Uri(path).AbsoluteUri + "?mode=ro";
     }
 }

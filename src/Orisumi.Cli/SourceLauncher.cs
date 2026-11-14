@@ -6,6 +6,9 @@ namespace Orisumi.Cli;
 
 internal static class SourceLauncher
 {
+    internal static string Dotnet => Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(),
+        "..", "..", "..", OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet"));
+
     internal static async Task<int?> TryRun(string[] arguments)
     {
         // Source builds also serve Chrome and background collectors outside the checkout's cwd.
@@ -63,10 +66,7 @@ internal static class SourceLauncher
     private static async Task<int> Run(string[] arguments, TextWriter? output, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        var dotnet = Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet"));
-        if (OperatingSystem.IsWindows())
-            dotnet += ".exe";
-        var start = new ProcessStartInfo(dotnet)
+        var start = new ProcessStartInfo(Dotnet)
         {
             UseShellExecute = false,
             WorkingDirectory = Environment.CurrentDirectory,

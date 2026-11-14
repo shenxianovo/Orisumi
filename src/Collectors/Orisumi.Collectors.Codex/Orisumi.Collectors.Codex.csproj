@@ -14,5 +14,6 @@
                       LogicalName="$(AssemblyName).Schema.$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(Identity)')))).%(Filename)%(Extension)" />
     <EmbeddedResource Include="Schema/Version.txt" LogicalName="$(AssemblyName).Schema.Version.txt" />
     <Compile Include="../Storage/SqliteSchema.cs" Link="Storage/SqliteSchema.cs" />
+    <Compile Include="../Storage/SqliteFile.cs" Link="Storage/SqliteFile.cs" />
   </ItemGroup>
 </Project>

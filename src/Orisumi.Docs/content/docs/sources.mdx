@@ -1,0 +1,97 @@
+---
+title: 采集数据
+description: 现有来源的事实含义、身份与查询边界。
+---
+
+运行见[命令行与开发](./development.mdx)，连续性查询见[覆盖与恢复](./recovery.mdx)。数据保存在 `STORE/raw/` 的 `browser.sqlite`、`codex.sqlite`、`claude.sqlite`、`macos.sqlite`、`network.sqlite`。
+
+| 来源 | 当前采集方式 | `capture_runs` 当前含义 |
+| --- | --- | --- |
+| 浏览器 | 通知入持久队列，接收端提交后确认；历史补读，受限字段采样 | 各配置下标签、书签、下载的采集会话；无可靠关闭回调，结束未确认 |
+| Codex / Claude | 常驻监听；日志按完整行增量读，Codex 源库现值另行核对 | 一次读取尝试，失败也保留；不表示完整历史覆盖 |
+| macOS | 常驻监听；权限核对、窗口回退与无输入监听时的 AFK 采样 | 运行区间及启用通道；可用性与采集方式另记 |
+| 网络 | nettop 快照，默认 5 秒 | 采样进程区间，实际观测范围以 `samples` 为准 |
+
+## 浏览器
+
+来源身份含 `browser`、`profile_id`；本库键只用于库内关联。事件 ID 用于重试去重，观测 ID 表示入库顺序，`run_sequence` 表示采集会话内顺序。`scope` 分为 `active_tabs`、`bookmarks`、`downloads`。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `visits` | Chrome 保留的访问记录，含来源访问时间、跳转类型、引荐访问和本地标记 |
+| `history_page_title_observations` / `history_pages` | 按配置与 URL 保存非空标题初值和变化／最新标题；是读取时看到的标题，不代表历史访问当时的标题 |
+| `tab_observations` / `active_tab_focus_events` | 标签观测／聚焦窗口和标签；空焦点表示没有可采集的前台标签 |
+| `tab_url_observations` / `tab_title_observations` | URL／标题独立变化；标签 ID 仅在采集会话内关联 |
+| `active_tab_state_history` / `current_active_tabs` | 事件后的完整状态／每个会话最后已知状态；旧会话不等于仍活动 |
+| `downloads` / `download_observations` | 下载身份／观测、采集会话、时间与来源 ID 的关联 |
+| `download_resource_observations` | URL、最终 URL、来源开始时间、总大小、MIME 的初值与变化；不含进度字节数，未知大小为空 |
+| `download_state_observations` / `download_path_observations` | 状态及来源完成时间／本地路径，独立变化 |
+| `download_history` / `current_downloads` | 每次观测后的状态／最后已知状态 |
+
+只观察当前聚焦的普通标签；进入隐身窗口结束普通标签焦点，隐身下载不采集。下载回调未涉及的字段保留旧值；移除下载列表记录不证明本地文件被删除。
+
+访问通知先持久记录待查 URL，再读取 Chrome 保留的 visits；范围补扫仍保留。历史页面标题是现值观测。数据库 ID 变化使所有来源基线与历史游标失效，重放原待发队列后重建初值。工作线程正常唤醒沿用会话；读取失败后恢复建立新会话。队列只保护已经持久入队的事件。
+
+标签保留回调携带的 URL、标题及关闭事件。下载保留回调字段，每五分钟核对；对象已从列表消失时仍保存已知普通下载的有效变化。书签结构由事件驱动，每分钟读树供最后使用时间采样和结构核对共用。读取期间发生事件则重试快照；静止核对不写状态，新会话重建初值。
+
+| 书签表或视图 | 含义 |
+| --- | --- |
+| `bookmarks` | 配置内节点身份、节点种类、来源创建时间；未知身份属性可后续补全 |
+| `bookmark_observations` | 观测时间、事件种类及会话顺序，同次事实共享 `observation_id` |
+| `bookmark_presence_events` / `bookmark_title_events` / `bookmark_url_events` | 存在性／名称／目标 URL；文件夹没有 URL 事实 |
+| `bookmark_location_events` | 父节点与从零开始的位置；根节点两者为空，移动影响的相邻节点也记录位置变化 |
+| `bookmark_last_used_observations` | 来源最后使用时间；未知不覆盖已知，不能列出每次使用 |
+| `bookmark_state` / `current_bookmarks` / `bookmark_history` | 含删除节点的最新状态／当前存在节点／每次观测后的状态 |
+
+删除节点只追加消失，保留旧属性；删除文件夹时，已知子孙节点一并追加消失。
+
+## Codex
+
+只读 `CODEX_HOME`（默认 `~/.codex`）下的 `state_5.sqlite`、`thread_history_1.sqlite` 和 rollout，包含归档会话。当前源库读取的是现值，两次读取间 A→B→A 无法还原；属性时间关联导入区间，不借用会话整体更新时间。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `threads` / `thread_*_observations` | 会话身份、来源创建时间，以及标题、工作目录、归档状态的独立变化；标题优先显示名称 |
+| `turns` / `turn_timing_observations` / `turn_status_observations` | 会话内回合身份／来源起止时间／状态变化，未知时间为空 |
+| `messages` / `message_content_observations` | 会话、回合、消息身份，角色、来源创建时间与 `rollout_ordinal`／来源 `item_json` 的修订 |
+| `current_threads` / `current_turns` / `current_messages` | 最新已知属性的组合 |
+| `response_token_usage_observations` / `response_token_usage` | 来源日志行的用量及记录时间／每个响应的最后用量，汇总使用后者，避免累加修订 |
+
+用量保留总输入、缓存读写、总输出、推理 token，缺失值为空；模型来自对应 `turn_context`，无法关联时为空。活跃 JSONL 按完整行增量读，位置、行号、模型上下文与事实原子提交；残行下次重读。Zstandard 归档按文件版本完整解码，移动与压缩转换后去重。
+
+数据库、WAL、journal 通知触发现值核对；仅日志变化时只读用量。每 60 秒核对，失败每 5 秒重试。文件移动、替换、截断与已识别的重写会重新读取；来源删除保留已采事实。增量日志的共同限制见[覆盖与恢复](./recovery.mdx)。
+
+## Claude
+
+只读 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）的主会话 JSONL。采集用户、助手可见内容（文本、图像、文档）与响应用量，排除 sidechain、用户元消息、压缩摘要。同一日志的标题变化与内容修订按来源顺序保留；完整行可导入，末尾残行下次重读。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `sessions` / `source_records` | 会话身份／来源文件身份、路径、行号、内容摘要和导入批次；重放去重并保留重复内容的出现顺序 |
+| `session_title_observations` | 关联来源行的标题；`custom-title` 没有来源时间，不生成改名时间 |
+| `messages` / `message_content_observations` | 会话与消息身份、父消息、角色、来源创建时间、消息工作目录和可选响应 ID／内容修订 |
+| `response_token_usage_observations` / `response_token_usage` | 响应用量及修订／每个响应的最后用量；含模型、来源记录时间、输入、缓存读写、输出及可选推理 token |
+| `current_messages` / `current_sessions` | 消息最新内容／会话最后标题和已采集消息的最早、最晚时间；消息工作目录不是会话属性 |
+
+监听目录变化，只读新增完整行；游标与事实原子提交。macOS 以设备号、inode 和出生时间识别文件，移动沿用身份，替换、截断、重写重新读取。通知出错、目录变化或每五分钟重新枚举元数据；静止文件不读正文。来源目录移除后恢复会重建监听，失败尝试保留。
+
+## macOS
+
+事件以 `run_id`、`run_sequence`、`observed_at_utc_ms` 关联监听区间、顺序与接收时间。应用列表来自 `NSWorkspace.runningApplications`，不是全设备所有进程。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `process_instances` / `running_app_observations` | 观察到的进程生命期、PID、bundle ID、名称、来源启动时间／初始可见、出现和消失 |
+| `foreground_app_events` / `foreground_app_history` / `running_app_history` | 前台初值和切换，空表示无前台应用／组合进程身份的历史视图 |
+| `window_focus_instances` / `focused_window_events` | 连续焦点段及所属进程／焦点初值和切换；空表示无聚焦窗口，焦点 ID 不是稳定窗口 ID |
+| `window_title_observations` / `window_history` | 焦点段内标题初值和变化／焦点与当时标题；初始标题与焦点共享序号 |
+| `capture_permission_events` / `capture_channel_events` / `capture_method_events` | 授权变化／通道可用性及原因／监听或采样方式的初值与变化 |
+| `time_zone_events` / `afk_events` | 时区／active、idle 的初值和变化；`idle_ms` 是当次检查的无输入时长 |
+| `system_sleep_events` / `user_session_events` | 休眠、唤醒／用户会话激活、停用通知，不补造启动前事件 |
+| `keyboard_presses` / `mouse_button_events` | 一次按键（键码、起止、按下时修饰键）／鼠标按下或释放（按钮、坐标）；自动重复不另计按键，未观察到释放时结束为空 |
+
+`capture_runs` 保存 AFK 阈值及窗口、输入开关；`timeline` 组合活动、权限和通道记录。网络的身份与计数边界见[设备网络采集](./network.mdx)。
+
+窗口按 AX 通知能力选择监听或每秒回退查询；支持通知时每 60 秒校准。输入可用时，键盘、鼠标移动、按钮和滚轮更新 AFK 活动时间，到期计时器判断离席；移动和滚轮不另存事件。输入不可用时每秒读系统 idle。权限核对和输入批量写入分别调度。
+
+启动时缺少权限只停用对应通道，其他通道继续采集；权限恢复后建立初值。休眠、会话切换和输入 tap 中断同样记录可用性。未观察到按键释放时保留空结束时间。启动时间未知的进程身份在中断后断开，后来读到启动时间也不追溯认证。
