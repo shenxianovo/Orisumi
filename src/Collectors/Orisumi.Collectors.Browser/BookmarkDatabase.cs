@@ -33,7 +33,8 @@ internal static class BookmarkDatabase
                 return 0;
             var profile = profileId.ToString();
             var run = observation.RunId.ToString();
-            command.Execute("INSERT OR IGNORE INTO capture_runs VALUES ($p0,'chrome',$p1,'bookmarks',$p2,NULL)", run, profile, observation.RunStartedAtUtcMs);
+            var host = HostObservation.Record(command, store);
+            command.Execute("INSERT OR IGNORE INTO capture_runs VALUES ($p0,'chrome',$p1,'bookmarks',$p2,NULL,$p3)", run, profile, observation.RunStartedAtUtcMs, host);
             if (command.Scalar("SELECT 1 FROM capture_runs WHERE run_id=$p0 AND profile_id=$p1 AND started_at_utc_ms=$p2", run, profile, observation.RunStartedAtUtcMs) is null)
                 throw new InvalidDataException("bookmark capture run does not match its origin");
             var lastSequence = command.Scalar("SELECT MAX(run_sequence) FROM bookmark_observations WHERE run_id=$p0", run);

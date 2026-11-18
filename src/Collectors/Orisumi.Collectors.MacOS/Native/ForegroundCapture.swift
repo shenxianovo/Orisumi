@@ -287,6 +287,25 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
         }
     }
     defer { NotificationCenter.default.removeObserver(timeZoneObserver) }
+    // Wall clock and mach_continuous_time read together; the time between them changes only when the clock is set.
+    func recordClock(_ kind: String) throws {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        let ticks = mach_continuous_time()
+        try database.appendClock(kind, at: Date(), monotonicNS: Int64(ticks * UInt64(timebase.numer) / UInt64(timebase.denom)))
+    }
+    try recordClock("snapshot")
+    let clockObserver = NotificationCenter.default.addObserver(
+        forName: .NSSystemClockDidChange, object: nil, queue: .main
+    ) { _ in
+        guard !stopping else { return }
+        do {
+            try recordClock("changed")
+        } catch {
+            fail(error)
+        }
+    }
+    defer { NotificationCenter.default.removeObserver(clockObserver) }
     defer {
         lifecycleObserver.pause()
         mediaObservers.forEach { $0.stop() }

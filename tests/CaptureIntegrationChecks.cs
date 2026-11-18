@@ -275,14 +275,15 @@ async Task MacOSChecks()
     var binary = Path.Combine(fixture.Root, "facts");
     await Run("/usr/bin/xcrun", ["swiftc", main, .. new[] { "DatabaseSchema.swift", "ForegroundDatabase.swift", "InputEventObserver.swift", "KeyboardPressAccumulator.swift" }
         .Select(name => Path.Combine(native, name)), "-lsqlite3", "-o", binary]);
-    var schema = Path.Combine(root, "src/Collectors/Orisumi.Collectors.MacOS/Schema");
+    // The build copies the collector's and the shared Storage schema into one directory.
     var packagedSchema = Path.Combine(fixture.Root, "Orisumi.Collectors.MacOS/Schema");
-    foreach (var file in Directory.EnumerateFiles(schema, "*", SearchOption.AllDirectories))
-    {
-        var target = Path.Combine(packagedSchema, Path.GetRelativePath(schema, file));
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        File.Copy(file, target);
-    }
+    foreach (var schema in new[] { "src/Collectors/Orisumi.Collectors.MacOS/Schema", "src/Collectors/Storage/Schema" }.Select(path => Path.Combine(root, path)))
+        foreach (var file in Directory.EnumerateFiles(schema, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(packagedSchema, Path.GetRelativePath(schema, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
     var path = Path.Combine(fixture.Root, "macos.sqlite");
     await Run(binary, [path]);
     using var db = Open(path);
@@ -338,7 +339,9 @@ async Task BookmarkChecks()
     Rows(db, "SELECT title FROM current_bookmarks", ["B"]);
     Rows(db, "SELECT title FROM bookmark_history ORDER BY observation_id", ["A"], ["B"]);
     Count(db, "bookmark_observations", 2);
-    Count(db, "_collector_state", 1);
+    Count(db, "database_identity", 1);
+    Count(db, "host_observations", 1);
+    Rows(db, "SELECT COUNT(*) FROM capture_runs WHERE host_observation_id IS NULL", [0L]);
     Count(db, "visits", 0);
     Rows(db, "PRAGMA foreign_key_check");
     Console.WriteLine("PASS: bookmarks and other browser messages share the complete schema");

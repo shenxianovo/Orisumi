@@ -28,7 +28,7 @@ enum DatabaseSchema {
         try execute("BEGIN IMMEDIATE")
         var committed = false
         defer { if !committed { sqlite3_exec(database, "ROLLBACK", nil, nil, nil) } }
-        // An existing database is used as is; a changed schema needs a rebuilt database.
+        // An existing database is used as is; capture.mdx says how a changed schema is handled.
         if try scalar("SELECT COUNT(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'") == 0 {
             for group in ["Tables", "Indexes", "Views"] {
                 let files = try FileManager.default.contentsOfDirectory(
@@ -41,6 +41,8 @@ enum DatabaseSchema {
                     catch { throw SchemaError("Could not initialize \(group)/\(file.lastPathComponent): \(error.localizedDescription)") }
                 }
             }
+            // Same statement as SqliteSchema.DatabaseIdentity.
+            try execute("INSERT INTO database_identity VALUES (1, lower(hex(randomblob(16))), CAST(unixepoch('subsec') * 1000 AS INTEGER))")
         }
         try execute("COMMIT")
         committed = true

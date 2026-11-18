@@ -14,13 +14,14 @@ try
     File.Copy(Path.Combine(root, "tests/macos_observation.swift"), main);
     var binary = Path.Combine(temp.FullName, "checks");
     await Run("/usr/bin/xcrun", ["swiftc", main, .. Directory.GetFiles(native, "*.swift").Where(path => Path.GetFileName(path) != "main.swift"), "-lsqlite3", "-o", binary]);
-    var schema = Path.Combine(root, "src/Collectors/Orisumi.Collectors.MacOS/Schema");
-    foreach (var file in Directory.GetFiles(schema, "*", SearchOption.AllDirectories))
-    {
-        var target = Path.Combine(temp.FullName, "Orisumi.Collectors.MacOS/Schema", Path.GetRelativePath(schema, file));
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        File.Copy(file, target);
-    }
+    // The build copies the collector's and the shared Storage schema into one directory.
+    foreach (var schema in new[] { "src/Collectors/Orisumi.Collectors.MacOS/Schema", "src/Collectors/Storage/Schema" }.Select(path => Path.Combine(root, path)))
+        foreach (var file in Directory.GetFiles(schema, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(temp.FullName, "Orisumi.Collectors.MacOS/Schema", Path.GetRelativePath(schema, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
     var db = Path.Combine(temp.FullName, "macos.sqlite");
     await Run(binary, [db]);
     using var connection = new SqliteConnection($"Data Source={db};Pooling=False");
@@ -28,6 +29,10 @@ try
     Check(Number("SELECT COUNT(*) FROM process_instances WHERE pid=123456789") == 2, "a newly verified birth cannot retroactively certify an unknown process segment");
     Check(Number("SELECT COUNT(*) FROM process_instances WHERE pid=123456788") == 2, "an unverified identity cannot span an observation gap");
     Check(Number("SELECT COUNT(*) FROM capture_method_events") == 2, "unchanged capture method is not rewritten");
+    Check(Number("SELECT COUNT(*) FROM capture_runs") == 2 && Number("SELECT COUNT(*) FROM host_observations") == 1
+        && Number($"SELECT COUNT(*) FROM capture_runs JOIN host_observations ON observation_id=host_observation_id WHERE hardware_uuid GLOB '????????-????-????-????-????????????' AND boot_id IS NOT NULL AND store_path='{Path.GetDirectoryName(temp.FullName.TrimEnd('/'))}'") == 2,
+        "runs on an unchanged host share one host observation");
+    Check(Number("SELECT COUNT(*) FROM database_identity") == 1, "a new database records its identity");
     Check(Number("SELECT COUNT(*) FROM capture_coverage WHERE evidence='unavailable' AND started_at_utc_ms=1002000 AND stopped_at_utc_ms=1003000") == 1, "gap has its actual observation interval");
     Check(Number("SELECT COUNT(*) FROM capture_coverage WHERE evidence='failed'") == 1, "failed stop remains visible");
     Check(Values("""
@@ -111,7 +116,8 @@ try
               AND (SELECT COUNT(*) FROM capture_channel_events WHERE channel IN ('windows','input') AND available=0)=2
               AND EXISTS(SELECT 1 FROM foreground_app_events)
               AND EXISTS(SELECT 1 FROM afk_events)
-              AND EXISTS(SELECT 1 FROM capture_runs WHERE stop_reason='stopped');
+              AND EXISTS(SELECT 1 FROM capture_runs WHERE stop_reason='stopped')
+              AND (SELECT COUNT(*) FROM clock_events WHERE event_kind='snapshot' AND monotonic_ns > 0)=1;
             """;
         Check((long)command.ExecuteScalar()! == 1, "denied channels must leave permission evidence while other channels capture and stop normally");
     }

@@ -116,6 +116,7 @@ final class ForegroundDatabase {
     private var mouseInsert: OpaquePointer?
     private let runID = UUID().uuidString.lowercased()
     private var sequence: Int64 = 0
+    private let storePath: String
     private let captureWindows: Bool
     private let captureInput: Bool
     private let mediaChannels: Set<MediaChannel>
@@ -126,6 +127,8 @@ final class ForegroundDatabase {
     private var methods: [String: String] = [:]
 
     init(path: String, captureWindows: Bool, captureInput: Bool, mediaChannels: Set<MediaChannel> = []) throws {
+        // The database is STORE/raw/macos.sqlite.
+        storePath = URL(fileURLWithPath: path).standardizedFileURL.deletingLastPathComponent().deletingLastPathComponent().path
         self.captureWindows = captureWindows
         self.captureInput = captureInput
         self.mediaChannels = mediaChannels
@@ -208,10 +211,83 @@ final class ForegroundDatabase {
     func start(at time: Date, afkThresholdMS: Int64) throws {
         let mediaColumns = MediaChannel.allCases.map { "capture_\($0.rawValue)" }.joined(separator: ",")
         let mediaValues = MediaChannel.allCases.map { mediaChannels.contains($0) ? "1" : "0" }.joined(separator: ",")
-        try writeRunTime("""
-            INSERT INTO capture_runs (run_id, started_at_utc_ms, afk_threshold_ms,capture_windows,capture_input,\(mediaColumns))
-            VALUES (?1, ?2, ?3,\(captureWindows ? 1 : 0),\(captureInput ? 1 : 0),\(mediaValues))
-            """, at: time, afkThresholdMS: afkThresholdMS)
+        guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        do {
+            let host = try recordHost(at: time)
+            try writeRunTime("""
+                INSERT INTO capture_runs (run_id, started_at_utc_ms, afk_threshold_ms,capture_windows,capture_input,\(mediaColumns),host_observation_id)
+                VALUES (?1, ?2, ?3,\(captureWindows ? 1 : 0),\(captureInput ? 1 : 0),\(mediaValues),\(host))
+                """, at: time, afkThresholdMS: afkThresholdMS)
+            guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        } catch {
+            sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
+    }
+
+    // Same values and rule as HostObservation.cs: a row only when one of them changes.
+    private func recordHost(at time: Date) throws -> Int64 {
+        func sysctl(_ name: String) -> String? {
+            var length = 0
+            guard sysctlbyname(name, nil, &length, nil, 0) == 0, length > 0 else { return nil }
+            var value = [CChar](repeating: 0, count: length)
+            guard sysctlbyname(name, &value, &length, nil, 0) == 0 else { return nil }
+            return String(cString: value)
+        }
+        func hardwareUUID() -> String? {
+            var bytes = [UInt8](repeating: 0, count: 16)
+            var wait = timespec(tv_sec: 1, tv_nsec: 0)
+            guard gethostuuid(&bytes, &wait) == 0 else { return nil }
+            let hex = bytes.map { String(format: "%02X", $0) }.joined()
+            return [0..<8, 8..<12, 12..<16, 16..<20, 20..<32].map { range in
+                String(hex[hex.index(hex.startIndex, offsetBy: range.lowerBound)..<hex.index(hex.startIndex, offsetBy: range.upperBound)])
+            }.joined(separator: "-")
+        }
+        // Parameters ?1 to ?9; user_id (?7) is the only number.
+        let texts: [Int32: String?] = [
+            1: hardwareUUID(), 2: sysctl("kern.hostname"), 3: sysctl("hw.model"), 4: sysctl("kern.osproductversion"),
+            5: sysctl("kern.osversion"), 6: sysctl("kern.bootsessionuuid"), 8: NSUserName(), 9: storePath,
+        ]
+        let userID = Int64(getuid())
+        func bind(_ statement: OpaquePointer) throws {
+            for (position, value) in texts {
+                guard bindText(statement, position, value) == SQLITE_OK else { throw DatabaseError(database) }
+            }
+            guard sqlite3_bind_int64(statement, 7, userID) == SQLITE_OK else { throw DatabaseError(database) }
+        }
+        let latest = try prepare("""
+            SELECT observation_id FROM host_observations
+            WHERE observation_id = (SELECT MAX(observation_id) FROM host_observations)
+              AND hardware_uuid IS ?1 AND host_name IS ?2 AND model IS ?3 AND os_version IS ?4 AND os_build IS ?5
+              AND boot_id IS ?6 AND user_id IS ?7 AND user_name IS ?8 AND store_path IS ?9
+            """)
+        defer { sqlite3_finalize(latest) }
+        try bind(latest)
+        switch sqlite3_step(latest) {
+        case SQLITE_ROW: return sqlite3_column_int64(latest, 0)
+        case SQLITE_DONE: break
+        default: throw DatabaseError(database)
+        }
+        let insert = try prepare("""
+            INSERT INTO host_observations(observed_at_utc_ms,platform,hardware_uuid,host_name,model,os_version,os_build,boot_id,user_id,user_name,store_path)
+            VALUES (?10,'macos',?1,?2,?3,?4,?5,?6,?7,?8,?9)
+            """)
+        defer { sqlite3_finalize(insert) }
+        try bind(insert)
+        guard sqlite3_bind_int64(insert, 10, timestamp(time)) == SQLITE_OK,
+              sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+        return sqlite3_last_insert_rowid(database)
+    }
+
+    func appendClock(_ kind: String, at time: Date, monotonicNS: Int64) throws {
+        let insert = try prepare("""
+            INSERT INTO clock_events (run_id, run_sequence, observed_at_utc_ms, event_kind, monotonic_ns)
+            VALUES (?, ?, ?, ?, ?)
+            """)
+        defer { sqlite3_finalize(insert) }
+        try bindEvent(insert, kind: kind, at: time)
+        guard sqlite3_bind_int64(insert, 5, monotonicNS) == SQLITE_OK else { throw DatabaseError(database) }
+        try commitEvent(insert)
     }
 
     func stop(at time: Date, failed: Bool = false) throws {

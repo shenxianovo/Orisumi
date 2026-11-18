@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace Orisumi.Collectors.Storage;
 
 // Linked into each collector: resources belong to that collector's assembly.
-// An existing database is used as is; the structure is not versioned, so a changed schema needs a rebuilt database.
+// An existing database is used as is; the structure is not versioned, and capture.mdx says how a changed schema is handled.
 internal static class SqliteSchema
 {
     private static readonly System.Reflection.Assembly Assembly = typeof(SqliteSchema).Assembly;
@@ -32,9 +32,15 @@ internal static class SqliteSchema
                     }
                 }
             }
+            command.CommandText = DatabaseIdentity;
+            command.ExecuteNonQuery();
         }
         transaction.Commit();
     }
+
+    // The new database's identity is created with its structure; DatabaseSchema.swift runs the same statement.
+    internal const string DatabaseIdentity =
+        "INSERT INTO database_identity VALUES (1, lower(hex(randomblob(16))), CAST(unixepoch('subsec') * 1000 AS INTEGER))";
 
     private static string Read(string resource)
     {

@@ -9,5 +9,6 @@ CREATE TABLE capture_runs (
     capture_microphone INTEGER NOT NULL CHECK (capture_microphone IN (0, 1)),
     capture_audio_output INTEGER NOT NULL CHECK (capture_audio_output IN (0, 1)),
     capture_camera INTEGER NOT NULL CHECK (capture_camera IN (0, 1)),
+    host_observation_id INTEGER REFERENCES host_observations(observation_id),
     CHECK ((stopped_at_utc_ms IS NULL) = (stop_reason IS NULL))
 );

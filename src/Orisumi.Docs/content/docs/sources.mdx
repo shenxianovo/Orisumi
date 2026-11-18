@@ -33,7 +33,7 @@ description: 现有来源的事实含义、身份与查询边界。
 
 采集所有普通窗口里打开的标签；隐身窗口和标签不采集，进入隐身窗口结束普通标签焦点，隐身下载不采集。下载回调未涉及的字段保留旧值；移除下载列表记录不证明本地文件被删除。
 
-访问通知先持久记录待查 URL，再读取 Chrome 保留的 visits；范围补扫仍保留。历史页面标题是现值观测。数据库 ID 变化使所有来源基线与历史游标失效，重放原待发队列后重建初值。工作线程正常唤醒沿用会话；读取失败后恢复建立新会话。队列只保护已经持久入队的事件。
+访问通知先持久记录待查 URL，再读取 Chrome 保留的 visits；范围补扫仍保留。历史页面标题是现值观测。数据库 ID（`database_identity`）变化使所有来源基线与历史游标失效，重放原待发队列后重建初值。工作线程正常唤醒沿用会话；读取失败后恢复建立新会话。队列只保护已经持久入队的事件。
 
 标签先挂事件再读快照，快照前收到的事件排队后接上；工作线程唤醒和每分钟一次核对时，把排队事件推进后的状态与现值比较，不一致记 `reconciliation_changed` 并重建初值。值没变不发事件，标题加载中的每次变化都保留。被替换的标签（`onReplaced`）读一次新标签的 URL 和标题，读到前已关闭则为空。下载保留回调字段，每五分钟核对；对象已从列表消失时仍保存已知普通下载的有效变化。书签结构由事件驱动。扩展每分钟读一次树，树有变化才整树发送；接收端与已应用的事件比对，只写新的最后使用时间，其他差异说明漏了事件，记为 `reconciliation_changed`。读取期间发生事件则重试快照；新会话重建初值。
 
@@ -90,6 +90,7 @@ description: 现有来源的事实含义、身份与查询边界。
 | `window_title_observations` / `window_history` | 焦点段内标题初值和变化／焦点与当时标题；无标题为 `''`，读取失败为空；初始标题与焦点共享序号 |
 | `capture_permission_events` / `capture_channel_events` / `capture_method_events` | 授权变化／通道可用性及原因／监听或采样方式的初值与变化 |
 | `time_zone_events` / `afk_events` | 时区／active、idle 的初值和变化；`idle_ms` 是当次检查的无输入时长 |
+| `clock_events` | 墙钟与 `mach_continuous_time`（含休眠，纳秒）一起读的初值，以及 `NSSystemClockDidChange` 通知后的变化；两者之差变了说明时钟被调过，NTP 的渐进微调看不到 |
 | `system_sleep_events` / `user_session_events` | 休眠、唤醒／用户会话激活、停用通知，不补造启动前事件 |
 | `keyboard_presses` / `mouse_button_events` | 一次按键（键码、起止、按下时修饰键）／鼠标按下或释放（按钮、坐标）；自动重复不另计按键，未观察到释放时结束为空 |
 | `application_activation_policy_observations` / `regular_app_intervals` | 应用实例激活策略（`regular`、`accessory`、`prohibited`）的初值和变化，读不到为空／应用处于 `regular` 的区间，即有 Dock 图标的普通应用，到策略变化、消失或应用通道中断为止 |

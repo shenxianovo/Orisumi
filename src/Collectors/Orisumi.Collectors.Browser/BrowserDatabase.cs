@@ -18,10 +18,7 @@ internal static class BrowserDatabase
         if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, TabEvents: null, BookmarkObservation: null, Downloads: null, Coverage: null })
         {
             // All extension cursors and baselines follow this file's lifetime.
-            var databaseId = (string)await Execute(store, """
-                INSERT OR IGNORE INTO _collector_state VALUES (1, lower(hex(randomblob(16))));
-                SELECT database_id FROM _collector_state WHERE singleton = 1;
-                """);
+            var databaseId = (string)await Execute(store, "SELECT database_id FROM database_identity");
             if (!Guid.TryParseExact(databaseId, "N", out _))
                 throw new InvalidDataException("SQLite did not return a database ID");
             return new Reply(true, DatabaseId: databaseId);
@@ -65,9 +62,11 @@ internal static class BrowserDatabase
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = sql;
         try
         {
+            // Runs first seen in this batch refer to the host as $host.
+            command.Parameters.AddWithValue("$host", HostObservation.Record(command, store));
+            command.CommandText = sql;
             var result = await command.ExecuteScalarAsync();
             transaction.Commit();
             return result!;
@@ -168,7 +167,7 @@ internal static class BrowserDatabase
             ORDER BY j.key;
 
             INSERT OR IGNORE INTO capture_runs
-            SELECT DISTINCT value->>'$.captureSessionId','chrome','{profileId:D}','tabs',value->>'$.runStartedAtUtcMs',NULL
+            SELECT DISTINCT value->>'$.captureSessionId','chrome','{profileId:D}','tabs',value->>'$.runStartedAtUtcMs',NULL,$host
             FROM incoming_tab_events;
             INSERT INTO tab_observations(event_id,run_id,run_sequence,observed_at_utc_ms,event_kind)
             SELECT event_id,value->>'$.captureSessionId',value->>'$.sessionSequence',value->>'$.observedAtUtcMs',value->>'$.eventKind'
@@ -232,7 +231,7 @@ internal static class BrowserDatabase
                 throw new InvalidDataException("invalid download observation");
             var json = JsonSql(entry.Fields);
             sql.AppendLine($"""
-                INSERT OR IGNORE INTO capture_runs VALUES ('{entry.RunId:D}','chrome','{profileId:D}','downloads',{entry.RunStartedAtUtcMs},NULL);
+                INSERT OR IGNORE INTO capture_runs VALUES ('{entry.RunId:D}','chrome','{profileId:D}','downloads',{entry.RunStartedAtUtcMs},NULL,$host);
                 INSERT OR IGNORE INTO downloads(browser,profile_id,download_id) VALUES ('chrome','{profileId:D}',{entry.DownloadId});
                 UPDATE downloads SET url=COALESCE(url,{json}->>'$.url'),started_at_utc_ms=COALESCE(started_at_utc_ms,{json}->>'$.startedAtUtcMs')
                 WHERE browser='chrome' AND profile_id='{profileId:D}' AND download_id={entry.DownloadId}

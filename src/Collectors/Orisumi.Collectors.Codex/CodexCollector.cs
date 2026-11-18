@@ -59,11 +59,18 @@ public static partial class CodexCollector
         var database = CollectorDatabase.PathFor(store, Source);
         using var connection = CollectorDatabase.Open(store, Source);
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,scope,thread_filter,trigger) VALUES($started,CASE WHEN $thread IS NULL THEN 'all' ELSE 'thread' END,$thread,$trigger); SELECT last_insert_rowid();";
-        command.Parameters.AddWithValue("$started", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        command.Parameters.AddWithValue("$thread", (object?)threadId ?? DBNull.Value);
-        command.Parameters.AddWithValue("$trigger", trigger);
-        var runId = (long)command.ExecuteScalar()!;
+        long runId;
+        using (var start = connection.BeginTransaction())
+        {
+            command.Transaction = start;
+            var host = HostObservation.Record(command, store);
+            runId = (long)command.Scalar("""
+                INSERT INTO capture_runs(started_at_utc_ms,scope,thread_filter,trigger,host_observation_id)
+                VALUES($p0,CASE WHEN $p1 IS NULL THEN 'all' ELSE 'thread' END,$p1,$p2,$p3) RETURNING run_id
+                """, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), threadId, trigger, host)!;
+            start.Commit();
+        }
+        command.Transaction = null;
         try
         {
             command.CommandText = "ATTACH DATABASE $state AS source_state; ATTACH DATABASE $history AS source_history;";
