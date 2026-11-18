@@ -9,6 +9,8 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
+using Orisumi.Collectors.Claude;
+using Orisumi.Collectors.Codex;
 
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
 var cli = Path.Combine(root, "src/Orisumi.Cli/bin/Debug/net11.0/Orisumi");
@@ -63,8 +65,18 @@ static SqliteConnection Open(string path)
     db.Open();
     return db;
 }
-async Task Capture(Fixture fixture, string source, params string[] arguments) =>
-    await Run(cli, ["--store", fixture.Store, source, "capture", .. arguments], fixture: fixture);
+// One capture round in process; the collectors read their source location from the environment.
+static void Capture(Fixture fixture, Func<string, string> capture)
+{
+    Environment.SetEnvironmentVariable("CODEX_HOME", fixture.Root);
+    Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", fixture.Root);
+    try { capture(fixture.Store); }
+    finally
+    {
+        Environment.SetEnvironmentVariable("CODEX_HOME", null);
+        Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", null);
+    }
+}
 async Task Browser(Fixture fixture, JsonObject batch, bool expectedOk = true)
 {
     batch["profileId"] = "11111111-1111-4111-8111-111111111111";
@@ -101,17 +113,17 @@ async Task CodexChecks()
     };
     File.WriteAllText(rollout, JsonSerializer.Serialize(Usage(1)) + "\n");
     Exec(state, "UPDATE threads SET rollout_path=$p0", rollout);
-    await Capture(fixture, "codex", "--all");
+    Capture(fixture, CodexCollector.Capture);
     using var db = Open(fixture.Database("codex"));
-    await Capture(fixture, "codex", "--all");
+    Capture(fixture, CodexCollector.Capture);
     Count(db, "thread_title_observations", 1);
     Count(db, "message_content_observations", 1);
     File.AppendAllText(rollout, JsonSerializer.Serialize(Usage(2)) + "\n");
     Exec(state, "UPDATE threads SET name='B'");
     Exec(history, "UPDATE thread_items SET item_json='final'; UPDATE thread_turns SET completed_at=3,status='completed'");
-    await Capture(fixture, "codex", "--all");
+    Capture(fixture, CodexCollector.Capture);
     Exec(state, "UPDATE threads SET name='A'");
-    await Capture(fixture, "codex", "--all");
+    Capture(fixture, CodexCollector.Capture);
     Rows(db, "SELECT title FROM thread_title_observations ORDER BY observation_id", ["A"], ["B"], ["A"]);
     Count(db, "response_token_usage_observations", 2);
     Rows(db, "SELECT total_output_tokens FROM response_token_usage", [2]);
@@ -121,7 +133,7 @@ async Task CodexChecks()
     Rows(db, "SELECT status,completed_at_utc_ms FROM current_turns", ["completed", 3000]);
     Count(db, "turn_status_observations", 2);
     Rows(db, "SELECT started_at_utc_ms FROM turns", [1000]);
-    Rows(db, "SELECT scope,thread_filter,stop_reason,error FROM capture_runs GROUP BY scope,stop_reason", ["all", null, "completed", null]);
+    Rows(db, "SELECT trigger,stop_reason,error FROM capture_runs GROUP BY stop_reason", ["startup", "completed", null]);
     Rows(db, "SELECT item_json FROM current_messages", ["final"]);
     Rows(db, "SELECT COUNT(*) FROM capture_runs WHERE stopped_at_utc_ms IS NOT NULL", [4]);
     Console.WriteLine("PASS: Codex independent changes and repeated import");
@@ -141,9 +153,9 @@ async Task ClaudeChecks()
     object root = new { type = "user", sessionId = "s", uuid = "u", parentUuid = (string?)null, message = new { role = "user", content = "hi" } };
     object[] records = [root, CustomTitle("A"), Message("first", 1), CustomTitle("B"), Message("final", 2), CustomTitle("A")];
     File.WriteAllLines(Path.Combine(directory.FullName, "session.jsonl"), records.Select(record => JsonSerializer.Serialize(record)));
-    await Capture(fixture, "claude");
+    Capture(fixture, ClaudeCollector.Capture);
     using var db = Open(fixture.Database("claude"));
-    await Capture(fixture, "claude");
+    Capture(fixture, ClaudeCollector.Capture);
     Rows(db, "SELECT title FROM session_title_observations ORDER BY observation_id", ["A"], ["B"], ["A"]);
     Rows(db, "SELECT message_uuid,parent_uuid,created_at_utc_ms,response_id FROM messages ORDER BY message_uuid",
         ["m", null, 1767225600000L, "r"], ["u", "", null, null]);

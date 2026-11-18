@@ -5,9 +5,9 @@ namespace Orisumi.Collectors.Codex;
 
 public static partial class CodexCollector
 {
-    public static async Task Watch(string store, string? threadId, CancellationToken cancellation)
+    public static async Task Watch(string store, CancellationToken cancellation)
     {
-        using var captureLock = CollectorDatabase.Lock(store, Source);
+        using var writer = new CaptureWriter(store, Source);
         var source = SourceHome();
         var changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });
         FileSystemWatcher? watcher = null;
@@ -56,8 +56,8 @@ public static partial class CodexCollector
                     }
                 }
                 var failed = false;
-                try { Console.WriteLine(CaptureCore(store, threadId, trigger)); }
-                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
+                try { Console.WriteLine(Capture(store, writer, trigger)); }
+                catch (IOException error)
                 {
                     failed = true;
                     Console.Error.WriteLine($"Codex capture failed: {error.Message}");

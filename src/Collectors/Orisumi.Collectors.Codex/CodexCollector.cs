@@ -10,29 +10,29 @@ public static partial class CodexCollector
     private const string WriteThreads = """
         CREATE TEMP VIEW selected_threads AS SELECT id AS thread_id, coalesce(nullif(name, ''), title) AS title, cwd,
          coalesce(created_at_ms, created_at * 1000) AS created_at_utc_ms, archived FROM source_state.threads;
-        INSERT OR IGNORE INTO threads SELECT thread_id, created_at_utc_ms FROM selected_threads WHERE $thread IS NULL OR thread_id=$thread;
+        INSERT OR IGNORE INTO threads SELECT thread_id, created_at_utc_ms FROM selected_threads;
         INSERT INTO thread_title_observations(thread_id,run_id,title)
-         SELECT s.thread_id,$run,s.title FROM selected_threads s WHERE ($thread IS NULL OR s.thread_id=$thread)
-         AND (NOT EXISTS (SELECT 1 FROM thread_title_observations o WHERE o.thread_id=s.thread_id)
+         SELECT s.thread_id,$run,s.title FROM selected_threads s
+         WHERE (NOT EXISTS (SELECT 1 FROM thread_title_observations o WHERE o.thread_id=s.thread_id)
          OR s.title IS NOT (SELECT title FROM thread_title_observations o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1));
         INSERT INTO thread_cwd_observations(thread_id,run_id,cwd)
-         SELECT s.thread_id,$run,s.cwd FROM selected_threads s WHERE ($thread IS NULL OR s.thread_id=$thread)
-         AND (NOT EXISTS (SELECT 1 FROM thread_cwd_observations o WHERE o.thread_id=s.thread_id)
+         SELECT s.thread_id,$run,s.cwd FROM selected_threads s
+         WHERE (NOT EXISTS (SELECT 1 FROM thread_cwd_observations o WHERE o.thread_id=s.thread_id)
          OR s.cwd IS NOT (SELECT cwd FROM thread_cwd_observations o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1));
         INSERT INTO thread_archive_observations(thread_id,run_id,archived)
-         SELECT s.thread_id,$run,s.archived FROM selected_threads s WHERE ($thread IS NULL OR s.thread_id=$thread)
-         AND (NOT EXISTS (SELECT 1 FROM thread_archive_observations o WHERE o.thread_id=s.thread_id)
+         SELECT s.thread_id,$run,s.archived FROM selected_threads s
+         WHERE (NOT EXISTS (SELECT 1 FROM thread_archive_observations o WHERE o.thread_id=s.thread_id)
          OR s.archived IS NOT (SELECT archived FROM thread_archive_observations o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1));
         """;
 
     private const string WriteTurns = """
-        INSERT OR IGNORE INTO turns SELECT thread_id,turn_id,started_at * 1000 FROM source_history.thread_turns WHERE thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR thread_id=$thread);
+        INSERT OR IGNORE INTO turns SELECT thread_id,turn_id,started_at * 1000 FROM source_history.thread_turns WHERE thread_id IN (SELECT thread_id FROM threads);
         -- The start time does not change; a later read may only fill it in.
         UPDATE turns SET started_at_utc_ms=(SELECT s.started_at * 1000 FROM source_history.thread_turns s WHERE s.thread_id=turns.thread_id AND s.turn_id=turns.turn_id)
-         WHERE started_at_utc_ms IS NULL AND ($thread IS NULL OR thread_id=$thread)
+         WHERE started_at_utc_ms IS NULL
          AND EXISTS (SELECT 1 FROM source_history.thread_turns s WHERE s.thread_id=turns.thread_id AND s.turn_id=turns.turn_id AND s.started_at IS NOT NULL);
         INSERT INTO turn_status_observations(thread_id,turn_id,run_id,status,completed_at_utc_ms) SELECT s.thread_id,s.turn_id,$run,s.status,s.completed_at * 1000
-         FROM source_history.thread_turns s WHERE s.thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR s.thread_id=$thread)
+         FROM source_history.thread_turns s WHERE s.thread_id IN (SELECT thread_id FROM threads)
          AND (NOT EXISTS (SELECT 1 FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id)
          OR (s.status,s.completed_at * 1000) IS NOT (SELECT status,completed_at_utc_ms FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id ORDER BY observation_id DESC LIMIT 1));
         """;
@@ -40,111 +40,53 @@ public static partial class CodexCollector
     private const string WriteMessages = """
         INSERT OR IGNORE INTO messages SELECT thread_id,turn_id,item_id, CASE item_type WHEN 'userMessage' THEN 'user' ELSE 'assistant' END,
          created_at_ms,rollout_ordinal FROM source_history.thread_items WHERE thread_id IN (SELECT thread_id FROM threads)
-         AND ($thread IS NULL OR thread_id=$thread) AND item_type IN ('userMessage','agentMessage');
+         AND item_type IN ('userMessage','agentMessage');
         INSERT INTO message_content_observations(thread_id,turn_id,message_id,run_id,item_json)
          SELECT s.thread_id,s.turn_id,s.item_id,$run,s.item_json FROM source_history.thread_items s
-         WHERE s.thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR s.thread_id=$thread) AND s.item_type IN ('userMessage','agentMessage')
+         WHERE s.thread_id IN (SELECT thread_id FROM threads) AND s.item_type IN ('userMessage','agentMessage')
          AND s.item_json IS NOT (SELECT item_json FROM message_content_observations o WHERE (o.thread_id,o.turn_id,o.message_id)=(s.thread_id,s.turn_id,s.item_id) ORDER BY observation_id DESC LIMIT 1);
         """;
 
-    public static string Capture(string store, string? threadId)
+    // One capture round, for tests; the resident Watch holds the writer for its lifetime.
+    public static string Capture(string store)
     {
-        using var captureLock = CollectorDatabase.Lock(store, Source);
-        return CaptureCore(store, threadId, "manual");
+        using var writer = new CaptureWriter(store, Source);
+        return Capture(store, writer, "startup");
     }
 
-    private static string CaptureCore(string store, string? threadId, string trigger)
+    private static string Capture(string store, CaptureWriter writer, string trigger)
     {
         var codexHome = SourceHome();
-        var database = CollectorDatabase.PathFor(store, Source);
-        using var connection = CollectorDatabase.Open(store, Source);
-        using var command = connection.CreateCommand();
-        long runId;
-        using (var start = connection.BeginTransaction())
+        var (threadsChanged, turnsChanged, messagesChanged, usageChanged, unavailable, bytesRead) = writer.Run((command, runId) =>
         {
-            command.Transaction = start;
-            var host = HostObservation.Record(command, store);
-            runId = (long)command.Scalar("""
-                INSERT INTO capture_runs(started_at_utc_ms,scope,thread_filter,trigger,host_observation_id)
-                VALUES($p0,CASE WHEN $p1 IS NULL THEN 'all' ELSE 'thread' END,$p1,$p2,$p3) RETURNING run_id
-                """, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), threadId, trigger, host)!;
-            start.Commit();
-        }
-        command.Transaction = null;
-        try
-        {
-            command.CommandText = "ATTACH DATABASE $state AS source_state; ATTACH DATABASE $history AS source_history;";
+            var observedStart = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (command.Scalar("SELECT count(*) FROM source_state.threads WHERE history_mode <> 'paginated'") is not 0L)
+                throw new IOException("Codex threads include history outside the local paginated message database");
             command.Parameters.Clear();
-            command.Parameters.AddWithValue("$state", ReadOnlySourceUri(codexHome, "state_5.sqlite"));
-            command.Parameters.AddWithValue("$history", ReadOnlySourceUri(codexHome, "thread_history_1.sqlite"));
-            command.ExecuteNonQuery();
-            command.Parameters.Clear();
-            int threadsChanged, turnsChanged, messagesChanged, usageChanged, unavailable;
-            long bytesRead;
-            using (var transaction = connection.BeginTransaction())
+            command.Parameters.AddWithValue("$run", runId);
+            var readCurrent = trigger != "usage_change";
+            int threadsChanged = 0, turnsChanged = 0, messagesChanged = 0;
+            if (readCurrent)
             {
-                command.Transaction = transaction;
-                command.Parameters.AddWithValue("$thread", (object?)threadId ?? DBNull.Value);
-                var observedStart = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                command.CommandText = """
-                    SELECT count(*), count(*) FILTER (WHERE history_mode <> 'paginated')
-                    FROM source_state.threads WHERE $thread IS NULL OR id = $thread;
-                    """;
-                using (var threads = command.ExecuteReader())
-                {
-                    threads.Read();
-                    if (threadId is not null && threads.GetInt64(0) == 0)
-                        throw new IOException("the Codex thread was not found in local storage");
-                    if (threads.GetInt64(1) > 0)
-                        throw new IOException("the selected threads include history outside the local paginated message database");
-                }
-                command.Parameters.AddWithValue("$run", runId);
-                var readCurrent = trigger != "usage_change";
-                threadsChanged = turnsChanged = messagesChanged = 0;
-                if (readCurrent)
-                {
-                    command.CommandText = WriteThreads;
-                    threadsChanged = command.ExecuteNonQuery();
-                    command.CommandText = WriteTurns;
-                    turnsChanged = command.ExecuteNonQuery();
-                    command.CommandText = WriteMessages;
-                    messagesChanged = command.ExecuteNonQuery();
-                }
-                command.CommandText = "SELECT id, rollout_path FROM source_state.threads WHERE ($thread IS NULL OR id = $thread) AND id IN (SELECT thread_id FROM threads);";
-                var rollouts = new List<(string ThreadId, string Path)>();
-                using (var reader = command.ExecuteReader())
-                    while (reader.Read()) rollouts.Add((reader.GetString(0), reader.GetString(1)));
-                if (readCurrent)
-                {
-                    command.CommandText = "INSERT INTO database_observations VALUES($run,$from,$to)";
-                    command.Parameters.AddWithValue("$from", observedStart);
-                    command.Parameters.AddWithValue("$to", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                    command.ExecuteNonQuery();
-                }
-                (usageChanged, unavailable, bytesRead) = CodexUsage.Capture(connection, transaction, codexHome, rollouts, runId);
-                transaction.Commit();
+                command.CommandText = WriteThreads;
+                threadsChanged = command.ExecuteNonQuery();
+                command.CommandText = WriteTurns;
+                turnsChanged = command.ExecuteNonQuery();
+                command.CommandText = WriteMessages;
+                messagesChanged = command.ExecuteNonQuery();
             }
-            Finish(connection, runId, null);
-            var selection = threadId is null ? "Codex all threads" : $"Codex thread {threadId}";
-            return $"{selection}: {threadsChanged} thread row(s), {turnsChanged} turn row(s), {messagesChanged} message row(s), " +
-                $"{usageChanged} usage row(s), {bytesRead} rollout bytes read in {database}, {unavailable} rollouts unavailable";
-        }
-        catch (Exception error)
-        {
-            Finish(connection, runId, error.Message);
-            if (error is SqliteException) throw new IOException($"could not capture Codex thread: {error.Message}", error);
-            throw;
-        }
-    }
-
-    private static void Finish(SqliteConnection connection, long runId, string? error)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$end,stop_reason=CASE WHEN $error IS NULL THEN 'completed' ELSE 'failed' END,error=$error WHERE run_id=$run";
-        command.Parameters.AddWithValue("$end", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
-        command.Parameters.AddWithValue("$run", runId);
-        command.ExecuteNonQuery();
+            command.CommandText = "SELECT id, rollout_path FROM source_state.threads WHERE id IN (SELECT thread_id FROM threads);";
+            var rollouts = new List<(string ThreadId, string Path)>();
+            using (var reader = command.ExecuteReader())
+                while (reader.Read()) rollouts.Add((reader.GetString(0), reader.GetString(1)));
+            if (readCurrent)
+                command.Execute("INSERT INTO database_observations VALUES($p0,$p1,$p2)", runId, observedStart, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            var (usageChanged, unavailable, bytesRead) = CodexUsage.Capture(command.Connection!, command.Transaction!, codexHome, rollouts, runId);
+            return (threadsChanged, turnsChanged, messagesChanged, usageChanged, unavailable, bytesRead);
+        }, [("trigger", trigger)],
+        [("source_state", Path.Combine(codexHome, "state_5.sqlite")), ("source_history", Path.Combine(codexHome, "thread_history_1.sqlite"))]);
+        return $"Codex: {threadsChanged} thread row(s), {turnsChanged} turn row(s), {messagesChanged} message row(s), " +
+            $"{usageChanged} usage row(s), {bytesRead} rollout bytes read in {CollectorDatabase.PathFor(store, Source)}, {unavailable} rollouts unavailable";
     }
 
     private static string SourceHome()
@@ -152,12 +94,5 @@ public static partial class CodexCollector
         var configured = Environment.GetEnvironmentVariable("CODEX_HOME");
         return Path.GetFullPath(string.IsNullOrWhiteSpace(configured)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex") : configured);
-    }
-
-    private static string ReadOnlySourceUri(string directory, string filename)
-    {
-        var path = Path.GetFullPath(Path.Combine(directory, filename));
-        if (!File.Exists(path)) throw new FileNotFoundException($"Codex source database not found: {path}");
-        return new Uri(path).AbsoluteUri + "?mode=ro";
     }
 }

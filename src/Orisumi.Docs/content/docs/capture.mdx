@@ -115,7 +115,7 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 
 构建时自动收集这些文件，按表、索引、视图的顺序执行，同组按文件名排序，不用登记清单。这些文件只定义结构；导入时用的临时视图留在采集代码里。
 
-C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载程序集内的 SQL，`Lock` 保证同一存储目录下每个来源只有一个写入进程。Swift 用 `Native/DatabaseSchema.swift` 加载可执行文件旁边的 `Orisumi.Collectors.MacOS/Schema/`，由构建和发布负责复制。
+C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载程序集内的 SQL。常驻的 C# 采集器通过 `Storage/CaptureWriter` 写入：它在进程存活期间持有该来源的单写入锁，同一存储目录下第二个写入进程直接失败；每轮采集是一行 `capture_runs`，开始时写主机观测，事实与“完成”在同一事务提交，失败时回滚事实、记下错误。Swift 用 `Native/DatabaseSchema.swift` 加载可执行文件旁边的 `Orisumi.Collectors.MacOS/Schema/`，由构建和发布负责复制。
 
 没有任何用户对象的空库在一个事务里建结构，失败时回滚；已有对象的库原样使用，不核对结构。打开连接时启用外键、3 秒锁等待和 WAL。
 
@@ -126,7 +126,7 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 - `database_identity`：建库时在同一事务里写一行，`database_id` 是随机 32 位十六进制，之后不变。库在设备间合并时靠它区分，见[多设备](./devices.mdx)。
 - `host_observations`：运行开始时读到的主机原始标识，包括硬件 UUID、主机名、型号、系统版本、启动 ID、系统用户和存储目录；读不到的为空。和上一行完全相同时不写新行，所以重启开机或换了存储目录才会多一行。
 
-`capture_runs` 的最后一列 `host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；为空表示加这列之前的运行，主机未知。C# 用 `Storage/HostObservation.cs`，Swift 在 `ForegroundDatabase.swift` 里读同样的值。
+`capture_runs` 的最后一列 `host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；为空表示加这列之前的运行，主机未知。C# 由 `CaptureWriter` 写（浏览器接收端的运行由扩展发起，直接用 `Storage/HostObservation.cs`），Swift 在 `ForegroundDatabase.swift` 里读同样的值。
 
 结构没有版本号，代码里不做迁移。改结构时停掉对应采集器，能迁移的用一次性脚本迁移现有库，再启动；开发期尽量迁移，每个来源保持一个库。迁移不了的破坏性更改，除非明确声明可以删，旧库改名只读保留，新建库继续采集。旧库不会在打开时被拒绝，要到写入时才在 SQL 层报错。macOS 库总是建完整结构，选项只控制哪些通道采集和写入。
 
@@ -140,7 +140,7 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 
 ## 新增采集器
 
-采集器只共享建库、加锁和参数绑定这些工具，不共享采集流程：取数、监听、游标和 `capture_runs` 的列由各来源按上面的原则自己定。
+采集器只共享建库、单写入与运行记录、参数绑定这些工具，不共享采集流程：取数、监听、游标和 `capture_runs` 里来源自己的列由各来源按上面的原则自己定。
 
 1. 建 `src/Collectors/Orisumi.Collectors.<来源>/`。`Collectors/Directory.Build.props` 已提供框架、SQLite、`Schema/` 打包和 `Storage/` 工具，C# 项目文件只写来源自己的依赖；库由其他工具链写入时设 `NativeSchema=true`。
 2. 按上面的约定写 `Schema/`，包括 `capture_runs`（最后一列 `host_observation_id`）和 `capture_coverage`；共享表不用写。

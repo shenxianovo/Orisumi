@@ -27,8 +27,7 @@ CLI 使用 `System.CommandLine`、`Spectre.Console`，开发命令在 `Orisumi.C
 | `orisumi dev build [-c Release]` | 构建项目 |
 | `orisumi capture start --store .orisumi` | 启动或重启系统采集器，保留数据 |
 | `orisumi capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](./recovery.mdx) |
-| `orisumi codex capture --all` | 导入所有 Codex 会话；单会话可传 ID，省略时读 `CODEX_THREAD_ID` |
-| `orisumi claude capture` | 导入 Claude 会话 |
+| `orisumi codex capture` / `orisumi claude capture` | 常驻监听并增量导入，由 `capture start` 装成 LaunchAgent；没有一次性导入 |
 | `orisumi foreground --windows --input --microphone --audio-output --camera` | 持续采集 macOS，选项各开一个通道；可指定秒数，Ctrl+C 正常停止 |
 | `orisumi timeline --from … --to …` | 查询活动时间线，时间参数包含 UTC 偏移或 `Z` |
 | `orisumi dev docs` | 文档预览；安装、检查和构建见[文档维护](./contributing.mdx) |
@@ -37,7 +36,7 @@ CLI 使用 `System.CommandLine`、`Spectre.Console`，开发命令在 `Orisumi.C
 
 `capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动全部通道，以继承窗口和输入权限；PID 和进程启动时间写入 `foreground.pid`，停止前据此确认仍是同一进程；日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
 
-Codex、Claude 以 `capture --watch` 常驻监听，由用户 LaunchAgent 保活。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
+Codex、Claude 常驻监听，由用户 LaunchAgent 保活；启动时先全量核对，之后按来源通知和定期核对增量导入。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
 
 重建输出库前停止相关监听和导入；重建后重启采集并重载扩展，建立新初值。来源数据保持只读，清空输出库不会删除来源内容。
 

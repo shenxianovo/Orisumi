@@ -7,55 +7,26 @@ namespace Orisumi.Collectors.Claude;
 
 public static partial class ClaudeCollector
 {
-    public static string Capture(string store) => Capture(store, null);
-
-    private static string Capture(string store, IReadOnlyCollection<string>? changedPaths)
+    // One capture round, for tests; the resident Watch holds the writer for its lifetime.
+    public static string Capture(string store)
     {
-        var database = CollectorDatabase.PathFor(store, Source);
-        using var connection = CollectorDatabase.Open(store, Source);
-        using var command = connection.CreateCommand();
-        long runId;
-        using (var start = connection.BeginTransaction())
-        {
-            command.Transaction = start;
-            var host = HostObservation.Record(command, store);
-            runId = (long)command.Scalar("INSERT INTO capture_runs(started_at_utc_ms,host_observation_id) VALUES($p0,$p1) RETURNING run_id",
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), host)!;
-            start.Commit();
-        }
-        command.Transaction = null;
-        try
+        using var writer = new CaptureWriter(store, Source);
+        return Capture(store, writer, null);
+    }
+
+    private static string Capture(string store, CaptureWriter writer, IReadOnlyCollection<string>? changedPaths) =>
+        writer.Run((command, runId) =>
         {
             var projects = Projects();
             if (!Directory.Exists(projects)) throw new DirectoryNotFoundException($"Claude Code projects directory not found: {projects}");
-            using var transaction = connection.BeginTransaction();
-            var written = Import(connection, transaction, runId, projects, changedPaths, out var bytes, out var records);
-            command.Transaction = transaction;
-            command.Parameters.Clear();
-            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$at,stop_reason='completed',bytes_read=$bytes,records_read=$records WHERE run_id=$run";
-            command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            command.Parameters.AddWithValue("$bytes", bytes);
-            command.Parameters.AddWithValue("$records", records);
-            command.Parameters.AddWithValue("$run", runId);
-            command.ExecuteNonQuery();
-            transaction.Commit();
-            return $"Claude Code: {written} source records captured in {database}";
-        }
-        catch (Exception error) when (error is IOException or InvalidDataException or DecoderFallbackException or SqliteException or UnauthorizedAccessException)
-        {
-            command.Transaction = null;
-            command.Parameters.Clear();
-            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$at,stop_reason='failed',error=$error WHERE run_id=$run";
-            command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            command.Parameters.AddWithValue("$error", error.Message);
-            command.Parameters.AddWithValue("$run", runId);
-            command.ExecuteNonQuery();
-            throw new IOException($"could not capture Claude Code transcripts: {error.Message}", error);
-        }
-    }
+            var written = Import(command.Connection!, command.Transaction!, runId, projects, changedPaths, out var bytes, out var records);
+            command.Execute("UPDATE capture_runs SET bytes_read=$p0,records_read=$p1 WHERE run_id=$p2", bytes, records, runId);
+            return $"Claude Code: {written} source records captured in {CollectorDatabase.PathFor(store, Source)}";
+        });
 
     public static async Task Watch(string store, CancellationToken cancellation)
     {
+        using var writer = new CaptureWriter(store, Source);
         var signals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
         var projects = Projects();
         var home = Path.GetDirectoryName(projects)!;
@@ -136,9 +107,9 @@ public static partial class ClaudeCollector
                 try
                 {
                     if (bind) Bind();
-                    Console.WriteLine(Capture(store, changed));
+                    Console.WriteLine(Capture(store, writer, changed));
                 }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                catch (IOException error)
                 {
                     Console.Error.WriteLine(error.Message);
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellation);

@@ -35,14 +35,6 @@ internal static class CollectorDatabase
         catch { connection.Dispose(); throw; }
     }
 
-    // One writer per source and store; a second process fails instead of waiting.
-    internal static FileStream Lock(string store, string source)
-    {
-        var path = PathFor(store, source);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        return new FileStream(path + ".capture.lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-    }
-
     // Parameters bind positionally as $p0, $p1, …; null becomes SQL NULL.
     internal static object? Scalar(this SqliteCommand command, string sql, params object?[] values)
     {

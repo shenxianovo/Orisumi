@@ -26,52 +26,52 @@ try
         CREATE TABLE thread_items(thread_id TEXT,turn_id TEXT,item_id TEXT,item_type TEXT,created_at_ms INT,rollout_ordinal INT,item_json TEXT);
         """);
     File.WriteAllText(rollout, Usage("first", 1) + "\n");
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     using var db = Open(Path.Combine(store, "raw/codex.sqlite"));
     // Replacing a source file must not discard a new response at the same source line.
     File.WriteAllText(rollout, Usage("second", 2) + "\n");
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db, "SELECT COUNT(*) FROM response_token_usage_observations") == 2,
         "A rewritten source line discarded a distinct response");
     Console.WriteLine("PASS: rewritten rollout preserves distinct responses");
     var context = JsonSerializer.Serialize(new { type="turn_context", payload=new { turn_id="turn", model="model-a" } });
     File.AppendAllText(rollout, context + "\n");
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     var offset = Scalar(db, "SELECT byte_offset FROM _token_usage_rollouts");
     var appended = Usage("third", 3) + "\n";
     File.AppendAllText(rollout, appended);
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db, "SELECT start_offset FROM usage_reads ORDER BY read_id DESC LIMIT 1") == offset, "Append re-read committed prefix");
     Check(Scalar(db, "SELECT bytes_read FROM usage_reads ORDER BY read_id DESC LIMIT 1") == Encoding.UTF8.GetByteCount(appended), "Append parsed more than appended bytes");
     Check(Text(db, "SELECT model FROM response_token_usage WHERE response_id='third'") == "model-a", "Incremental read lost turn model context");
     var readCount=Scalar(db,"SELECT COUNT(*) FROM usage_reads");
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM usage_reads")==readCount,"Unchanged file was parsed again");
 
     var partial = Usage("partial", 4);
     File.AppendAllText(rollout, partial[..(partial.Length/2)]);
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='partial'")==0,"Incomplete line was imported");
     File.AppendAllText(rollout, partial[(partial.Length/2)..]);
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='partial'")==0,"Unterminated line advanced cursor");
     File.AppendAllText(rollout, "\n");
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='partial'")==1,"Completed residual line was lost");
     Console.WriteLine("PASS: append-only reads, persisted context, unchanged files and residual lines");
 
     var repeated = Usage("third", 3);
     File.AppendAllText(rollout, repeated+"\n"+Usage("third",5)+"\n"+repeated+"\n");
-    CodexCollector.Capture(store, null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage_observations WHERE response_id='third'")==4,"Identical repeated source events collapsed");
     Check(Scalar(db,"SELECT total_output_tokens FROM response_token_usage WHERE response_id='third'")==3,"A-B-A source ordering was lost");
     offset = Scalar(db,"SELECT byte_offset FROM _token_usage_rollouts");
     var renamed = Path.Combine(root,"moved.jsonl");
     File.Move(rollout, renamed);rollout=renamed;
     Execute(source,"UPDATE threads SET rollout_path=$p0",rollout);
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     File.AppendAllText(rollout,Usage("moved",6)+"\n");
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT start_offset FROM usage_reads ORDER BY read_id DESC LIMIT 1")==offset,"Rename lost the byte cursor");
 
     var plain=File.ReadAllBytes(rollout);
@@ -80,44 +80,44 @@ try
     File.Delete(rollout);rollout=archived;
     Execute(source,"UPDATE threads SET rollout_path=$p0",rollout);
     var usages=Scalar(db,"SELECT COUNT(*) FROM response_token_usage_observations");
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage_observations")==usages,"Compression replay duplicated usage");
     readCount=Scalar(db,"SELECT COUNT(*) FROM usage_reads");
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM usage_reads")==readCount,"Unchanged archive was decoded again");
     Console.WriteLine("PASS: repeated events, rename continuation and compressed archive replay");
 
     rollout=Path.Combine(root,"active.jsonl");
     File.WriteAllBytes(rollout,plain);Execute(source,"UPDATE threads SET rollout_path=$p0",rollout);
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     offset=Scalar(db,"SELECT byte_offset FROM _token_usage_rollouts");
     var valid=Usage("atomic",7)+"\n";
     File.AppendAllText(rollout,valid+"{\"type\":\"token_usage_record\", invalid}\n");
-    try{CodexCollector.Capture(store,null);throw new Exception("Malformed event accepted");}catch(InvalidDataException){}
+    try{CodexCollector.Capture(store);throw new Exception("Malformed event accepted");}catch(IOException){}
     Check(Scalar(db,"SELECT byte_offset FROM _token_usage_rollouts")==offset,"Failed batch advanced cursor");
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='atomic'")==0,"Failed batch left partial facts");
     Check(Scalar(db,"SELECT COUNT(*) FROM capture_runs WHERE error IS NOT NULL AND stopped_at_utc_ms IS NOT NULL")==1,"Failure attempt rolled back");
     Check(Scalar(db,"SELECT COUNT(*) FROM capture_coverage WHERE evidence='failed'")==1,"Failure coverage missing");
     File.WriteAllBytes(rollout,plain.Concat(Encoding.UTF8.GetBytes(valid)).ToArray());
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='atomic'")==1,"Retry did not recover committed boundary");
     File.WriteAllText(rollout,Usage("truncated",8)+"\n");
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='truncated'")==1,"Truncated file was not reread");
     var replace=rollout+".replacement";File.WriteAllText(replace,Usage("replaced",9)+"\n");File.Move(replace,rollout,true);
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM response_token_usage WHERE response_id='replaced'")==1,"Replacement lost new response");
     File.Delete(rollout);
-    CodexCollector.Capture(store,null);CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT COUNT(*) FROM usage_source_events WHERE available=0")==1,"Repeated missing source wrote duplicate state");
     File.WriteAllText(rollout,Usage("restored",10)+"\n");
-    CodexCollector.Capture(store,null);
+    CodexCollector.Capture(store);
     Check(Scalar(db,"SELECT available FROM usage_source_events ORDER BY event_id DESC LIMIT 1")==1,"Source restoration missing");
     Console.WriteLine("PASS: transactional cursor, failed attempt, truncation, replacement and missing-source recovery");
 
     using(var stop=new CancellationTokenSource())
     {
-        var watch=Task.Run(()=>CodexCollector.Watch(store,null,stop.Token));
+        var watch=Task.Run(()=>CodexCollector.Watch(store,stop.Token));
         await Until(()=>Scalar(db,"SELECT COUNT(*) FROM capture_runs WHERE trigger='startup' AND stopped_at_utc_ms IS NOT NULL")>0);
         Execute(source,"UPDATE threads SET name='watched'");
         await Until(()=>Text(db,"SELECT title FROM current_threads")=="watched");
@@ -146,7 +146,7 @@ try
         Check(Scalar(db,"SELECT COUNT(*) FROM capture_runs")==runsBeforeRename,"Unrelated rename triggered capture");
         stop.Cancel();await watch.WaitAsync(TimeSpan.FromSeconds(5));
     }
-    Check(Scalar(db,"SELECT COUNT(*) FROM capture_runs WHERE trigger='change'")>=1,"Source notifications did not trigger capture");
+    Check(Scalar(db,"SELECT COUNT(*) FROM capture_runs WHERE trigger='change'")>=1,"Source notifications did not trigger capture: "+Text(db,"SELECT group_concat(trigger||':'||coalesce(error,''),' | ') FROM capture_runs"));
     Check(Scalar(db,"SELECT COUNT(*) FROM capture_coverage WHERE evidence='watch_gap' AND stopped_at_utc_ms IS NOT NULL")>=1,"Startup gap missing restored snapshot");
     Console.WriteLine("PASS: database/rollout notifications, malformed source recovery, gap evidence and cancellation");
 
@@ -165,7 +165,7 @@ try
     Environment.SetEnvironmentVariable("CODEX_HOME",replacementHome);
     using(var stop=new CancellationTokenSource())
     {
-        var watch=Task.Run(()=>CodexCollector.Watch(replacementStore,null,stop.Token));
+        var watch=Task.Run(()=>CodexCollector.Watch(replacementStore,stop.Token));
         try
         {
             var replacementOutput=Path.Combine(replacementStore,"raw/codex.sqlite");

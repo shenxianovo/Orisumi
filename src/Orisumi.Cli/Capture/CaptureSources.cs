@@ -11,8 +11,8 @@ internal static class CaptureSources
 {
     internal static readonly CaptureSource[] All =
     [
-        new("claude", ["claude", "capture", "--watch"]),
-        new("codex", ["codex", "capture", "--all", "--watch"]),
+        new("claude", ["claude", "capture"]),
+        new("codex", ["codex", "capture"]),
         // Chrome starts the native host for each message; register it with --extension-id.
         new("browser"),
         // Started detached from the caller to inherit its window and input permissions.

@@ -73,38 +73,15 @@ internal static class Commands
         root.Add(new Command("browser", "配置浏览器采集。") { nativeHost, register });
         root.Add(Dev.DevCommand.Create());
 
-        var threadId = new Argument<string?>("thread-id")
-        {
-            Description = "Codex 会话 ID；省略时读取 CODEX_THREAD_ID。",
-            Arity = ArgumentArity.ZeroOrOne,
-        };
-        var all = new Option<bool>("--all") { Description = "采集所有 Codex 会话。" };
-        var watchCodex = new Option<bool>("--watch") { Description = "持续监听来源变化并增量导入。" };
-        var codexCapture = new Command("capture", "导入 Codex 会话的当前可见内容与变化。") { threadId, all, watchCodex };
-        codexCapture.SetAction(async (result, token) =>
-        {
-            var id = result.GetValue(threadId);
-            if (result.GetValue(all) && id is not null)
-                throw new ArgumentException("thread-id 和 --all 只能选择一个。");
-            id = result.GetValue(all) ? null : id ?? Environment.GetEnvironmentVariable("CODEX_THREAD_ID");
-            if (!result.GetValue(all) && string.IsNullOrWhiteSpace(id))
-                throw new ArgumentException("请提供 thread-id 或 --all，或设置 CODEX_THREAD_ID。");
-            if (result.GetValue(watchCodex))
-                await Capture.CaptureLifetime.Run(stop => CodexCollector.Watch(result.GetRequiredValue(store), id, stop), token);
-            else
-                AnsiConsole.Write(new Text(CodexCollector.Capture(result.GetRequiredValue(store), id) + Environment.NewLine));
-        });
+        // Resident collectors: capture start runs them as LaunchAgents; each takes the source's single writer.
+        var codexCapture = new Command("capture", "持续监听 Codex 会话并增量导入。");
+        codexCapture.SetAction((result, token) =>
+            Capture.CaptureLifetime.Run(stop => CodexCollector.Watch(result.GetRequiredValue(store), stop), token));
         root.Add(new Command("codex", "Codex 会话采集。") { codexCapture });
 
-        var watchClaude = new Option<bool>("--watch") { Description = "持续监听日志并增量导入。" };
-        var claudeCapture = new Command("capture", "导入 Claude Code 会话的当前可见内容与变化。") { watchClaude };
-        claudeCapture.SetAction(async (result, token) =>
-        {
-            if (result.GetValue(watchClaude))
-                await Capture.CaptureLifetime.Run(stop => ClaudeCollector.Watch(result.GetRequiredValue(store), stop), token);
-            else
-                AnsiConsole.Write(new Text(ClaudeCollector.Capture(result.GetRequiredValue(store)) + Environment.NewLine));
-        });
+        var claudeCapture = new Command("capture", "持续监听 Claude Code 会话日志并增量导入。");
+        claudeCapture.SetAction((result, token) =>
+            Capture.CaptureLifetime.Run(stop => ClaudeCollector.Watch(result.GetRequiredValue(store), stop), token));
         root.Add(new Command("claude", "Claude Code 会话采集。") { claudeCapture });
 
         return root;

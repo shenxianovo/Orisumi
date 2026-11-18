@@ -65,7 +65,7 @@ try
             var insertRun = source switch
             {
                 "Browser" => "INSERT INTO capture_runs VALUES('test','chrome','profile','bookmarks',1,NULL,NULL)",
-                "Codex" => "INSERT INTO capture_runs(started_at_utc_ms,scope,trigger) VALUES(1,'all','manual')",
+                "Codex" => "INSERT INTO capture_runs(started_at_utc_ms,trigger) VALUES(1,'startup')",
                 _ => "INSERT INTO capture_runs(started_at_utc_ms) VALUES(1)",
             };
             Execute(actual, insertRun);
