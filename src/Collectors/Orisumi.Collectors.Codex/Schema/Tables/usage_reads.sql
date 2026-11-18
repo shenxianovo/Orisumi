@@ -10,5 +10,5 @@ CREATE TABLE usage_reads (
     bytes_read INTEGER NOT NULL,
     first_line INTEGER NOT NULL,
     last_line INTEGER NOT NULL,
-    reset_reason TEXT
+    read_kind TEXT NOT NULL CHECK(read_kind IN ('appended','initial','archive_version','source_replaced','source_truncated','source_rewritten'))
 );

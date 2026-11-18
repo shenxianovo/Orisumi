@@ -122,6 +122,8 @@ final class FocusedWindowObserver {
         } else {
             try database.appendChannel("windows", available: false, reason: "read_failed", at: observedAt)
             try database.appendChannel("window_title", available: false, reason: "focus_unavailable", at: observedAt)
+            // Record that the last known focus no longer holds; the next successful read sets a new initial value.
+            if hasSample { try database.appendWindow(.readFailed, at: observedAt, pid: pid, title: nil, hasWindow: nil) }
             hasSample = false
             pendingKind = .snapshot
             schedule.readSucceeded = false
@@ -151,7 +153,9 @@ final class FocusedWindowObserver {
             let titleResult = AXUIElementCopyAttributeValue(focusedWindow, kAXTitleAttribute as CFString, &titleValue)
             if titleResult == .success {
                 focusedTitle = titleValue as? String
-            } else if titleResult != .noValue && titleResult != .attributeUnsupported {
+            } else if titleResult == .noValue || titleResult == .attributeUnsupported {
+                focusedTitle = "" // The window has no title; NULL is kept for a failed read.
+            } else {
                 titleReadSucceeded = false
             }
         }

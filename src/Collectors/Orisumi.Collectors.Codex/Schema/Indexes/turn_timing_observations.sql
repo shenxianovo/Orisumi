@@ -1,1 +1,0 @@
-CREATE INDEX turn_timing_observations_by_turn ON turn_timing_observations(thread_id,turn_id,observation_id);

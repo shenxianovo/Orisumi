@@ -24,15 +24,15 @@ public static partial class CodexCollector
         """;
 
     private const string WriteTurns = """
-        INSERT OR IGNORE INTO turns SELECT thread_id,turn_id FROM source_history.thread_turns WHERE thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR thread_id=$thread);
-        INSERT INTO turn_timing_observations(thread_id,turn_id,run_id,started_at_utc_ms,completed_at_utc_ms) SELECT s.thread_id,s.turn_id,$run,s.started_at * 1000,s.completed_at * 1000
-         FROM source_history.thread_turns s WHERE s.thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR s.thread_id=$thread)
-         AND (NOT EXISTS (SELECT 1 FROM turn_timing_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id)
-         OR (s.started_at * 1000,s.completed_at * 1000) IS NOT (SELECT started_at_utc_ms,completed_at_utc_ms FROM turn_timing_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id ORDER BY observation_id DESC LIMIT 1));
-        INSERT INTO turn_status_observations(thread_id,turn_id,run_id,status) SELECT s.thread_id,s.turn_id,$run,s.status
+        INSERT OR IGNORE INTO turns SELECT thread_id,turn_id,started_at * 1000 FROM source_history.thread_turns WHERE thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR thread_id=$thread);
+        -- The start time does not change; a later read may only fill it in.
+        UPDATE turns SET started_at_utc_ms=(SELECT s.started_at * 1000 FROM source_history.thread_turns s WHERE s.thread_id=turns.thread_id AND s.turn_id=turns.turn_id)
+         WHERE started_at_utc_ms IS NULL AND ($thread IS NULL OR thread_id=$thread)
+         AND EXISTS (SELECT 1 FROM source_history.thread_turns s WHERE s.thread_id=turns.thread_id AND s.turn_id=turns.turn_id AND s.started_at IS NOT NULL);
+        INSERT INTO turn_status_observations(thread_id,turn_id,run_id,status,completed_at_utc_ms) SELECT s.thread_id,s.turn_id,$run,s.status,s.completed_at * 1000
          FROM source_history.thread_turns s WHERE s.thread_id IN (SELECT thread_id FROM threads) AND ($thread IS NULL OR s.thread_id=$thread)
          AND (NOT EXISTS (SELECT 1 FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id)
-         OR (s.status) IS NOT (SELECT status FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id ORDER BY observation_id DESC LIMIT 1));
+         OR (s.status,s.completed_at * 1000) IS NOT (SELECT status,completed_at_utc_ms FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id ORDER BY observation_id DESC LIMIT 1));
         """;
 
     private const string WriteMessages = """
@@ -57,7 +57,7 @@ public static partial class CodexCollector
         var database = Path.GetFullPath(Path.Combine(store, "raw", "codex.sqlite"));
         using var connection = OpenDatabase(database);
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,thread_filter,trigger) VALUES($started,$thread,$trigger); SELECT last_insert_rowid();";
+        command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,scope,thread_filter,trigger) VALUES($started,CASE WHEN $thread IS NULL THEN 'all' ELSE 'thread' END,$thread,$trigger); SELECT last_insert_rowid();";
         command.Parameters.AddWithValue("$started", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         command.Parameters.AddWithValue("$thread", (object?)threadId ?? DBNull.Value);
         command.Parameters.AddWithValue("$trigger", trigger);
@@ -131,7 +131,7 @@ public static partial class CodexCollector
     private static void Finish(SqliteConnection connection, long runId, string? error)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$end,error=$error WHERE run_id=$run";
+        command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$end,stop_reason=CASE WHEN $error IS NULL THEN 'completed' ELSE 'failed' END,error=$error WHERE run_id=$run";
         command.Parameters.AddWithValue("$end", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
         command.Parameters.AddWithValue("$run", runId);

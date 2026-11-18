@@ -6,17 +6,16 @@ internal static class BookmarkDatabase
 {
     internal sealed record Node(string BookmarkId, string? ParentId, int? Position, string Title,
         string? Url, long? AddedAtUtcMs, long? LastUsedAtUtcMs);
-    internal sealed record Usage(string BookmarkId, long LastUsedAtUtcMs);
 
     internal sealed record Observation(Guid ObservationId, Guid RunId, long RunStartedAtUtcMs,
         long RunSequence, long ObservedAtUtcMs, string Kind, Node[]? Nodes = null, Node? Node = null,
         string? BookmarkId = null, string? Title = null, string? Url = null, string? ParentId = null,
-        int? Position = null, string[]? ChildIds = null, Usage[]? Usages = null);
+        int? Position = null, string[]? ChildIds = null);
 
     private sealed record State(string Id, string? Kind = null, long? Added = null, bool Present = true,
         string? Title = null, string? Url = null, string? Parent = null, int? Position = null, long? LastUsed = null)
     {
-        internal static State From(Node node) => new(node.BookmarkId, node.Url is null ? "folder" : "bookmark",
+        internal static State From(Node node) => new(node.BookmarkId, node.ParentId is null ? "root" : node.Url is null ? "folder" : "bookmark",
             node.AddedAtUtcMs, true, node.Title, node.Url, node.ParentId, node.Position, node.LastUsedAtUtcMs);
     }
 
@@ -80,6 +79,13 @@ internal static class BookmarkDatabase
             Execute("INSERT INTO bookmark_observations(event_id,run_id,run_sequence,observed_at_utc_ms,kind) VALUES($p0,$p1,$p2,$p3,$p4)",
                 observation.ObservationId.ToString(), run, observation.RunSequence, observation.ObservedAtUtcMs, observation.Kind);
             var observationId = (long)Scalar("SELECT last_insert_rowid()")!;
+            // A later snapshot should only add last-use times to what the events already applied.
+            // Anything else means an event was missed; record when the check found it.
+            if (observation.Kind == "snapshot" && !baseline && changes.Any(state => before.TryGetValue(state.Id, out var old)
+                    ? state.Present != old.Present || state.Title != old.Title || state.Url != old.Url || state.Parent != old.Parent || state.Position != old.Position
+                    : state.Present))
+                Execute("INSERT INTO capture_channel_events VALUES($p0,'chrome',$p1,'bookmarks','snapshot',$p2,$p2,'reconciliation_changed',NULL,$p3)",
+                    observation.ObservationId + ":reconciliation", profile, observation.ObservedAtUtcMs, run);
             long written = 0;
             foreach (var state in changes)
             {
@@ -101,7 +107,13 @@ internal static class BookmarkDatabase
                 if (!state.Present) continue;
                 if (state.Title is not null && (initial || state.Title != old!.Title)) Append("bookmark_title_events", state.Title);
                 if (state.Url is not null && (initial || state.Url != old!.Url)) Append("bookmark_url_events", state.Url);
-                if ((initial && (state.Kind is not null || state.Parent is not null || state.Position is not null)) || (!initial && (state.Parent != old!.Parent || state.Position != old.Position))) Append("bookmark_location_events", state.Parent, state.Position);
+                // The root has no location; other nodes get one only once both parts are known.
+                if (state.Parent is not null && state.Position is not null && (initial || state.Parent != old!.Parent || state.Position != old.Position))
+                {
+                    Execute("INSERT OR IGNORE INTO bookmarks(browser,profile_id,bookmark_id) VALUES('chrome',$p0,$p1)", profile, state.Parent);
+                    var parentKey = (long)Scalar("SELECT bookmark_key FROM bookmarks WHERE browser='chrome' AND profile_id=$p0 AND bookmark_id=$p1", profile, state.Parent)!;
+                    Append("bookmark_location_events", parentKey, state.Position);
+                }
                 if (state.LastUsed is not null && (initial || state.LastUsed != old!.LastUsed)) Append("bookmark_last_used_observations", state.LastUsed);
             }
             transaction.Commit();
@@ -132,11 +144,6 @@ internal static class BookmarkDatabase
         var previous = id is not null ? states.GetValueOrDefault(id) : null;
         switch (observation.Kind)
         {
-            case "last_used":
-                foreach (var usage in observation.Usages!)
-                    if (states.TryGetValue(usage.BookmarkId, out var used) && used.Present)
-                        states[usage.BookmarkId] = used with { LastUsed = usage.LastUsedAtUtcMs };
-                break;
             case "snapshot":
                 var incoming = observation.Nodes!.ToDictionary(node => node.BookmarkId, Observe, StringComparer.Ordinal);
                 foreach (var state in states.Values.ToArray())
@@ -191,8 +198,6 @@ internal static class BookmarkDatabase
         var valid = value.Kind switch
         {
             "snapshot" => value.Nodes is { } nodes && nodes.All(ValidNode) && nodes.Select(node => node.BookmarkId).Distinct().Count() == nodes.Length,
-            "last_used" => value.Usages is { } usages && usages.All(usage => !string.IsNullOrEmpty(usage.BookmarkId) && usage.LastUsedAtUtcMs > 0)
-                && usages.Select(usage => usage.BookmarkId).Distinct().Count() == usages.Length,
             "created" => ValidNode(value.Node),
             "changed" => !string.IsNullOrEmpty(value.BookmarkId) && value.Title is not null,
             "moved" => !string.IsNullOrEmpty(value.BookmarkId) && !string.IsNullOrEmpty(value.ParentId) && value.Position is >= 0,

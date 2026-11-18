@@ -2,7 +2,12 @@ CREATE TABLE capture_runs (
     run_id INTEGER PRIMARY KEY,
     started_at_utc_ms INTEGER NOT NULL,
     stopped_at_utc_ms INTEGER,
+    scope TEXT NOT NULL CHECK(scope IN ('all','thread')),
     thread_filter TEXT,
     trigger TEXT NOT NULL,
-    error TEXT
+    stop_reason TEXT CHECK(stop_reason IN ('completed','failed')),
+    error TEXT,
+    CHECK((scope = 'thread') = (thread_filter IS NOT NULL)),
+    CHECK((stopped_at_utc_ms IS NULL) = (stop_reason IS NULL)),
+    CHECK((stop_reason IS 'failed') = (error IS NOT NULL))
 );

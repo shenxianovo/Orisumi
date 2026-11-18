@@ -50,7 +50,7 @@ public static partial class ClaudeCollector
             if (record.Message is { } message)
             {
                 Execute("INSERT OR IGNORE INTO messages VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6)",
-                    sessionId, message.Uuid, message.ParentUuid, message.Role, message.Observed, message.Cwd, message.ResponseId);
+                    sessionId, message.Uuid, message.ParentUuid, message.Role, message.CreatedAt, message.Cwd, message.ResponseId);
                 Execute("""
                     INSERT INTO message_content_observations SELECT $p0,$p1,$p2,$p3
                     WHERE $p3 IS NOT (SELECT content_json FROM message_content_observations
@@ -63,7 +63,7 @@ public static partial class ClaudeCollector
                     WHERE ($p4,$p5,$p6,$p7,$p8,$p9) IS NOT
                       (SELECT model,total_input_tokens,cache_read_input_tokens,cache_write_input_tokens,total_output_tokens,reasoning_output_tokens
                        FROM response_token_usage WHERE session_id=$p1 AND response_id=$p2);
-                    """, observationId, sessionId, usage.ResponseId, usage.Observed, usage.Model, usage.Input,
+                    """, observationId, sessionId, usage.ResponseId, usage.RecordedAt, usage.Model, usage.Input,
                     usage.Cached, usage.CacheWrite, usage.Output, usage.Reasoning);
         });
         bytesRead = reader.BytesRead;
@@ -81,16 +81,14 @@ public static partial class ClaudeCollector
         if (kind == "custom-title")
             return new ParsedRecord(sessionId, Title: ReadString(row, "customTitle"));
 
-        if (!DateTimeOffset.TryParse(ReadString(row, "timestamp"), CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal, out var timestamp))
-            return null;
-
-        var observed = timestamp.ToUnixTimeMilliseconds();
+        // A missing source time stays unknown; the record itself is still kept.
+        long? createdAt = DateTimeOffset.TryParse(ReadString(row, "timestamp"), CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal, out var timestamp) ? timestamp.ToUnixTimeMilliseconds() : null;
         var cwd = ReadString(row, "cwd");
 
         if (!row.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object)
             return null;
-        var record = new ParsedRecord(sessionId, Usage: kind == "assistant" ? ReadUsage(message, observed) : null);
+        var record = new ParsedRecord(sessionId, Usage: kind == "assistant" ? ReadUsage(message, createdAt) : null);
         if (ReadString(row, "uuid") is not { } uuid || !message.TryGetProperty("content", out var content))
             return record;
         if (kind == "user" && (IsTrue(row, "isMeta") || IsTrue(row, "isCompactSummary") ||
@@ -115,15 +113,19 @@ public static partial class ClaudeCollector
             return record;
         }
 
-        return record with { Message = new Message(uuid, ReadString(row, "parentUuid"), kind, observed, cwd,
-            ReadString(message, "id"), contentJson) };
+        // JSON null marks the first message of a chain; a missing field is unknown.
+        var parentUuid = row.TryGetProperty("parentUuid", out var parent)
+            ? parent.ValueKind == JsonValueKind.Null ? "" : ReadString(row, "parentUuid")
+            : null;
+        return record with { Message = new Message(uuid, parentUuid, kind, createdAt, cwd,
+            kind == "assistant" ? ReadString(message, "id") : null, contentJson) };
     }
 
-    private static Usage? ReadUsage(JsonElement message, long observed)
+    private static Usage? ReadUsage(JsonElement message, long? recordedAt)
     {
         var responseId = ReadString(message, "id");
         var model = ReadString(message, "model");
-        if (string.IsNullOrEmpty(responseId) || string.IsNullOrEmpty(model) || model == "<synthetic>" ||
+        if (string.IsNullOrEmpty(responseId) || model == "<synthetic>" ||
             !message.TryGetProperty("usage", out var counts) || ReadCount(counts, "input_tokens") is not long uncached ||
             ReadCount(counts, "output_tokens") is not long output)
             return null;
@@ -132,7 +134,7 @@ public static partial class ClaudeCollector
         var cacheWrite = ReadCount(counts, "cache_creation_input_tokens") ?? 0;
         var reasoning = counts.TryGetProperty("output_tokens_details", out var details)
             ? ReadCount(details, "thinking_tokens") : null;
-        return new Usage(responseId, observed, model, uncached + cached + cacheWrite, cached, cacheWrite, output, reasoning);
+        return new Usage(responseId, recordedAt, string.IsNullOrEmpty(model) ? null : model, uncached + cached + cacheWrite, cached, cacheWrite, output, reasoning);
     }
 
     private static long? ReadCount(JsonElement value, string key) =>
@@ -163,7 +165,7 @@ public static partial class ClaudeCollector
     }
 
     private sealed record ParsedRecord(string SessionId, string? Title = null, Message? Message = null, Usage? Usage = null);
-    private sealed record Message(string Uuid, string? ParentUuid, string Role, long Observed, string? Cwd,
+    private sealed record Message(string Uuid, string? ParentUuid, string Role, long? CreatedAt, string? Cwd,
         string? ResponseId, string ContentJson);
-    private sealed record Usage(string ResponseId, long Observed, string Model, long Input, long Cached, long CacheWrite, long Output, long? Reasoning);
+    private sealed record Usage(string ResponseId, long? RecordedAt, string? Model, long Input, long Cached, long CacheWrite, long Output, long? Reasoning);
 }

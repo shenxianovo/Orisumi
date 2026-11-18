@@ -119,6 +119,9 @@ async Task CodexChecks()
     Count(db, "thread_archive_observations", 1);
     Count(db, "message_content_observations", 2);
     Rows(db, "SELECT status,completed_at_utc_ms FROM current_turns", ["completed", 3000]);
+    Count(db, "turn_status_observations", 2);
+    Rows(db, "SELECT started_at_utc_ms FROM turns", [1000]);
+    Rows(db, "SELECT scope,thread_filter,stop_reason,error FROM capture_runs GROUP BY scope,stop_reason", ["all", null, "completed", null]);
     Rows(db, "SELECT item_json FROM current_messages", ["final"]);
     Rows(db, "SELECT COUNT(*) FROM capture_runs WHERE stopped_at_utc_ms IS NOT NULL", [4]);
     Console.WriteLine("PASS: Codex independent changes and repeated import");
@@ -134,17 +137,21 @@ async Task ClaudeChecks()
         message = new { id = "r", model = "model", content = new[] { new { type = "text", text } }, usage = new { input_tokens = 10, output_tokens = output } },
     };
     object CustomTitle(string title) => new { type = "custom-title", sessionId = "s", customTitle = title };
-    object[] records = [CustomTitle("A"), Message("first", 1), CustomTitle("B"), Message("final", 2), CustomTitle("A")];
+    // The first message of a chain has a JSON null parent; this one also lacks a source time.
+    object root = new { type = "user", sessionId = "s", uuid = "u", parentUuid = (string?)null, message = new { role = "user", content = "hi" } };
+    object[] records = [root, CustomTitle("A"), Message("first", 1), CustomTitle("B"), Message("final", 2), CustomTitle("A")];
     File.WriteAllLines(Path.Combine(directory.FullName, "session.jsonl"), records.Select(record => JsonSerializer.Serialize(record)));
     await Capture(fixture, "claude");
     using var db = Open(fixture.Database("claude"));
     await Capture(fixture, "claude");
     Rows(db, "SELECT title FROM session_title_observations ORDER BY observation_id", ["A"], ["B"], ["A"]);
-    Count(db, "messages", 1);
-    Count(db, "message_content_observations", 2);
+    Rows(db, "SELECT message_uuid,parent_uuid,created_at_utc_ms,response_id FROM messages ORDER BY message_uuid",
+        ["m", null, 1767225600000L, "r"], ["u", "", null, null]);
+    Count(db, "message_content_observations", 3);
     Count(db, "response_token_usage_observations", 2);
     Rows(db, "SELECT total_output_tokens FROM response_token_usage", [2]);
-    Count(db, "source_records", 5);
+    Count(db, "source_records", 6);
+    Rows(db, "SELECT stop_reason,error FROM capture_runs GROUP BY stop_reason", ["completed", null]);
     Rows(db, "SELECT title FROM current_sessions", ["A"]);
     Console.WriteLine("PASS: Claude source order and content revisions");
 }
@@ -188,7 +195,8 @@ async Task DownloadChecks()
     await Browser(fixture, new() { ["downloads"] = new JsonArray(initial, moved, done) });
     await Browser(fixture, new() { ["downloads"] = new JsonArray(done.DeepClone()) });
     using var db = Open(fixture.Database("browser"));
-    Count(db, "download_resource_observations", 1);
+    Rows(db, "SELECT url,started_at_utc_ms FROM downloads", ["https://example.com/file", 1000]);
+    Count(db, "download_response_observations", 0);
     Count(db, "download_state_observations", 2);
     Count(db, "download_path_observations", 2);
     Rows(db, "SELECT state,local_path,url,ended_at_utc_ms FROM current_downloads", ["complete", "/tmp/new", "https://example.com/file", 1003]);
@@ -219,10 +227,13 @@ async Task MacOSChecks()
     // The fixture PID is absent from the OS: its window observations have an
     // unverified identity, separate from both supplied lifecycle identities.
     Count(db, "process_instances", 4);
-    Count(db, "window_focus_instances", 2);
-    Count(db, "focused_window_events", 3);
-    Count(db, "window_title_observations", 3);
-    Rows(db, "SELECT window_title FROM window_history ORDER BY run_sequence", ["A"], ["B"], ["C"], [null]);
+    Count(db, "window_focus_instances", 3);
+    Count(db, "focused_window_events", 5);
+    Count(db, "window_title_observations", 4);
+    // No window, an unreadable focus and an untitled window stay distinguishable.
+    Rows(db, "SELECT has_window,window_title FROM window_history ORDER BY run_sequence",
+        [1, "A"], [1, "B"], [1, "C"], [0, null], [null, null], [1, ""]);
+    Rows(db, "SELECT has_app,process_instance_id IS NOT NULL FROM foreground_app_events ORDER BY run_sequence", [1, 1], [0, 0]);
     Rows(db, "SELECT available FROM capture_channel_events ORDER BY run_sequence", [1], [0], [1]);
     Rows(db, "SELECT capture_windows,capture_input,stopped_at_utc_ms IS NOT NULL FROM capture_runs", [1, 1, 1]);
     Rows(db, "PRAGMA foreign_key_check");

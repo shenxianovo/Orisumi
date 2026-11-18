@@ -8,9 +8,6 @@ public static class MacOSForeground
 {
     public static async Task<int> Run(string store, int? seconds, bool captureWindows, int? afkThresholdSeconds, bool captureInput)
     {
-        if (!OperatingSystem.IsMacOS())
-            throw new IOException("foreground capture requires a macOS graphical session");
-
         var helper = Path.Combine(AppContext.BaseDirectory, "orisumi-macos-foreground");
         var database = MacOSStore.GetDatabasePath(store);
         Directory.CreateDirectory(Path.GetDirectoryName(database)!);

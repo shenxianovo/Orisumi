@@ -7,7 +7,7 @@ namespace Orisumi.Cli;
 internal static class SourceLauncher
 {
     internal static string Dotnet => Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(),
-        "..", "..", "..", OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet"));
+        "..", "..", "..", "dotnet"));
 
     internal static async Task<int?> TryRun(string[] arguments)
     {
@@ -26,12 +26,11 @@ internal static class SourceLauncher
             signal.Cancel = true;
             cancellation.Cancel();
         };
-        using var termination = OperatingSystem.IsWindows() ? null :
-            PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
-            {
-                signal.Cancel = true;
-                cancellation.Cancel();
-            });
+        using var termination = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
+        {
+            signal.Cancel = true;
+            cancellation.Cancel();
+        });
         Console.CancelKeyPress += onInterrupt;
         try
         {
@@ -89,17 +88,14 @@ internal static class SourceLauncher
         {
             if (!process.HasExited)
             {
-                if (!OperatingSystem.IsWindows())
-                {
-                    // Let collectors flush and record the end of their capture run before escalating.
-                    var signal = new ProcessStartInfo("/bin/kill") { UseShellExecute = false };
-                    signal.ArgumentList.Add("-TERM");
-                    signal.ArgumentList.Add(process.Id.ToString(CultureInfo.InvariantCulture));
-                    using var kill = Process.Start(signal);
-                    if (kill is not null)
-                        await kill.WaitForExitAsync();
-                    await Task.WhenAny(exited, Task.Delay(TimeSpan.FromSeconds(5)));
-                }
+                // Let collectors flush and record the end of their capture run before escalating.
+                var signal = new ProcessStartInfo("/bin/kill") { UseShellExecute = false };
+                signal.ArgumentList.Add("-TERM");
+                signal.ArgumentList.Add(process.Id.ToString(CultureInfo.InvariantCulture));
+                using var kill = Process.Start(signal);
+                if (kill is not null)
+                    await kill.WaitForExitAsync();
+                await Task.WhenAny(exited, Task.Delay(TimeSpan.FromSeconds(5)));
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }

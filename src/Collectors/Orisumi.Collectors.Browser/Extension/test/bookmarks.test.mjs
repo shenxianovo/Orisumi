@@ -61,7 +61,8 @@ test("create, rename, move and delete append independent facts and reconstruct h
     { title: "Orisumi project", parent_id: "reading", position: 2, present: 0 },
   ]);
   assert.deepEqual(db.sql("SELECT * FROM current_bookmarks"), []);
-  for (const [table, count] of Object.entries({ bookmarks: 1, bookmark_observations: 4,
+  // B plus the two parents it was placed under.
+  for (const [table, count] of Object.entries({ bookmarks: 3, bookmark_observations: 4,
     bookmark_presence_events: 2, bookmark_title_events: 2, bookmark_url_events: 1,
     bookmark_location_events: 2, bookmark_last_used_observations: 0 })) {
     assert.equal(db.sql(`SELECT count(*) AS n FROM ${table}`)[0].n, count, table);
@@ -113,17 +114,21 @@ test("invalid observations roll back and equal bookmark IDs in different profile
   assert.equal(db.send(db.observation({ kind: "reordered", bookmarkId: "F", childIds: ["B", "B"] })).ok, false);
   const second = db.observation({ kind: "created", runId: randomUUID(), node: node("B", "G", 0, "other") });
   assert.equal(db.send(second, randomUUID()).ok, true);
-  assert.equal(db.sql("SELECT count(*) AS n FROM bookmarks")[0].n, 2);
+  assert.equal(db.sql("SELECT count(*) AS n FROM bookmarks WHERE bookmark_id='B'")[0].n, 2);
   assert.equal(db.sql("SELECT count(*) AS n FROM bookmark_observations")[0].n, 2);
 });
 
-test("last-use samples write only the changed usage field", t => {
+test("a later snapshot writes only the changed last use and records missed events", t => {
   const db = database(t);
   db.write({ kind: "snapshot", nodes: [node("B", "F", 0)] });
-  db.write({ kind: "last_used", usages: [{ bookmarkId: "B", lastUsedAtUtcMs: 2000 }] });
+  db.write({ kind: "snapshot", nodes: [{ ...node("B", "F", 0), lastUsedAtUtcMs: 2000 }] });
   assert.deepEqual(db.sql("SELECT last_used_at_utc_ms FROM bookmark_last_used_observations"), [{ last_used_at_utc_ms: 2000 }]);
   for (const table of ["bookmark_presence_events", "bookmark_title_events", "bookmark_url_events", "bookmark_location_events"])
     assert.equal(db.sql(`SELECT count(*) AS n FROM ${table}`)[0].n, 1, table);
+  assert.equal(db.sql("SELECT count(*) AS n FROM capture_channel_events")[0].n, 0);
+  // A rename that arrived without its event is found by the next snapshot.
+  db.write({ kind: "snapshot", nodes: [{ ...node("B", "F", 0, "renamed"), lastUsedAtUtcMs: 2000 }] });
+  assert.deepEqual(db.sql("SELECT evidence FROM capture_channel_events"), [{ evidence: "reconciliation_changed" }]);
 });
 
 test("coverage retries are idempotent and an unconfirmed run remains open across restarts", t => {
@@ -154,8 +159,40 @@ test("unknown tab fields clear prior values and download baselines survive a new
   const download = runId => ({ eventId: randomUUID(), runId, runStartedAtUtcMs: 1000, runSequence: 1,
     observedAtUtcMs: 2000, kind: "snapshot", downloadId: 1, fields: { state: "complete", filename: "/tmp/a", url: "https://example.com/file" } });
   assert.equal(db.sendBatch({ downloads: [download(randomUUID()), download(randomUUID())] }).ok, true);
-  for (const table of ["download_state_observations", "download_path_observations", "download_resource_observations"])
+  for (const table of ["download_state_observations", "download_path_observations"])
     assert.equal(db.sql(`SELECT count(*) AS n FROM ${table}`)[0].n, 2, table);
+  assert.deepEqual(db.sql("SELECT url FROM downloads"), [{ url: "https://example.com/file" }]);
+  assert.equal(db.sql("SELECT count(*) AS n FROM download_response_observations")[0].n, 0);
+});
+
+test("known absence is explicit: root location, tab focus and download end time", t => {
+  const db = database(t);
+  db.write({ kind: "snapshot", nodes: [node("0", null, null, "", null), node("F", "0", 0, "folder", null), node("B", "F", 0)] });
+  assert.deepEqual(db.sql("SELECT bookmark_id,node_kind,parent_id,position FROM current_bookmarks ORDER BY bookmark_id"), [
+    { bookmark_id: "0", node_kind: "root", parent_id: null, position: null },
+    { bookmark_id: "B", node_kind: "bookmark", parent_id: "F", position: 0 },
+    { bookmark_id: "F", node_kind: "folder", parent_id: "0", position: 0 },
+  ]);
+  assert.equal(db.sql("SELECT count(*) AS n FROM bookmark_location_events")[0].n, 2);
+
+  const run = randomUUID();
+  const focus = (sequence, eventKind, tabId) => ({ eventId: randomUUID(), captureSessionId: run, runStartedAtUtcMs: 1000,
+    sessionSequence: sequence, observedAtUtcMs: 1000 + sequence, eventKind, windowId: tabId && 2, tabId, title: tabId && "A", url: tabId && "https://example.com" });
+  assert.equal(db.sendBatch({ activeTabEvents: [focus(1, "snapshot", 1), focus(2, "window_blurred", null)] }).ok, true);
+  assert.deepEqual(db.sql("SELECT has_tab,tab_id FROM active_tab_focus_events ORDER BY observation_id"), [
+    { has_tab: 1, tab_id: 1 }, { has_tab: 0, tab_id: null },
+  ]);
+
+  const downloadRun = randomUUID();
+  const download = (sequence, kind, fields) => ({ eventId: randomUUID(), runId: downloadRun, runStartedAtUtcMs: 1000,
+    runSequence: sequence, observedAtUtcMs: 2000 + sequence, kind, downloadId: 7, fields });
+  assert.equal(db.sendBatch({ downloads: [
+    download(1, "snapshot", { state: "interrupted", endedAtUtcMs: 2500 }),
+    download(2, "changed", { state: "in_progress" }),
+  ] }).ok, true);
+  assert.deepEqual(db.sql("SELECT state,ended_at_utc_ms FROM download_state_observations ORDER BY observation_id"), [
+    { state: "interrupted", ended_at_utc_ms: 2500 }, { state: "in_progress", ended_at_utc_ms: null },
+  ]);
 });
 
 test("delayed title callbacks survive newer samples and retry with the same identity", t => {

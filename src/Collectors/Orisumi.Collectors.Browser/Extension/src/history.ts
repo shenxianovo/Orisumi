@@ -6,7 +6,7 @@ export type Visit = {
   visitedAtUtcMs: number;
   url: string;
   transition: NonNullable<chrome.history.VisitItem["transition"]> | null;
-  referringVisitId: string | null;
+  referringVisitId: string | null; // "" means Chrome reported no referrer; null means unknown.
   isLocal: boolean | null;
 };
 
@@ -52,7 +52,7 @@ async function* readVisits(startTime: number, endTime: number): AsyncGenerator<V
         visitedAtUtcMs: Math.trunc(visit.visitTime),
         url,
         transition: visit.transition ?? null,
-        referringVisitId: visit.referringVisitId && visit.referringVisitId !== "0" ? visit.referringVisitId : null,
+        referringVisitId: visit.referringVisitId === "0" ? "" : visit.referringVisitId || null,
         isLocal: visit.isLocal ?? null,
       };
     }
@@ -145,7 +145,7 @@ export function observeHistory() {
         catch (error) { await coverage("history.events", "read_failed", "getVisits_failed", "replay"); throw error; }
         const visits = retained.filter(visit => visit.visitTime !== undefined)
           .map(visit => ({ visitId: visit.visitId, url: entry.url, visitedAtUtcMs: Math.trunc(visit.visitTime!),
-            transition: visit.transition ?? null, referringVisitId: visit.referringVisitId === "0" ? null : visit.referringVisitId ?? null,
+            transition: visit.transition ?? null, referringVisitId: visit.referringVisitId === "0" ? "" : visit.referringVisitId || null,
             isLocal: visit.isLocal ?? null }));
         if (!visits.length) await coverage("history.events", "unavailable", "visit_no_longer_available", "replay");
         await sendVisits(visits);

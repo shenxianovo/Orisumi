@@ -5,10 +5,8 @@ type Bookmark = {
   bookmarkId: string; parentId: string | null; position: number | null; title: string; url: string | null;
   addedAtUtcMs: number | null; lastUsedAtUtcMs: number | null;
 };
-type Usage = { bookmarkId: string; lastUsedAtUtcMs: number };
 type Change =
   | { kind: "snapshot"; nodes: Bookmark[] }
-  | { kind: "last_used"; usages: Usage[] }
   | { kind: "created"; node: Bookmark }
   | { kind: "changed"; bookmarkId: string; title: string; url?: string }
   | { kind: "moved"; bookmarkId: string; parentId: string; position: number }
@@ -20,7 +18,7 @@ export type BookmarkObservation = Change & {
 type Run = { id: string; startedAtUtcMs: number };
 type State = {
   runId?: string; sequence: number; pending: BookmarkObservation[];
-  nodes?: Record<string, Bookmark>; baselineRun?: string; databaseId?: string; needsBaseline?: boolean;
+  treeHash?: string; baselineRun?: string; databaseId?: string; needsBaseline?: boolean;
 };
 const bookmark = (node: chrome.bookmarks.BookmarkTreeNode): Bookmark => ({
   bookmarkId: node.id, parentId: node.parentId ?? null, position: node.index ?? null,
@@ -28,54 +26,9 @@ const bookmark = (node: chrome.bookmarks.BookmarkTreeNode): Bookmark => ({
   lastUsedAtUtcMs: node.dateLastUsed == null ? null : Math.trunc(node.dateLastUsed),
 });
 
-// This cache avoids sending a whole tree for a last-use sample. SQLite remains the fact store.
-function apply(nodes: Record<string, Bookmark>, change: Change) {
-  const shift = (parent: string | null, position: number | null, by: number, except?: string) => {
-    if (position === null) return;
-    for (const node of Object.values(nodes))
-      if (node.bookmarkId !== except && node.parentId === parent && node.position !== null && node.position >= position) node.position += by;
-  };
-  switch (change.kind) {
-    case "snapshot": {
-      const incoming = Object.fromEntries(change.nodes.map(node => [node.bookmarkId, { ...node,
-        addedAtUtcMs: node.addedAtUtcMs ?? nodes[node.bookmarkId]?.addedAtUtcMs ?? null,
-        lastUsedAtUtcMs: node.lastUsedAtUtcMs ?? nodes[node.bookmarkId]?.lastUsedAtUtcMs ?? null }]));
-      for (const key of Object.keys(nodes)) delete nodes[key];
-      Object.assign(nodes, incoming); break;
-    }
-    case "created":
-      if (!nodes[change.node.bookmarkId]) shift(change.node.parentId, change.node.position, 1);
-      nodes[change.node.bookmarkId] = { ...change.node }; break;
-    case "changed": {
-      const node = nodes[change.bookmarkId];
-      if (node) { node.title = change.title; if (change.url !== undefined) node.url = change.url; }
-      break;
-    }
-    case "moved": {
-      const node = nodes[change.bookmarkId];
-      if (node) {
-        shift(node.parentId, node.position === null ? null : node.position + 1, -1, node.bookmarkId);
-        shift(change.parentId, change.position, 1, node.bookmarkId);
-        node.parentId = change.parentId; node.position = change.position;
-      }
-      break;
-    }
-    case "removed": {
-      const node = nodes[change.bookmarkId];
-      if (node) shift(node.parentId, node.position === null ? null : node.position + 1, -1, node.bookmarkId);
-      const removed = new Set([change.bookmarkId]);
-      for (let size = 0; size !== removed.size;) {
-        size = removed.size;
-        for (const node of Object.values(nodes)) if (node.parentId && removed.has(node.parentId)) removed.add(node.bookmarkId);
-      }
-      for (const id of removed) delete nodes[id];
-      break;
-    }
-    case "reordered":
-      change.childIds.forEach((id, position) => { if (nodes[id]) { nodes[id].parentId = change.bookmarkId; nodes[id].position = position; } }); break;
-    case "last_used":
-      for (const usage of change.usages) if (nodes[usage.bookmarkId]) nodes[usage.bookmarkId].lastUsedAtUtcMs = usage.lastUsedAtUtcMs;
-  }
+async function treeHash(nodes: Bookmark[]): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(nodes)));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function observeBookmarks() {
@@ -98,14 +51,13 @@ export function observeBookmarks() {
   async function readState(): Promise<State> {
     return (await chrome.storage.local.get<{ bookmarkCaptureState?: State }>("bookmarkCaptureState")).bookmarkCaptureState ?? { sequence: 0, pending: [] };
   }
-  async function record(change: Change, at = Date.now()) {
+  async function record(change: Change, at = Date.now(), treeHash?: string) {
     const currentRun = await captureRun(), state = await readState();
     const sequence = state.runId === currentRun.id ? state.sequence + 1 : 1;
     const observation: BookmarkObservation = { ...change, observationId: crypto.randomUUID(), runId: currentRun.id,
       runStartedAtUtcMs: currentRun.startedAtUtcMs, runSequence: sequence, observedAtUtcMs: Math.max(at, currentRun.startedAtUtcMs) };
     if (jsonBytes({ bookmarkObservation: observation }) > batchBytesAvailable) throw new Error("A bookmark observation exceeds the local collector message limit.");
-    if (change.kind === "snapshot") state.nodes ??= {};
-    if (state.nodes) apply(state.nodes, change);
+    if (treeHash) state.treeHash = treeHash;
     state.runId = currentRun.id; state.sequence = sequence; state.pending.push(observation);
     if (change.kind === "snapshot") { state.baselineRun = currentRun.id; state.needsBaseline = false; }
     await chrome.storage.local.set({ bookmarkCaptureState: state });
@@ -140,26 +92,23 @@ export function observeBookmarks() {
       if (before !== revision) continue;
       const nodes: Bookmark[] = [], pending = [...roots];
       while (pending.length) { const node = pending.pop()!; nodes.push(bookmark(node)); if (node.children) pending.push(...node.children); }
+      const hash = await treeHash(nodes);
       const accepted = await serialize(async () => {
         if (before !== revision) return false;
         const currentRun = await captureRun(), state = await readState();
-        const baseline = needsBaseline || state.needsBaseline || state.baselineRun !== currentRun.id || !state.nodes;
-        const structuralChange = !!state.nodes && (Object.keys(state.nodes).length !== nodes.length || nodes.some(node => {
-          const old = state.nodes![node.bookmarkId];
-          return !old || node.title !== old.title || node.url !== old.url || node.parentId !== old.parentId || node.position !== old.position;
-        }));
-        if (baseline || structuralChange) {
+        const baseline = needsBaseline || state.needsBaseline || state.baselineRun !== currentRun.id;
+        if (baseline) {
           if (state.baselineRun) {
-            await coverage("bookmarks", "unavailable", baseline ? "baseline_reset" : "reconciliation_changed");
+            await coverage("bookmarks", "unavailable", "baseline_reset");
             if (state.baselineRun === currentRun.id)
               await chrome.storage.session.set({ bookmarkCaptureRun: { id: crypto.randomUUID(), startedAtUtcMs: Date.now() } });
           }
-          await record({ kind: "snapshot", nodes });
+          await record({ kind: "snapshot", nodes }, Date.now(), hash);
           needsBaseline = false;
-        } else {
-          const usages = nodes.filter(node => node.lastUsedAtUtcMs !== null && node.lastUsedAtUtcMs !== state.nodes![node.bookmarkId]?.lastUsedAtUtcMs)
-            .map(node => ({ bookmarkId: node.bookmarkId, lastUsedAtUtcMs: node.lastUsedAtUtcMs! }));
-          if (usages.length) await record({ kind: "last_used", usages });
+        } else if (hash !== state.treeHash) {
+          // The receiver compares the tree with the events it already applied: new last-use
+          // times are written, and any other difference is recorded as a missed event.
+          await record({ kind: "snapshot", nodes }, Date.now(), hash);
         }
         return true;
       });

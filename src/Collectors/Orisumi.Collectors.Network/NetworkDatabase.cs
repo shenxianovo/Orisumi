@@ -62,9 +62,9 @@ internal sealed class NetworkDatabase : IDisposable
             return command.ExecuteScalar();
         }
         var sampleId = (long)Execute("""
-            INSERT INTO samples(run_id,run_sequence,started_at_utc_ms,observed_at_utc_ms,elapsed_ms,continuous,error)
-            VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6) RETURNING sample_id
-            """, runId, sequence + 1, startedAt, observedAt, elapsed, continuous, error)!;
+            INSERT INTO samples(run_id,run_sequence,started_at_utc_ms,observed_at_utc_ms,elapsed_ms,continuous,succeeded,error)
+            VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7) RETURNING sample_id
+            """, runId, sequence + 1, startedAt, observedAt, elapsed, continuous, error is null, error)!;
 
         // Values and uncertainty are both state. A change to or from null is retained.
         void Counters(string entity, long id, long? received, long? sent, bool initial)

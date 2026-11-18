@@ -6,6 +6,8 @@ CREATE TABLE samples (
     observed_at_utc_ms INTEGER NOT NULL,
     elapsed_ms INTEGER NOT NULL,
     continuous INTEGER NOT NULL CHECK(continuous IN (0,1)),
+    succeeded INTEGER NOT NULL CHECK(succeeded IN (0,1)),
     error TEXT,
+    CHECK(succeeded = (error IS NULL)),
     UNIQUE(run_id, run_sequence)
 );

@@ -36,6 +36,7 @@ enum WindowEventKind: String {
     case snapshot
     case focusChanged = "focus_changed"
     case titleChanged = "title_changed"
+    case readFailed = "read_failed"
 }
 
 enum AppLifecycleEventKind: String {
@@ -140,8 +141,8 @@ final class ForegroundDatabase {
         let statement: OpaquePointer
         if table == .foreground {
             statement = try prepare("""
-                INSERT INTO \(table.rawValue) (\(columns), process_instance_id)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO \(table.rawValue) (\(columns), has_app, process_instance_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """)
         } else {
             statement = try prepare("INSERT INTO \(table.rawValue) (\(columns)) VALUES (?, ?, ?, ?)")
@@ -209,7 +210,8 @@ final class ForegroundDatabase {
         try bindEvent(insert, kind: kind.rawValue, at: time)
         if kind.table == .foreground {
             let instance = try app.map { try processInstance(pid: $0.pid, bundle: $0.bundleID, name: $0.name) }
-            guard bindText(insert, 5, instance) == SQLITE_OK else { throw DatabaseError(database) }
+            guard sqlite3_bind_int(insert, 5, instance == nil ? 0 : 1) == SQLITE_OK,
+                  bindText(insert, 6, instance) == SQLITE_OK else { throw DatabaseError(database) }
         }
         try commitEvent(insert)
     }
@@ -276,12 +278,13 @@ final class ForegroundDatabase {
         methods[channel] = mode
     }
 
-    func appendWindow(_ kind: WindowEventKind, at time: Date, pid: pid_t, title: String?, hasWindow: Bool) throws {
+    /// `hasWindow` is nil when the focused window could not be read.
+    func appendWindow(_ kind: WindowEventKind, at time: Date, pid: pid_t, title: String?, hasWindow: Bool?) throws {
         guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
         var committed = false
         defer { if !committed { sqlite3_exec(database, "ROLLBACK", nil, nil, nil) } }
         if kind != .titleChanged {
-            focusID = hasWindow ? UUID().uuidString.lowercased() : nil
+            focusID = hasWindow == true ? UUID().uuidString.lowercased() : nil
             if let focusID {
                 let instance = try processInstance(pid: pid)
                 let insert = try prepare("INSERT INTO window_focus_instances VALUES(?,?,?)")
@@ -289,10 +292,11 @@ final class ForegroundDatabase {
                 guard bindText(insert, 1, focusID) == SQLITE_OK, bindText(insert, 2, runID) == SQLITE_OK,
                       bindText(insert, 3, instance) == SQLITE_OK, sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
             }
-            let insert = try prepare("INSERT INTO focused_window_events VALUES(?,?,?,?,?)")
+            let insert = try prepare("INSERT INTO focused_window_events VALUES(?,?,?,?,?,?)")
             defer { sqlite3_finalize(insert) }
             try bindEvent(insert, kind: kind.rawValue, at: time)
-            guard bindText(insert, 5, focusID) == SQLITE_OK else { throw DatabaseError(database) }
+            guard bindOptionalInteger(insert, 5, hasWindow.map { $0 ? 1 : 0 }) == SQLITE_OK,
+                  bindText(insert, 6, focusID) == SQLITE_OK else { throw DatabaseError(database) }
             try commitEvent(insert)
         }
         if let focusID {

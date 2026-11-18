@@ -26,7 +26,7 @@ public static partial class ClaudeCollector
             var written = Import(connection, transaction, runId, projects, changedPaths, out var bytes, out var records);
             command.Transaction = transaction;
             command.Parameters.Clear();
-            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$at,bytes_read=$bytes,records_read=$records WHERE run_id=$run";
+            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$at,stop_reason='completed',bytes_read=$bytes,records_read=$records WHERE run_id=$run";
             command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             command.Parameters.AddWithValue("$bytes", bytes);
             command.Parameters.AddWithValue("$records", records);
@@ -39,7 +39,7 @@ public static partial class ClaudeCollector
         {
             command.Transaction = null;
             command.Parameters.Clear();
-            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$at,error=$error WHERE run_id=$run";
+            command.CommandText = "UPDATE capture_runs SET stopped_at_utc_ms=$at,stop_reason='failed',error=$error WHERE run_id=$run";
             command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             command.Parameters.AddWithValue("$error", error.Message);
             command.Parameters.AddWithValue("$run", runId);

@@ -5,14 +5,14 @@ description: 源码入口、采集运行与验证。
 
 ## 安装与源码入口
 
-需要 .NET 11 SDK；macOS 原生采集器另需 Xcode Command Line Tools。在仓库根目录安装全局入口：
+只支持 macOS。需要 .NET 11 SDK 和 Xcode Command Line Tools。在仓库根目录安装全局入口：
 
 ```sh
 dotnet pack src/Orisumi.Cli -c Release -o .orisumi/packages
 dotnet tool install --global Orisumi.Cli --source .orisumi/packages --version 0.1.1
 ```
 
-将全局工具目录加入 `PATH`（macOS/Linux 通常为 `~/.dotnet/tools`）。`orisumi` 从当前目录向上定位 `Orisumi.slnx` 与 CLI 项目，遇到其他 Git 仓库即停止；仓库外不能使用源码入口。
+将全局工具目录 `~/.dotnet/tools` 加入 `PATH`。`orisumi` 从当前目录向上定位 `Orisumi.slnx` 与 CLI 项目，遇到其他 Git 仓库即停止；仓库外不能使用源码入口。
 
 每次调用先增量构建当前检出的 Debug 源码，包括未提交修改；失败即退出。构建信息写 stderr，命令保留 stdin/stdout、参数、退出码和工作目录，相对路径以调用位置为准。
 

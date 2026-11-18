@@ -34,7 +34,7 @@ const settle = async () => { for (let i=0;i<10;i++) await new Promise(resolve =>
 const downloadsItem = { id: 8, url: "https://example.com/file", startTime: "2026-01-01T00:00:00Z", filename: "/tmp/a",
   state: "in_progress", totalBytes: 10, mime: "text/plain", incognito: false };
 
-test("bookmarks sample last use without sending unchanged structure; worker wake keeps the run", async () => {
+test("bookmarks send nothing while the tree is unchanged; worker wake keeps the run", async () => {
   const f = browser();
   let collector = observeBookmarks();
   await collector.sync("one");
@@ -46,9 +46,9 @@ test("bookmarks sample last use without sending unchanged structure; worker wake
   f.nodes[0].dateLastUsed = 12345;
   await collector.sync("one");
   facts = f.sent.flatMap(batch => batch.bookmarkObservation ? [batch.bookmarkObservation] : []);
-  assert.deepEqual(facts.map(fact => fact.kind), ["snapshot", "last_used"]);
+  assert.deepEqual(facts.map(fact => fact.kind), ["snapshot", "snapshot"]);
   assert.equal(facts[0].runId, facts[1].runId);
-  assert.deepEqual(facts[1].usages, [{ bookmarkId: "1", lastUsedAtUtcMs: 12345 }]);
+  assert.equal(facts[1].nodes.find(node => node.bookmarkId === "1").lastUsedAtUtcMs, 12345);
   await flushCoverage();
 });
 

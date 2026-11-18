@@ -1,7 +1,7 @@
 CREATE VIEW window_history AS
 WITH events AS (
-    SELECT run_id,run_sequence,observed_at_utc_ms,event_kind,focus_id FROM focused_window_events
-    UNION ALL SELECT t.run_id,t.run_sequence,t.observed_at_utc_ms,'title_changed',t.focus_id FROM window_title_observations t
+    SELECT run_id,run_sequence,observed_at_utc_ms,event_kind,has_window,focus_id FROM focused_window_events
+    UNION ALL SELECT t.run_id,t.run_sequence,t.observed_at_utc_ms,'title_changed',1,t.focus_id FROM window_title_observations t
     WHERE NOT EXISTS (SELECT 1 FROM focused_window_events f WHERE f.run_id=t.run_id AND f.run_sequence=t.run_sequence)
 )
 SELECT e.*,p.pid,

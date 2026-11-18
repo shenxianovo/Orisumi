@@ -1,3 +1,4 @@
+using Orisumi.Collectors.Storage;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -57,8 +58,8 @@ internal static class CodexUsage
             }
             try
             {
-                using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                var fileId = RolloutFile.Identity(source, path);
+                using var source = AppendOnlyFile.Open(path);
+                var fileId = AppendOnlyFile.Identity(source);
                 var length = source.Length;
                 var modified = File.GetLastWriteTimeUtc(source.SafeFileHandle).Ticks;
                 Availability(threadId, path, true);
@@ -74,8 +75,8 @@ internal static class CodexUsage
                     compressed || previous.Path.EndsWith(".zst", StringComparison.Ordinal) ? "archive_version" :
                     previous.FileId != fileId ? "source_replaced" :
                     length < previous.Offset ? "source_truncated" :
-                    length == previous.Length || RolloutFile.Checkpoint(source, previous.Offset, true) != previous.Prefix ||
-                    RolloutFile.Checkpoint(source, previous.Offset, false) != previous.Tail ? "source_rewritten" : null;
+                    length == previous.Length || AppendOnlyFile.Checkpoint(source, previous.Offset, true) != previous.Prefix ||
+                    AppendOnlyFile.Checkpoint(source, previous.Offset, false) != previous.Tail ? "source_rewritten" : null;
                 var offset = reset is null ? previous!.Offset : 0;
                 var firstOffset = offset;
                 var lineNumber = reset is null ? previous!.Line : 0;
@@ -132,7 +133,7 @@ internal static class CodexUsage
                     }
                     else
                     {
-                        foreach (var line in RolloutFile.Lines(source, offset, length))
+                        foreach (var line in AppendOnlyFile.Lines(source, offset, length))
                         {
                             Record(line.Text);
                             offset = line.End;
@@ -144,18 +145,18 @@ internal static class CodexUsage
                 bytesRead += readBytes;
                 Execute("""
                     INSERT INTO usage_reads(run_id,thread_id,source_path,started_at_utc_ms,stopped_at_utc_ms,
-                      start_offset,end_offset,bytes_read,first_line,last_line,reset_reason)
+                      start_offset,end_offset,bytes_read,first_line,last_line,read_kind)
                     VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7,$p8,$p9,$p10)
                     """, runId, threadId, path, started, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), firstOffset, offset,
-                    readBytes, firstLine, lineNumber, reset);
+                    readBytes, firstLine, lineNumber, reset ?? "appended");
                 Execute("""
                     INSERT INTO _token_usage_rollouts VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7,$p8,$p9)
                     ON CONFLICT(thread_id) DO UPDATE SET path=excluded.path,file_id=excluded.file_id,length=excluded.length,
                       modified_ticks=excluded.modified_ticks,byte_offset=excluded.byte_offset,line_number=excluded.line_number,
                       prefix_hash=excluded.prefix_hash,tail_hash=excluded.tail_hash,models_json=excluded.models_json
                     """, threadId, path, fileId, length, modified, offset, lineNumber,
-                    compressed ? "" : RolloutFile.Checkpoint(source, offset, true),
-                    compressed ? "" : RolloutFile.Checkpoint(source, offset, false), ModelJson(models));
+                    compressed ? "" : AppendOnlyFile.Checkpoint(source, offset, true),
+                    compressed ? "" : AppendOnlyFile.Checkpoint(source, offset, false), ModelJson(models));
             }
             catch (IOException error) when (error is FileNotFoundException or DirectoryNotFoundException)
             {

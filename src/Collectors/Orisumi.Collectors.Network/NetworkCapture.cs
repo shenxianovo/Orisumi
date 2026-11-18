@@ -7,7 +7,6 @@ public static class NetworkCapture
 {
     public static async Task Run(string store, int? seconds, int intervalSeconds, TextWriter log)
     {
-        if (!OperatingSystem.IsMacOS()) throw new IOException("nettop capture requires macOS.");
         if (seconds is <= 0 || intervalSeconds <= 0) throw new ArgumentException("Duration and interval must be positive.");
         var path = NetworkDatabase.PathFor(store);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

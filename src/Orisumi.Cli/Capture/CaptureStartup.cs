@@ -10,7 +10,6 @@ internal static class CaptureStartup
 {
     internal static async Task Start(string store, string? extensionId, TextWriter output, CancellationToken cancellation)
     {
-        if (!OperatingSystem.IsMacOS()) throw new IOException("采集器后台启动需要 macOS 图形会话。");
         var root = Repository.Require();
         store = Path.GetFullPath(store);
         var assembly = typeof(CaptureStartup).Assembly.Location;

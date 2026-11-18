@@ -142,12 +142,13 @@ internal static class BrowserDatabase
             FROM json_each({payload}, '$.visits')
             WHERE true
             ON CONFLICT (browser, profile_id, visit_id) DO UPDATE SET
-                transition = COALESCE(excluded.transition, visits.transition),
-                referring_visit_id = COALESCE(excluded.referring_visit_id, visits.referring_visit_id),
-                is_local = COALESCE(excluded.is_local, visits.is_local)
-            WHERE (excluded.transition IS NOT NULL AND visits.transition IS NOT excluded.transition)
-               OR (excluded.referring_visit_id IS NOT NULL AND visits.referring_visit_id IS NOT excluded.referring_visit_id)
-               OR (excluded.is_local IS NOT NULL AND visits.is_local IS NOT excluded.is_local);
+                transition = COALESCE(visits.transition, excluded.transition),
+                referring_visit_id = COALESCE(visits.referring_visit_id, excluded.referring_visit_id),
+                is_local = COALESCE(visits.is_local, excluded.is_local)
+            -- A visit does not change; later reads may only fill attributes that were unknown.
+            WHERE (visits.transition IS NULL AND excluded.transition IS NOT NULL)
+               OR (visits.referring_visit_id IS NULL AND excluded.referring_visit_id IS NOT NULL)
+               OR (visits.is_local IS NULL AND excluded.is_local IS NOT NULL);
             """;
     }
 
@@ -190,7 +191,7 @@ internal static class BrowserDatabase
                 INSERT OR IGNORE INTO tab_observations(event_id,run_id,run_sequence,observed_at_utc_ms,event_kind)
                 VALUES ('{entry.EventId:D}','{entry.CaptureSessionId:D}',{entry.SessionSequence},{entry.ObservedAtUtcMs},{json}->>'$.eventKind');
                 INSERT OR IGNORE INTO active_tab_focus_events
-                SELECT observation_id,{json}->>'$.windowId',{json}->>'$.tabId' FROM tab_observations o WHERE event_id='{entry.EventId:D}'
+                SELECT observation_id,{json}->>'$.tabId' IS NOT NULL,{json}->>'$.windowId',{json}->>'$.tabId' FROM tab_observations o WHERE event_id='{entry.EventId:D}'
                 AND (NOT EXISTS (SELECT 1 FROM active_tab_history h WHERE h.run_id=o.run_id AND h.run_sequence<o.run_sequence)
                     OR ({json}->>'$.windowId',{json}->>'$.tabId') IS NOT
                     (SELECT window_id,tab_id FROM active_tab_history h WHERE h.run_id=o.run_id AND h.run_sequence<o.run_sequence ORDER BY h.run_sequence DESC LIMIT 1));
@@ -225,20 +226,24 @@ internal static class BrowserDatabase
             sql.AppendLine($"""
                 INSERT OR IGNORE INTO capture_runs VALUES ('{entry.RunId:D}','chrome','{profileId:D}','downloads',{entry.RunStartedAtUtcMs},NULL);
                 INSERT OR IGNORE INTO downloads(browser,profile_id,download_id) VALUES ('chrome','{profileId:D}',{entry.DownloadId});
+                UPDATE downloads SET url=COALESCE(url,{json}->>'$.url'),started_at_utc_ms=COALESCE(started_at_utc_ms,{json}->>'$.startedAtUtcMs')
+                WHERE browser='chrome' AND profile_id='{profileId:D}' AND download_id={entry.DownloadId}
+                  AND ((url IS NULL AND {json}->>'$.url' IS NOT NULL) OR (started_at_utc_ms IS NULL AND {json}->>'$.startedAtUtcMs' IS NOT NULL));
                 INSERT OR IGNORE INTO download_observations(event_id,run_id,run_sequence,observed_at_utc_ms,kind,download_key)
                 SELECT '{entry.EventId:D}','{entry.RunId:D}',{entry.RunSequence},{entry.ObservedAtUtcMs},{JsonSql(entry.Kind)}->>'$',download_key
                 FROM downloads WHERE browser='chrome' AND profile_id='{profileId:D}' AND download_id={entry.DownloadId};
                 """);
-            void AppendChanged(string aspect, params (string Column, string Field)[] fields)
+            void AppendChanged(string aspect, (string Column, string Field)[] fields, Func<string[], string[]>? adjust = null)
             {
                 // Missing callback fields retain the previous value; explicit null clears it.
                 var table = $"download_{aspect}_observations";
                 var previous = $"FROM {table} f JOIN download_observations p USING(observation_id) " +
                     "WHERE p.download_key=o.download_key AND p.observation_id<o.observation_id";
-                var values = string.Join(',', fields.Select(field => $"""
+                var expressions = fields.Select(field => $"""
                     CASE WHEN json_type({json},'$.{field.Field}') IS NOT NULL THEN {json}->>'$.{field.Field}'
                     ELSE (SELECT {field.Column} {previous} ORDER BY p.observation_id DESC LIMIT 1) END
-                    """));
+                    """).ToArray();
+                var values = string.Join(',', adjust?.Invoke(expressions) ?? expressions);
                 var supplied = string.Join(" OR ", fields.Select(field => $"json_type({json},'$.{field.Field}') IS NOT NULL"));
                 var columns = string.Join(',', fields.Select(field => field.Column));
                 sql.AppendLine($"""
@@ -249,13 +254,14 @@ internal static class BrowserDatabase
                         OR ({values}) IS NOT (SELECT {columns} {previous} ORDER BY p.observation_id DESC LIMIT 1));
                     """);
             }
-            AppendChanged("resource", ("url", "url"), ("started_at_utc_ms", "startedAtUtcMs"),
-                ("final_url", "finalUrl"), ("total_bytes", "totalBytes"), ("mime_type", "mimeType"));
-            AppendChanged("state", ("state", "state"), ("ended_at_utc_ms", "endedAtUtcMs"));
-            AppendChanged("path", ("local_path", "filename"));
+            AppendChanged("response", [("final_url", "finalUrl"), ("total_bytes", "totalBytes"), ("mime_type", "mimeType")]);
+            // An end time does not apply while the download is in progress, even if the callback kept the old one.
+            AppendChanged("state", [("state", "state"), ("ended_at_utc_ms", "endedAtUtcMs")],
+                values => [values[0], $"CASE WHEN ({values[0]})='in_progress' THEN NULL ELSE ({values[1]}) END"]);
+            AppendChanged("path", [("local_path", "filename")]);
             sql.AppendLine($"""
                 DELETE FROM download_observations WHERE event_id='{entry.EventId:D}' AND kind='snapshot'
-                  AND NOT EXISTS (SELECT 1 FROM download_resource_observations f WHERE f.observation_id=download_observations.observation_id)
+                  AND NOT EXISTS (SELECT 1 FROM download_response_observations f WHERE f.observation_id=download_observations.observation_id)
                   AND NOT EXISTS (SELECT 1 FROM download_state_observations f WHERE f.observation_id=download_observations.observation_id)
                   AND NOT EXISTS (SELECT 1 FROM download_path_observations f WHERE f.observation_id=download_observations.observation_id);
                 """);

@@ -12,8 +12,6 @@ public static class ChromeNativeHost
 
     public static string Register(string store, string extensionId, string executable)
     {
-        if (!OperatingSystem.IsMacOS())
-            throw new IOException("Chrome native host registration requires macOS");
         if (extensionId.Length != 32 || extensionId.Any(character => character is < 'a' or > 'p'))
             throw new ArgumentException("expected a 32-character Chrome extension ID");
 

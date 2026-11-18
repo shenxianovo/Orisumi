@@ -15,5 +15,6 @@
     <EmbeddedResource Include="Schema/Version.txt" LogicalName="$(AssemblyName).Schema.Version.txt" />
     <Compile Include="../Storage/SqliteSchema.cs" Link="Storage/SqliteSchema.cs" />
     <Compile Include="../Storage/SqliteFile.cs" Link="Storage/SqliteFile.cs" />
+    <Compile Include="../Storage/AppendOnlyFile.cs" Link="Storage/AppendOnlyFile.cs" />
   </ItemGroup>
 </Project>

@@ -5,10 +5,10 @@ FROM database_observations
 UNION ALL
 SELECT 'import','snapshot',started_at_utc_ms,stopped_at_utc_ms,
        CASE WHEN stopped_at_utc_ms IS NULL THEN 'unconfirmed' ELSE 'failed' END,error,run_id
-FROM capture_runs WHERE stopped_at_utc_ms IS NULL OR error IS NOT NULL
+FROM capture_runs WHERE stopped_at_utc_ms IS NULL OR stop_reason='failed'
 UNION ALL
 SELECT 'usage','replay',started_at_utc_ms,stopped_at_utc_ms,
-       CASE WHEN reset_reason IS NULL THEN 'read' ELSE reset_reason END,
+       CASE WHEN read_kind='appended' THEN 'read' ELSE read_kind END,
        json_object('path',source_path,'start_offset',start_offset,'end_offset',end_offset,'bytes_read',bytes_read),run_id
 FROM usage_reads
 UNION ALL
