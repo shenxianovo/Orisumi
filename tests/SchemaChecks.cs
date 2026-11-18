@@ -4,33 +4,54 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Data.Sqlite;
+using Orisumi.Cli.Capture;
 
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
 var temporary = Directory.CreateTempSubdirectory("orisumi-schema-");
+const string prefix = "Orisumi.Collectors.";
+// Every collector project is listed once in CaptureSources and in the solution.
+var projects = Directory.GetDirectories(Path.Combine(root, "src/Collectors"), prefix + "*")
+    .Select(path => Path.GetFileName(path)!).Order(StringComparer.Ordinal).ToArray();
+Check(projects.Select(project => project[prefix.Length..].ToLowerInvariant()).Order(StringComparer.Ordinal)
+    .SequenceEqual(CaptureSources.All.Select(source => source.Name).Order(StringComparer.Ordinal)), "CaptureSources lists every collector project");
+var solution = File.ReadAllText(Path.Combine(root, "Orisumi.slnx"));
+foreach (var project in projects)
+    Check(solution.Contains($"src/Collectors/{project}/{project}.csproj"), project + " is missing from Orisumi.slnx");
+Console.WriteLine("PASS: collector list, solution and capture sources agree");
+
+// capture coverage reads these columns from every source; extra columns follow them.
+string[] coverageColumns = ["scope", "mode", "started_at_utc_ms", "stopped_at_utc_ms", "evidence", "detail"];
 try
 {
-    foreach (var source in new[] { "Browser", "Claude", "Codex", "Network" })
+    foreach (var project in projects)
     {
-        var assembly = Assembly.Load("Orisumi.Collectors." + source);
-        var initializer = assembly.GetType("Orisumi.Collectors.Storage.SqliteSchema", throwOnError: true)!;
+        var source = project[prefix.Length..];
+        var schema = Path.Combine(root, "src/Collectors", project, "Schema");
+        using var expected = Open(":memory:");
+        foreach (var group in new[] { "Tables", "Indexes", "Views" })
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(schema, group), "*.sql").Order(StringComparer.Ordinal))
+                Execute(expected, File.ReadAllText(file));
+        Check(TextRows(expected, "SELECT name FROM pragma_table_info('capture_coverage') ORDER BY cid").Take(coverageColumns.Length)
+            .SequenceEqual(coverageColumns), source + " capture_coverage columns");
+        foreach (var view in TextRows(expected, "SELECT name FROM sqlite_schema WHERE type='view'"))
+            Execute(expected, $"SELECT * FROM \"{view}\" LIMIT 0");
+
+        var initializer = Assembly.Load(project).GetType("Orisumi.Collectors.Storage.SqliteSchema");
+        if (initializer is null)
+        {
+            // Native collectors load the same files with their own toolchain.
+            Console.WriteLine($"PASS: {source} schema files, views and coverage columns");
+            continue;
+        }
         var ensureCreated = initializer.GetMethod("EnsureCreated", BindingFlags.Static | BindingFlags.NonPublic)!
             .CreateDelegate<Action<SqliteConnection>>();
-        var checkVersion = initializer.GetMethod("CheckVersion", BindingFlags.Static | BindingFlags.NonPublic)!
-            .CreateDelegate<Action<SqliteConnection>>();
-        var schema = Path.Combine(root, "src/Collectors", assembly.GetName().Name!, "Schema");
-        var version = long.Parse(File.ReadAllText(Path.Combine(schema, "Version.txt")));
         var path = Path.Combine(temporary.FullName, source + ".sqlite");
         using (var actual = Open(path))
-        using (var expected = Open(":memory:"))
         {
             // Compare the packaged initializer's result with the entire source schema.
-            foreach (var group in new[] { "Tables", "Indexes", "Views" })
-                foreach (var file in Directory.EnumerateFiles(Path.Combine(schema, group), "*.sql").Order(StringComparer.Ordinal))
-                    Execute(expected, File.ReadAllText(file));
             ensureCreated(actual);
             const string objects = "SELECT type || ':' || name || ':' || sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name";
             Check(TextRows(actual, objects).SequenceEqual(TextRows(expected, objects)), source + " packaged schema differs from source");
-            Check(Number(actual, "PRAGMA user_version") == version, source + " version");
             foreach (var view in TextRows(actual, "SELECT name FROM sqlite_schema WHERE type='view'"))
                 Execute(actual, $"SELECT * FROM \"{view}\" LIMIT 0");
             Check(TextRows(actual, "PRAGMA foreign_key_check").Count == 0, source + " foreign keys");
@@ -38,7 +59,6 @@ try
             var insertRun = source switch
             {
                 "Browser" => "INSERT INTO capture_runs VALUES('test','chrome','profile','bookmarks',1,NULL)",
-                "Network" => "INSERT INTO capture_runs VALUES('test','nettop','boot',5,1,NULL,NULL)",
                 "Codex" => "INSERT INTO capture_runs(started_at_utc_ms,scope,trigger) VALUES(1,'all','manual')",
                 _ => "INSERT INTO capture_runs(started_at_utc_ms) VALUES(1)",
             };
@@ -47,35 +67,15 @@ try
         using (var reopened = Open(path))
         {
             ensureCreated(reopened);
-            checkVersion(reopened);
             Check(Number(reopened, "SELECT COUNT(*) FROM capture_runs") == 1, source + " lost data on reopen");
-            Execute(reopened, "PRAGMA user_version=999");
-            Reject(() => ensureCreated(reopened));
-            Reject(() => checkVersion(reopened));
-            Check(Number(reopened, "PRAGMA user_version") == 999, source + " changed rejected version");
-            Check(Number(reopened, "SELECT COUNT(*) FROM capture_runs") == 1, source + " changed rejected data");
         }
-        using (var unversioned = Open(":memory:"))
-        {
-            Execute(unversioned, "CREATE TABLE old_facts(value TEXT); INSERT INTO old_facts VALUES('preserve')");
-            Reject(() => ensureCreated(unversioned));
-            Check(TextRows(unversioned, "SELECT value FROM old_facts").Single() == "preserve", source + " changed unversioned data");
-            Check(Number(unversioned, "SELECT COUNT(*) FROM sqlite_schema") == 1, source + " extended an unversioned database");
-            Check(Number(unversioned, "PRAGMA user_version") == 0, source + " stamped an unversioned database");
-        }
-        Console.WriteLine($"PASS: {source} complete schema, views, reopen and version rejection");
+        Console.WriteLine($"PASS: {source} complete schema, views and reopen");
     }
 }
 finally { temporary.Delete(recursive: true); }
 
 static string SourceFile([CallerFilePath] string path = "") => path;
 static void Check(bool valid, string message) { if (!valid) throw new Exception(message); }
-static void Reject(Action action)
-{
-    try { action(); }
-    catch (IOException error) when (error.Message.Contains("Unsupported")) { return; }
-    throw new Exception("Unsupported schema was accepted");
-}
 static SqliteConnection Open(string path)
 {
     var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, ForeignKeys = true, Pooling = false }.ToString());

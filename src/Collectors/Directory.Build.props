@@ -1,0 +1,18 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- C# collectors: the schema is embedded and opened through the shared Storage code.
+       A collector that writes its database from another toolchain sets NativeSchema=true. -->
+  <ItemGroup Condition="'$(NativeSchema)' != 'true'">
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <EmbeddedResource Include="Schema/*/*.sql"
+                      LogicalName="$(AssemblyName).Schema.$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(Identity)')))).%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)Storage/*.cs" LinkBase="Storage" />
+  </ItemGroup>
+</Project>

@@ -134,7 +134,7 @@ test("a later snapshot writes only the changed last use and records missed event
 test("coverage retries are idempotent and an unconfirmed run remains open across restarts", t => {
   const db = database(t), first = randomUUID(), second = randomUUID();
   const event = (runId, startedAtUtcMs, evidence, stoppedAtUtcMs = null) => ({
-    eventId: randomUUID(), scope: "active_tabs", mode: "notification", startedAtUtcMs, stoppedAtUtcMs, evidence, detail: null, runId,
+    eventId: randomUUID(), scope: "bookmarks", mode: "notification", startedAtUtcMs, stoppedAtUtcMs, evidence, detail: null, runId,
   });
   const entries = [event(first, 1000, "available"), event(first, 2000, "unavailable"), event(first, 3000, "available"),
     event(second, 4000, "available"), { ...event(second, 4100, "sampled", 4200), scope: "bookmarks.last_used", mode: "snapshot" }];
@@ -150,10 +150,11 @@ test("coverage retries are idempotent and an unconfirmed run remains open across
 test("unknown tab fields clear prior values and download baselines survive a new run", t => {
   const db = database(t), run = randomUUID();
   const tab = (sequence, title, url) => ({ eventId: randomUUID(), captureSessionId: run, runStartedAtUtcMs: 1000,
-    sessionSequence: sequence, observedAtUtcMs: 1000 + sequence, eventKind: sequence === 1 ? "snapshot" : "title_changed",
-    windowId: 2, tabId: 1, title, url });
-  assert.equal(db.sendBatch({ activeTabEvents: [tab(1, "A", "https://example.com"), tab(2, null, null)] }).ok, true);
-  assert.deepEqual(db.sql("SELECT title,url FROM active_tab_state_history ORDER BY run_sequence"), [
+    sessionSequence: sequence, observedAtUtcMs: 1000 + sequence, eventKind: sequence === 1 ? "snapshot" : "tab_updated",
+    tabs: [{ tabId: 1, fields: sequence === 1 ? { isPresent: true, windowId: 2, title, url } : { title, url } }],
+    ...(sequence === 1 ? { windows: [{ windowId: 2, isPresent: true }], focus: { tabId: null } } : {}) });
+  assert.equal(db.sendBatch({ tabEvents: [tab(1, "A", "https://example.com"), tab(2, null, null)] }).ok, true);
+  assert.deepEqual(db.sql("SELECT title,url FROM tab_history ORDER BY run_sequence"), [
     { title: "A", url: "https://example.com" }, { title: null, url: null },
   ]);
   const download = runId => ({ eventId: randomUUID(), runId, runStartedAtUtcMs: 1000, runSequence: 1,
@@ -177,9 +178,11 @@ test("known absence is explicit: root location, tab focus and download end time"
 
   const run = randomUUID();
   const focus = (sequence, eventKind, tabId) => ({ eventId: randomUUID(), captureSessionId: run, runStartedAtUtcMs: 1000,
-    sessionSequence: sequence, observedAtUtcMs: 1000 + sequence, eventKind, windowId: tabId && 2, tabId, title: tabId && "A", url: tabId && "https://example.com" });
-  assert.equal(db.sendBatch({ activeTabEvents: [focus(1, "snapshot", 1), focus(2, "window_blurred", null)] }).ok, true);
-  assert.deepEqual(db.sql("SELECT has_tab,tab_id FROM active_tab_focus_events ORDER BY observation_id"), [
+    sessionSequence: sequence, observedAtUtcMs: 1000 + sequence, eventKind, focus: { tabId },
+    ...(sequence === 1 ? { windows: [{ windowId: 2, isPresent: true }],
+      tabs: [{ tabId, fields: { isPresent: true, windowId: 2, title: "A", url: "https://example.com" } }] } : {}) });
+  assert.equal(db.sendBatch({ tabEvents: [focus(1, "snapshot", 1), focus(2, "window_focus_changed", null)] }).ok, true);
+  assert.deepEqual(db.sql("SELECT has_tab,tab_id FROM active_tab_focus_events LEFT JOIN tabs USING(tab_key) ORDER BY observation_id"), [
     { has_tab: 1, tab_id: 1 }, { has_tab: 0, tab_id: null },
   ]);
 

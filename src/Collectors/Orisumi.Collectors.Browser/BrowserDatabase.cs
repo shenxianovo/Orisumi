@@ -7,13 +7,15 @@ namespace Orisumi.Collectors.Browser;
 
 internal static class BrowserDatabase
 {
+    internal const string Source = "browser";
+
     internal static async Task<Reply> HandleMessage(string store, ReadOnlyMemory<byte> message)
     {
         var batch = JsonSerializer.Deserialize<Batch>(message.Span, JsonSerializerOptions.Web);
         if (batch is null || batch.ProfileId == Guid.Empty)
             throw new InvalidDataException("invalid browser batch profile");
 
-        if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, ActiveTabEvents: null, BookmarkObservation: null, Downloads: null, Coverage: null })
+        if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, TabEvents: null, BookmarkObservation: null, Downloads: null, Coverage: null })
         {
             // All extension cursors and baselines follow this file's lifetime.
             var databaseId = (string)await Execute(store, """
@@ -29,7 +31,7 @@ internal static class BrowserDatabase
 
         if (batch.Coverage is { } coverage)
         {
-            if (batch.Visits is not null || batch.HistoryPages is not null || batch.ActiveTabEvents is not null ||
+            if (batch.Visits is not null || batch.HistoryPages is not null || batch.TabEvents is not null ||
                 batch.BookmarkObservation is not null || batch.Downloads is not null)
                 throw new InvalidDataException("coverage observations cannot contain other data");
             return new Reply(true, (long)await Execute(store, WriteCoverage(batch.ProfileId, coverage) + "SELECT changes();"));
@@ -37,31 +39,29 @@ internal static class BrowserDatabase
 
         if (batch.BookmarkObservation is { } observation)
         {
-            if (batch.Visits is not null || batch.HistoryPages is not null || batch.ActiveTabEvents is not null || batch.Downloads is not null)
+            if (batch.Visits is not null || batch.HistoryPages is not null || batch.TabEvents is not null || batch.Downloads is not null)
                 throw new InvalidDataException("bookmark observations cannot contain other data");
             return new Reply(true, BookmarkDatabase.Capture(store, batch.ProfileId, observation));
         }
 
         // Hex encoding keeps the batch separate from the SQL syntax.
         var payload = $"CAST(X'{Convert.ToHexString(JsonSerializer.SerializeToUtf8Bytes(batch, JsonSerializerOptions.Web))}' AS TEXT)";
-        var write = (batch.Visits, batch.HistoryPages, batch.ActiveTabEvents, batch.Downloads) switch
+        var write = (batch.Visits, batch.HistoryPages, batch.TabEvents, batch.Downloads) switch
         {
             ({ } visits, null, null, null) => WriteVisits(batch.ProfileId, payload, visits),
             (null, { } pages, null, null) => WriteHistoryPages(batch.ProfileId, payload, pages),
-            (null, null, { } events, null) => WriteActiveTabEvents(batch.ProfileId, events),
+            (null, null, { } events, null) => WriteTabEvents(batch.ProfileId, payload, events),
             (null, null, null, { } downloads) => WriteDownloads(batch.ProfileId, downloads),
             _ => throw new InvalidDataException("invalid browser batch"),
         };
-        var inserted = (long)await Execute(store, $"""
-            {write}
-            SELECT changes();
-            """);
+        var count = batch.TabEvents is null ? "SELECT changes();" : "SELECT COUNT(*) FROM incoming_tab_events;";
+        var inserted = (long)await Execute(store, write + "\n" + count);
         return new Reply(true, Inserted: inserted);
     }
 
     private static async Task<object> Execute(string store, string sql)
     {
-        using var connection = OpenDatabase(store);
+        using var connection = CollectorDatabase.Open(store, Source);
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -78,32 +78,9 @@ internal static class BrowserDatabase
         }
     }
 
-    internal static SqliteConnection OpenDatabase(string store)
-    {
-        var database = Path.GetFullPath(Path.Combine(store, "raw", "browser.sqlite"));
-        Directory.CreateDirectory(Path.GetDirectoryName(database)!);
-        SqliteFile.CreateIfMissing(database);
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = database, ForeignKeys = true, Pooling = false, DefaultTimeout = 3,
-        }.ToString());
-        try
-        {
-            connection.Open();
-            SqliteSchema.EnsureCreated(connection);
-            return connection;
-        }
-        catch (SqliteException error)
-        {
-            connection.Dispose();
-            throw new IOException($"could not open browser database: {error.Message}", error);
-        }
-        catch { connection.Dispose(); throw; }
-    }
-
     internal sealed record Reply(bool Ok, long? Inserted = null, string? DatabaseId = null);
 
-    private sealed record Batch(Guid ProfileId, Visit?[]? Visits, HistoryPage?[]? HistoryPages, ActiveTabEvent?[]? ActiveTabEvents,
+    private sealed record Batch(Guid ProfileId, Visit?[]? Visits, HistoryPage?[]? HistoryPages, TabEvent?[]? TabEvents,
         BookmarkDatabase.Observation? BookmarkObservation, Download?[]? Downloads, bool GetDatabaseId, Coverage?[]? Coverage);
 
     private sealed record Coverage(Guid EventId, string Scope, string Mode, long StartedAtUtcMs,
@@ -176,43 +153,74 @@ internal static class BrowserDatabase
 
     private sealed record HistoryPage(string? Url, string? Title, long ObservedAtUtcMs, Guid? EventId);
 
-    private static string WriteActiveTabEvents(Guid profileId, ActiveTabEvent?[] entries)
+    private static string WriteTabEvents(Guid profileId, string payload, TabEvent?[] entries)
     {
-        var sql = new StringBuilder();
-        foreach (var entry in entries)
-        {
-            if (entry is not { SessionSequence: > 0, RunStartedAtUtcMs: > 0, ObservedAtUtcMs: > 0 } ||
-                entry.EventId == Guid.Empty || entry.CaptureSessionId == Guid.Empty ||
-                (entry.TabId is null) != (entry.WindowId is null))
-                throw new InvalidDataException("invalid active tab observation");
-            var json = JsonSql(entry);
-            sql.AppendLine($"""
-                INSERT OR IGNORE INTO capture_runs VALUES ('{entry.CaptureSessionId:D}','chrome','{profileId:D}','active_tabs',{entry.RunStartedAtUtcMs},NULL);
-                INSERT OR IGNORE INTO tab_observations(event_id,run_id,run_sequence,observed_at_utc_ms,event_kind)
-                VALUES ('{entry.EventId:D}','{entry.CaptureSessionId:D}',{entry.SessionSequence},{entry.ObservedAtUtcMs},{json}->>'$.eventKind');
-                INSERT OR IGNORE INTO active_tab_focus_events
-                SELECT observation_id,{json}->>'$.tabId' IS NOT NULL,{json}->>'$.windowId',{json}->>'$.tabId' FROM tab_observations o WHERE event_id='{entry.EventId:D}'
-                AND (NOT EXISTS (SELECT 1 FROM active_tab_history h WHERE h.run_id=o.run_id AND h.run_sequence<o.run_sequence)
-                    OR ({json}->>'$.windowId',{json}->>'$.tabId') IS NOT
-                    (SELECT window_id,tab_id FROM active_tab_history h WHERE h.run_id=o.run_id AND h.run_sequence<o.run_sequence ORDER BY h.run_sequence DESC LIMIT 1));
-                """);
-            foreach (var field in new[] { "url", "title" })
-                sql.AppendLine($"""
-                    INSERT OR IGNORE INTO tab_{field}_observations SELECT observation_id,{json}->>'$.tabId',{json}->>'$.{field}'
-                    FROM tab_observations o WHERE event_id='{entry.EventId:D}' AND {json}->>'$.tabId' IS NOT NULL
-                    AND (NOT EXISTS (SELECT 1 FROM tab_{field}_observations f JOIN tab_observations p USING(observation_id)
-                        WHERE p.run_id=o.run_id AND f.tab_id={json}->>'$.tabId' AND p.run_sequence<o.run_sequence)
-                    OR {json}->>'$.{field}' IS NOT (SELECT f.{field} FROM tab_{field}_observations f JOIN tab_observations p USING(observation_id)
-                        WHERE p.run_id=o.run_id AND f.tab_id={json}->>'$.tabId' AND p.run_sequence<o.run_sequence ORDER BY p.run_sequence DESC LIMIT 1));
-                    """);
-        }
-        return sql.ToString();
+        if (!entries.All(entry => entry is { SessionSequence: > 0, RunStartedAtUtcMs: > 0, ObservedAtUtcMs: > 0 } &&
+                entry.EventId != Guid.Empty && entry.CaptureSessionId != Guid.Empty &&
+                (entry.Tabs?.All(tab => tab is { TabId: >= 0, Fields.ValueKind: JsonValueKind.Object }) ?? true)))
+            throw new InvalidDataException("invalid tab observation");
+
+        return $"""
+            CREATE TEMP TABLE incoming_tab_events (ordinal INTEGER PRIMARY KEY, event_id TEXT UNIQUE, value TEXT NOT NULL);
+            INSERT OR IGNORE INTO incoming_tab_events
+            SELECT j.key,j.value->>'$.eventId',j.value FROM json_each({payload}, '$.tabEvents') j
+            WHERE NOT EXISTS (SELECT 1 FROM tab_observations o WHERE o.event_id=j.value->>'$.eventId')
+            ORDER BY j.key;
+
+            INSERT OR IGNORE INTO capture_runs
+            SELECT DISTINCT value->>'$.captureSessionId','chrome','{profileId:D}','tabs',value->>'$.runStartedAtUtcMs',NULL
+            FROM incoming_tab_events;
+            INSERT INTO tab_observations(event_id,run_id,run_sequence,observed_at_utc_ms,event_kind)
+            SELECT event_id,value->>'$.captureSessionId',value->>'$.sessionSequence',value->>'$.observedAtUtcMs',value->>'$.eventKind'
+            FROM incoming_tab_events ORDER BY ordinal;
+
+            CREATE TEMP VIEW incoming_tabs AS
+            SELECT observation_id,run_id,j.value->>'$.tabId' AS tab_id,j.value->'$.fields' AS fields
+            FROM incoming_tab_events JOIN tab_observations USING(event_id),json_each(incoming_tab_events.value,'$.tabs') j
+            WHERE json_type(incoming_tab_events.value,'$.tabs')='array';
+            CREATE TEMP VIEW incoming_windows AS
+            SELECT observation_id,run_id,j.value->>'$.windowId' AS window_id,j.value->>'$.isPresent' AS is_present
+            FROM incoming_tab_events JOIN tab_observations USING(event_id),json_each(incoming_tab_events.value,'$.windows') j
+            WHERE json_type(incoming_tab_events.value,'$.windows')='array';
+            CREATE TEMP VIEW incoming_focus AS
+            SELECT observation_id,run_id,value->>'$.focus.tabId' AS tab_id
+            FROM incoming_tab_events JOIN tab_observations USING(event_id) WHERE json_type(value,'$.focus')='object';
+
+            INSERT INTO tabs(run_id,tab_id)
+            SELECT run_id,tab_id FROM incoming_tabs UNION SELECT run_id,tab_id FROM incoming_focus WHERE tab_id IS NOT NULL
+            ON CONFLICT(run_id,tab_id) DO NOTHING;
+            INSERT INTO browser_windows(run_id,window_id)
+            SELECT run_id,window_id FROM incoming_windows
+            UNION SELECT run_id,fields->>'$.windowId' FROM incoming_tabs WHERE fields->>'$.windowId' IS NOT NULL
+            ON CONFLICT(run_id,window_id) DO NOTHING;
+            INSERT INTO window_presence_events
+            SELECT observation_id,window_key,is_present FROM incoming_windows JOIN browser_windows USING(run_id,window_id);
+            INSERT INTO tab_presence_events
+            SELECT observation_id,tab_key,fields->>'$.isPresent' FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
+            WHERE json_type(fields,'$.isPresent') IS NOT NULL;
+            INSERT INTO tab_window_observations
+            SELECT observation_id,tab_key,window_key IS NOT NULL,window_key
+            FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
+            LEFT JOIN browser_windows w ON w.run_id=incoming_tabs.run_id AND w.window_id=fields->>'$.windowId'
+            WHERE json_type(fields,'$.windowId') IS NOT NULL;
+            INSERT INTO tab_url_observations
+            SELECT observation_id,tab_key,fields->>'$.url' FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
+            WHERE json_type(fields,'$.url') IS NOT NULL;
+            INSERT INTO tab_title_observations
+            SELECT observation_id,tab_key,fields->>'$.title' FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
+            WHERE json_type(fields,'$.title') IS NOT NULL;
+            INSERT INTO active_tab_focus_events
+            SELECT observation_id,tab_key IS NOT NULL,tab_key FROM incoming_focus LEFT JOIN tabs USING(run_id,tab_id);
+            """;
     }
 
     private static string JsonSql<T>(T value) => $"CAST(X'{Convert.ToHexString(JsonSerializer.SerializeToUtf8Bytes(value, JsonSerializerOptions.Web))}' AS TEXT)";
 
-    private sealed record ActiveTabEvent(Guid EventId, Guid CaptureSessionId, long RunStartedAtUtcMs, long SessionSequence,
-        long ObservedAtUtcMs, string? EventKind, int? WindowId, int? TabId, string? Url, string? Title);
+    private sealed record TabEvent(Guid EventId, Guid CaptureSessionId, long RunStartedAtUtcMs, long SessionSequence,
+        long ObservedAtUtcMs, string? EventKind, WindowChange[]? Windows, TabChange[]? Tabs, FocusChange? Focus);
+    private sealed record WindowChange(int WindowId, bool IsPresent);
+    private sealed record TabChange(int TabId, JsonElement Fields);
+    private sealed record FocusChange(int? TabId);
 
     private static string WriteDownloads(Guid profileId, Download?[] entries)
     {

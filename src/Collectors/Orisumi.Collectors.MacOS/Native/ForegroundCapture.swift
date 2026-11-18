@@ -10,7 +10,7 @@ private extension ForegroundApplication {
 }
 
 func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWindows: Bool,
-                       afkThresholdMS: Int64, captureInput: Bool) throws {
+                       afkThresholdMS: Int64, captureInput: Bool, mediaChannels: Set<MediaChannel>) throws {
     let workspace = NSWorkspace.shared
     let center = workspace.notificationCenter
     let subscriptions: [(Notification.Name, EventKind)] = [
@@ -39,7 +39,13 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
     var windowPermission = CapturePermissionState()
     var inputPermission = CapturePermissionState()
     var reportedTapFailure = false
-    var lifecycleObserver: ApplicationLifecycleObserver?
+    let lifecycleObserver = ApplicationLifecycleObserver(workspace: workspace, database: database, failed: fail)
+    let mediaObservers = [MediaObjectKind.audioProcess, .cameraDevice].compactMap { kind -> MediaObjectObserver? in
+        let channels = MediaChannel.allCases.filter { $0.kind == kind && mediaChannels.contains($0) }
+        guard !channels.isEmpty else { return nil }
+        let source = kind == .audioProcess ? MediaHardware.audio(applications: lifecycleObserver) : MediaHardware.camera()
+        return MediaObjectObserver(source: source, channels: channels, kind: kind, database: database, failed: fail)
+    }
 
     func recordIdle(_ change: (AFKEventKind, AFKState, Int64)?) throws {
         if let (kind, state, idleMS) = change {
@@ -172,6 +178,7 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
     let observers = subscriptions.map { name, kind in
         center.addObserver(forName: name, object: nil, queue: .main) { notification in
             guard !stopping else { return }
+            let wasPaused = asleep || sessionInactive
             let observedAt = Date()
             let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             do {
@@ -200,14 +207,17 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
                     try sampleAFK()
                 case .activated, .snapshot: break
                 }
-                if kind == .sleep || kind == .sessionInactive || kind == .wake || kind == .sessionActive {
-                    if asleep || sessionInactive {
-                        lifecycleObserver?.pause()
+                let paused = asleep || sessionInactive
+                if wasPaused != paused {
+                    if paused {
+                        lifecycleObserver.pause()
                         database.interruptUnverifiedProcesses()
-                        try database.appendChannel("applications", available: false, reason: "session_paused")
+                        try database.appendChannel("applications", available: false, reason: "session_paused", at: observedAt)
+                        for observer in mediaObservers { try observer.interrupt(reason: "session_paused") }
                     } else {
-                        lifecycleObserver?.resume(workspace.runningApplications)
+                        try lifecycleObserver.resume()
                         try database.appendChannel("applications", available: true, reason: "snapshot_received")
+                        for observer in mediaObservers { try observer.reconcile() }
                     }
                     try sampleInputPermission()
                     do {
@@ -277,10 +287,13 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
         }
     }
     defer { NotificationCenter.default.removeObserver(timeZoneObserver) }
-    lifecycleObserver = ApplicationLifecycleObserver(workspace: workspace, database: database, failed: fail)
-    defer { lifecycleObserver?.stop() }
-    if let failure { throw failure }
+    defer {
+        lifecycleObserver.pause()
+        mediaObservers.forEach { $0.stop() }
+    }
+    try lifecycleObserver.resume()
     try database.appendChannel("applications", available: true, reason: "snapshot_received")
+    for observer in mediaObservers { try observer.reconcile() }
     try database.append(.snapshot, at: Date(), app: workspace.frontmostApplication.map(ForegroundApplication.init))
     try sampleAFK()
     try refreshPermissions()
@@ -289,6 +302,8 @@ func captureForeground(in database: ForegroundDatabase, seconds: Int?, captureWi
         do {
             try refreshPermissions()
             guard !asleep && !sessionInactive else { return }
+            try lifecycleObserver.reconcilePolicies()
+            for observer in mediaObservers { try observer.reconcile() }
             if inputObserver == nil { try sampleAFK() }
             if windowPermission.granted {
                 try windowObserver?.reconcile(workspace.frontmostApplication)

@@ -9,6 +9,8 @@ namespace Orisumi.Collectors.Claude;
 
 public static partial class ClaudeCollector
 {
+    private const string Source = "claude";
+
     private static readonly JsonSerializerOptions ContentJsonOptions = new()
     {
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -19,13 +21,6 @@ public static partial class ClaudeCollector
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        object? Execute(string sql, params object?[] values)
-        {
-            command.CommandText = sql;
-            command.Parameters.Clear();
-            for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
-            return command.ExecuteScalar();
-        }
         var recordsWritten = 0;
         var reader = new TranscriptReader(connection, transaction, runId);
         reader.Read(projects, changedPaths, (sourceId, path, lineNumber, line, row, nextOccurrence) =>
@@ -35,30 +30,30 @@ public static partial class ClaudeCollector
             var sessionId = record.SessionId;
             var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(line)));
             var occurrence = nextOccurrence(hash);
-            var observation = Execute("""
+            var observation = command.Scalar("""
                 INSERT OR IGNORE INTO source_records(run_id,source_id,source_path,source_line,record_hash,hash_occurrence)
                 VALUES($p0,$p1,$p2,$p3,$p4,$p5) RETURNING observation_id;
                 """, runId, sourceId, path, lineNumber, hash, occurrence);
             if (observation is not long observationId) return;
             recordsWritten++;
-            Execute("INSERT OR IGNORE INTO sessions VALUES($p0)", sessionId);
+            command.Scalar("INSERT OR IGNORE INTO sessions VALUES($p0)", sessionId);
             if (record.Title is { } title)
-                Execute("""
+                command.Scalar("""
                     INSERT INTO session_title_observations SELECT $p0,$p1,$p2
                     WHERE $p2 IS NOT (SELECT title FROM session_title_observations WHERE session_id=$p1 ORDER BY observation_id DESC LIMIT 1);
                     """, observationId, sessionId, title);
             if (record.Message is { } message)
             {
-                Execute("INSERT OR IGNORE INTO messages VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6)",
+                command.Scalar("INSERT OR IGNORE INTO messages VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6)",
                     sessionId, message.Uuid, message.ParentUuid, message.Role, message.CreatedAt, message.Cwd, message.ResponseId);
-                Execute("""
+                command.Scalar("""
                     INSERT INTO message_content_observations SELECT $p0,$p1,$p2,$p3
                     WHERE $p3 IS NOT (SELECT content_json FROM message_content_observations
                         WHERE session_id=$p1 AND message_uuid=$p2 ORDER BY observation_id DESC LIMIT 1);
                     """, observationId, sessionId, message.Uuid, message.ContentJson);
             }
             if (record.Usage is { } usage)
-                Execute("""
+                command.Scalar("""
                     INSERT INTO response_token_usage_observations SELECT $p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7,$p8,$p9
                     WHERE ($p4,$p5,$p6,$p7,$p8,$p9) IS NOT
                       (SELECT model,total_input_tokens,cache_read_input_tokens,cache_write_input_tokens,total_output_tokens,reasoning_output_tokens
@@ -147,22 +142,6 @@ public static partial class ClaudeCollector
 
     private static bool IsTrue(JsonElement value, string key) =>
         value.TryGetProperty(key, out var field) && field.ValueKind == JsonValueKind.True;
-
-    private static SqliteConnection OpenDatabase(string path)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        SqliteFile.CreateIfMissing(path);
-
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path,
-            Mode = SqliteOpenMode.ReadWrite,
-            ForeignKeys = true,
-            Pooling = false,
-        }.ToString());
-        connection.Open();
-        return connection;
-    }
 
     private sealed record ParsedRecord(string SessionId, string? Title = null, Message? Message = null, Usage? Usage = null);
     private sealed record Message(string Uuid, string? ParentUuid, string Role, long? CreatedAt, string? Cwd,

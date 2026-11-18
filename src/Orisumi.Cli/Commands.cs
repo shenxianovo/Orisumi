@@ -29,8 +29,12 @@ internal static class Commands
         };
         var windows = new Option<bool>("--windows") { Description = "采集窗口焦点和标题。" };
         var input = new Option<bool>("--input") { Description = "采集键盘和鼠标事件。" };
+        var microphone = new Option<bool>("--microphone") { Description = "采集各进程的麦克风占用状态。" };
+        var audioOutput = new Option<bool>("--audio-output") { Description = "采集各进程的音频输出状态。" };
+        var camera = new Option<bool>("--camera") { Description = "采集摄像头设备的占用状态。" };
         var afkThreshold = new Option<int?>("--afk-threshold") { Description = "进入离开状态前的无输入秒数。" };
-        var foreground = new Command("foreground", "监听 macOS 前台活动。") { seconds, windows, input, afkThreshold };
+        var foreground = new Command("foreground", "监听 macOS 前台活动。")
+            { seconds, windows, input, afkThreshold, microphone, audioOutput, camera };
         foreground.SetAction(result =>
         {
             var duration = result.GetValue(seconds);
@@ -38,7 +42,8 @@ internal static class Commands
             if (duration is <= 0 || threshold is <= 0)
                 throw new ArgumentException("seconds 和 --afk-threshold 必须是正整数。");
             return MacOSForeground.Run(result.GetRequiredValue(store), duration,
-                result.GetValue(windows), threshold, result.GetValue(input));
+                result.GetValue(windows), threshold, result.GetValue(input),
+                result.GetValue(microphone), result.GetValue(audioOutput), result.GetValue(camera));
         });
         root.Add(foreground);
 
@@ -52,7 +57,6 @@ internal static class Commands
             return ActivityTimeline.Write(result.GetRequiredValue(store), result.GetValue(from), result.GetValue(to), Console.Out);
         });
         root.Add(timeline);
-        root.Add(NetworkCommand.Create(store));
         root.Add(Capture.CaptureCommand.Create(store));
 
         // Chrome uses a binary protocol on stdout. Keep this action free of terminal rendering.

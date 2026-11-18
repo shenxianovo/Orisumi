@@ -5,6 +5,8 @@ namespace Orisumi.Collectors.Codex;
 
 public static partial class CodexCollector
 {
+    private const string Source = "codex";
+
     private const string WriteThreads = """
         CREATE TEMP VIEW selected_threads AS SELECT id AS thread_id, coalesce(nullif(name, ''), title) AS title, cwd,
          coalesce(created_at_ms, created_at * 1000) AS created_at_utc_ms, archived FROM source_state.threads;
@@ -47,15 +49,15 @@ public static partial class CodexCollector
 
     public static string Capture(string store, string? threadId)
     {
-        using var captureLock = Lock(store);
+        using var captureLock = CollectorDatabase.Lock(store, Source);
         return CaptureCore(store, threadId, "manual");
     }
 
     private static string CaptureCore(string store, string? threadId, string trigger)
     {
         var codexHome = SourceHome();
-        var database = Path.GetFullPath(Path.Combine(store, "raw", "codex.sqlite"));
-        using var connection = OpenDatabase(database);
+        var database = CollectorDatabase.PathFor(store, Source);
+        using var connection = CollectorDatabase.Open(store, Source);
         using var command = connection.CreateCommand();
         command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms,scope,thread_filter,trigger) VALUES($started,CASE WHEN $thread IS NULL THEN 'all' ELSE 'thread' END,$thread,$trigger); SELECT last_insert_rowid();";
         command.Parameters.AddWithValue("$started", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
@@ -136,25 +138,6 @@ public static partial class CodexCollector
         command.Parameters.AddWithValue("$error", (object?)error ?? DBNull.Value);
         command.Parameters.AddWithValue("$run", runId);
         command.ExecuteNonQuery();
-    }
-
-    private static SqliteConnection OpenDatabase(string path)
-    {
-        SqliteFile.CreateIfMissing(path);
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = new Uri(path).AbsoluteUri, Mode = SqliteOpenMode.ReadWrite,
-            ForeignKeys = true, Pooling = false,
-        }.ToString());
-        try { connection.Open(); SqliteSchema.EnsureCreated(connection); return connection; }
-        catch { connection.Dispose(); throw; }
-    }
-
-    private static FileStream Lock(string store)
-    {
-        var directory = Path.GetFullPath(Path.Combine(store, "raw"));
-        Directory.CreateDirectory(directory);
-        return new FileStream(Path.Combine(directory, "codex.sqlite.capture.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     }
 
     private static string SourceHome()

@@ -1,11 +1,17 @@
 import Darwin
 
 func usage() -> Never {
-    fputs("Usage: orisumi-macos-foreground DATABASE [SECONDS] [--windows] [--afk-threshold=SECONDS] [--input]\n", stderr)
+    fputs("Usage: orisumi-macos-foreground DATABASE [SECONDS] [--windows] [--afk-threshold=SECONDS] [--input] [--microphone] [--audio-output] [--camera]\n", stderr)
     exit(2)
 }
 
 var arguments = CommandLine.arguments.dropFirst()
+var mediaChannels: Set<MediaChannel> = []
+while arguments.count > 1, let option = arguments.last,
+      let channel = MediaChannel.allCases.first(where: { "--" + $0.rawValue.replacingOccurrences(of: "_", with: "-") == option }) {
+    mediaChannels.insert(channel)
+    arguments.removeLast()
+}
 let captureInput = arguments.count > 1 && arguments.last == "--input"
 if captureInput { arguments.removeLast() }
 var afkThresholdMS: Int64 = 300_000
@@ -31,9 +37,10 @@ else {
 signal(SIGINT, SIG_IGN)
 umask(0o077)
 do {
-    try captureForeground(in: ForegroundDatabase(path: path, captureWindows: captureWindows, captureInput: captureInput),
+    try captureForeground(in: ForegroundDatabase(path: path, captureWindows: captureWindows, captureInput: captureInput,
+                                                 mediaChannels: mediaChannels),
                           seconds: seconds, captureWindows: captureWindows, afkThresholdMS: afkThresholdMS,
-                          captureInput: captureInput)
+                          captureInput: captureInput, mediaChannels: mediaChannels)
 } catch {
     fputs("orisumi: macOS foreground capture failed: \(error.localizedDescription)\n", stderr)
     exit(1)

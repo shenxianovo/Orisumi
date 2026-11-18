@@ -22,12 +22,12 @@ async function read(): Promise<State> {
 }
 
 export function coverage(scope: string, evidence: string, detail: string | null = null,
-  mode: Coverage["mode"] = "notification", started = Date.now(), stopped: number | null = null): Promise<void> {
+  mode: Coverage["mode"] = "notification", started = Date.now(), stopped: number | null = null, tabsRunId?: string): Promise<void> {
   return serialize(async () => {
     const state = await read();
     const key = `${scope}:${mode}`;
     let runId: string | null = null;
-    if (scope === "active_tabs") runId = (await chrome.storage.session.get<{ captureSessionId?: string }>("captureSessionId")).captureSessionId ?? null;
+    if (scope === "tabs") runId = tabsRunId ?? null;
     if (scope.startsWith("bookmarks")) runId = (await chrome.storage.session.get<{ bookmarkCaptureRun?: { id: string } }>("bookmarkCaptureRun")).bookmarkCaptureRun?.id ?? null;
     if (scope === "downloads") runId = (await chrome.storage.session.get<{ downloadRun?: { id: string } }>("downloadRun")).downloadRun?.id ?? null;
     const value = JSON.stringify([evidence, detail, runId]);

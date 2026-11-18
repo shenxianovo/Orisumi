@@ -54,5 +54,130 @@ try database.appendMethod("window_title", mode: "notification", at: start.adding
 try database.appendMethod("window_title", mode: "snapshot", at: start.addingTimeInterval(2))
 try database.appendChannel("windows", available: true, reason: "sample_received", at: start)
 try database.appendChannel("windows", available: false, reason: "read_failed", at: start.addingTimeInterval(2))
-try database.stop(at: start.addingTimeInterval(3), failed: true)
+try database.appendChannel("windows", available: true, reason: "sample_received", at: start.addingTimeInterval(3))
+
+let app = ObservedApplication(bundleID: "policy.test", name: "Policy", pid: 123456787, launchedAt: start)
+func at(_ offset: TimeInterval) -> Date { start.addingTimeInterval(offset) }
+try database.appendChannel("applications", available: true, reason: "snapshot_received", at: at(0))
+let application = try database.appendApplicationLifecycle(.snapshot, at: at(0), app: app, policy: .regular)
+try database.appendActivationPolicy(.regular, instance: application, at: at(0.5))
+try database.appendActivationPolicy(.accessory, instance: application, at: at(1))
+try database.appendActivationPolicy(.regular, instance: application, at: at(2))
+try database.appendChannel("applications", available: false, reason: "session_paused", at: at(3))
+database.interruptUnverifiedProcesses()
+let resumed = try database.appendApplicationLifecycle(.snapshot, at: at(4), app: app, policy: .regular)
+check(application == resumed, "a verified application keeps its identity across a gap")
+try database.appendChannel("applications", available: true, reason: "snapshot_received", at: at(4))
+try database.appendActivationPolicy(nil, instance: application, at: at(5))
+try database.appendActivationPolicy(nil, instance: application, at: at(5.5))
+try database.appendActivationPolicy(.regular, instance: application, at: at(6))
+try database.appendApplicationLifecycle(.disappeared, at: at(7), app: app, instance: application)
+let replacement = ObservedApplication(bundleID: app.bundleID, name: app.name, pid: app.pid, launchedAt: at(8))
+let replaced = try database.appendApplicationLifecycle(.appeared, at: at(8), app: replacement, policy: .prohibited)
+check(replaced != application, "a reused PID gets a new application identity")
+try database.stop(at: at(9), failed: true)
+
+let mediaDatabase = try ForegroundDatabase(path: CommandLine.arguments[1], captureWindows: false, captureInput: false,
+                                           mediaChannels: [.microphone, .audioOutput, .camera])
+try mediaDatabase.start(at: Date(), afkThresholdMS: 10000)
+var listChanged: (() -> Void)?
+var listeners: [MediaChannel: () -> Void] = [:]
+var audioIDs: [UInt32] = [42]
+var input: Bool? = false
+var output = false
+var inputListenerAvailable = true
+var linkedApplication: String?
+let audio = MediaObjectSource(
+    list: {
+        check(listChanged != nil, "the list is watched before the snapshot")
+        return audioIDs
+    },
+    watchList: { callback in
+        listChanged = callback
+        return { listChanged = nil }
+    },
+    watchRestart: nil,
+    identity: { _ in .audio(pid: 1234, bundleID: "", processInstanceID: nil) },
+    matchApplication: { _, _, _ in linkedApplication },
+    read: { _, channel in
+        check(listeners[channel] != nil || !inputListenerAvailable, "properties are watched before the snapshot")
+        return channel == .microphone ? input : output
+    },
+    watch: { _, channel, callback in
+        if channel == .microphone && !inputListenerAvailable { return nil }
+        listeners[channel] = callback
+        return { listeners.removeValue(forKey: channel) }
+    })
+let audioObserver = MediaObjectObserver(source: audio, channels: [.microphone, .audioOutput], kind: .audioProcess,
+                                       database: mediaDatabase, failed: { fatalError("\($0)") })
+try audioObserver.reconcile()
+try audioObserver.reconcile()
+linkedApplication = try mediaDatabase.appendApplicationLifecycle(.appeared, at: Date(),
+    app: ObservedApplication(bundleID: "fixture", name: "Fixture", pid: 1234, launchedAt: Date()))
+output = true
+listeners[.audioOutput]?()
+listeners[.audioOutput]?()
+input = true
+listeners[.microphone]?()
+input = nil
+listeners[.microphone]?()
+listeners[.microphone]?()
+input = false
+listeners[.microphone]?()
+output = false
+listeners[.audioOutput]?()
+let stale = listeners[.audioOutput]
+try audioObserver.interrupt(reason: "session_paused")
+linkedApplication = nil
+stale?()
+inputListenerAvailable = false
+try audioObserver.reconcile()
+inputListenerAvailable = true
+try audioObserver.reconcile()
+audioIDs = []
+listChanged?()
+stale?()
+audioIDs = [42]
+listChanged?()
+output = true
+listeners[.audioOutput]?()
+audioIDs = []
+listChanged?()
+audioObserver.stop()
+
+var cameraIDs: [UInt32]?
+var camerasChanged: (() -> Void)?
+var runningChanged: (() -> Void)?
+var cameraRunning = false
+let camera = MediaObjectSource(
+    list: { cameraIDs },
+    watchList: { callback in
+        camerasChanged = callback
+        return { camerasChanged = nil }
+    },
+    watchRestart: nil,
+    identity: { _ in .camera(uid: "fixture-camera", name: "Camera") },
+    matchApplication: nil,
+    read: { _, _ in cameraRunning },
+    watch: { _, _, callback in
+        runningChanged = callback
+        return { runningChanged = nil }
+    })
+let cameraObserver = MediaObjectObserver(source: camera, channels: [.camera], kind: .cameraDevice,
+                                        database: mediaDatabase, failed: { fatalError("\($0)") })
+try cameraObserver.reconcile()
+cameraIDs = []
+try cameraObserver.reconcile()
+cameraIDs = [17]
+camerasChanged?()
+cameraRunning = true
+runningChanged?()
+cameraRunning = false
+runningChanged?()
+cameraIDs = []
+camerasChanged?()
+cameraIDs = [18]
+camerasChanged?()
+cameraObserver.stop()
+try mediaDatabase.stop(at: Date())
 print("PASS: native event scheduling and recovery")

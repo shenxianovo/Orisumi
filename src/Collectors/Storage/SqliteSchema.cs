@@ -1,22 +1,13 @@
-using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace Orisumi.Collectors.Storage;
 
-// Linked into each collector: resources and version belong to that collector's assembly.
+// Linked into each collector: resources belong to that collector's assembly.
+// An existing database is used as is; the structure is not versioned, so a changed schema needs a rebuilt database.
 internal static class SqliteSchema
 {
     private static readonly System.Reflection.Assembly Assembly = typeof(SqliteSchema).Assembly;
     private static readonly string Prefix = Assembly.GetName().Name + ".Schema.";
-    private static readonly int Version = int.Parse(Read(Prefix + "Version.txt"), CultureInfo.InvariantCulture);
-
-    internal static void CheckVersion(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version";
-        if ((long)command.ExecuteScalar()! != Version)
-            throw Unsupported(connection);
-    }
 
     internal static void EnsureCreated(SqliteConnection connection)
     {
@@ -24,14 +15,9 @@ internal static class SqliteSchema
         using var transaction = connection.BeginTransaction(deferred: false);
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "PRAGMA user_version";
-        var actual = (long)command.ExecuteScalar()!;
-        if (actual != Version)
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'";
+        if ((long)command.ExecuteScalar()! == 0)
         {
-            command.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'";
-            if (actual != 0 || (long)command.ExecuteScalar()! != 0)
-                throw Unsupported(connection);
-
             var resources = Assembly.GetManifestResourceNames();
             foreach (var group in new[] { "Tables", "Indexes", "Views" })
             {
@@ -46,8 +32,6 @@ internal static class SqliteSchema
                     }
                 }
             }
-            command.CommandText = $"PRAGMA user_version = {Version}";
-            command.ExecuteNonQuery();
         }
         transaction.Commit();
     }
@@ -59,7 +43,4 @@ internal static class SqliteSchema
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
-
-    private static IOException Unsupported(SqliteConnection connection) =>
-        new($"Unsupported database schema in {connection.DataSource}. Expected version {Version}. Stop this collector and rebuild its output database.");
 }

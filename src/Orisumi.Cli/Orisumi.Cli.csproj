@@ -13,11 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../Collectors/Orisumi.Collectors.Browser/Orisumi.Collectors.Browser.csproj" />
-    <ProjectReference Include="../Collectors/Orisumi.Collectors.Claude/Orisumi.Collectors.Claude.csproj" />
-    <ProjectReference Include="../Collectors/Orisumi.Collectors.Codex/Orisumi.Collectors.Codex.csproj" />
-    <ProjectReference Include="../Collectors/Orisumi.Collectors.MacOS/Orisumi.Collectors.MacOS.csproj" />
-    <ProjectReference Include="../Collectors/Orisumi.Collectors.Network/Orisumi.Collectors.Network.csproj" />
+    <ProjectReference Include="../Collectors/*/*.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,5 +21,6 @@
     <PackageReference Include="System.CommandLine" Version="3.0.0" />
     <InternalsVisibleTo Include="CaptureStartupChecks" />
     <InternalsVisibleTo Include="CaptureCoverageChecks" />
+    <InternalsVisibleTo Include="SchemaChecks" />
   </ItemGroup>
 </Project>

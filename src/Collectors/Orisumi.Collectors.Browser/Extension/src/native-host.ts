@@ -1,4 +1,4 @@
-import type { ActiveTabEvent } from "./active-tabs.js";
+import type { TabEvent } from "./tabs.js";
 import type { Download } from "./downloads.js";
 import type { BookmarkObservation } from "./bookmarks.js";
 import type { HistoryPage, Visit } from "./history.js";
@@ -7,7 +7,7 @@ import type { Coverage } from "./coverage.js";
 type Batch =
   | { visits: Visit[] }
   | { historyPages: HistoryPage[] }
-  | { activeTabEvents: ActiveTabEvent[] }
+  | { tabEvents: TabEvent[] }
   | { bookmarkObservation: BookmarkObservation }
   | { coverage: Coverage[] }
   | { downloads: Download[] };

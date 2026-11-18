@@ -3,36 +3,39 @@ title: 采集数据
 description: 现有来源的事实含义、身份与查询边界。
 ---
 
-运行见[命令行与开发](./development.mdx)，连续性查询见[覆盖与恢复](./recovery.mdx)。数据保存在 `STORE/raw/` 的 `browser.sqlite`、`codex.sqlite`、`claude.sqlite`、`macos.sqlite`、`network.sqlite`。
+运行见[命令行与开发](./development.mdx)，连续性查询见[覆盖与恢复](./recovery.mdx)。数据保存在 `STORE/raw/` 的 `browser.sqlite`、`codex.sqlite`、`claude.sqlite`、`macos.sqlite`。
 
 | 来源 | 当前采集方式 | `capture_runs` 当前含义 |
 | --- | --- | --- |
 | 浏览器 | 通知入持久队列，接收端提交后确认；历史补读，受限字段采样 | 各配置下标签、书签、下载的采集会话；无可靠关闭回调，结束未确认 |
 | Codex / Claude | 常驻监听；日志按完整行增量读，Codex 源库现值另行核对 | 一次读取尝试，失败也保留；不表示完整历史覆盖 |
 | macOS | 常驻监听；权限核对、窗口回退与无输入监听时的 AFK 采样 | 运行区间及启用通道；可用性与采集方式另记 |
-| 网络 | nettop 快照，默认 5 秒 | 采样进程区间，实际观测范围以 `samples` 为准 |
 
 ## 浏览器
 
-来源身份含 `browser`、`profile_id`；本库键只用于库内关联。事件 ID 用于重试去重，观测 ID 表示入库顺序，`run_sequence` 表示采集会话内顺序。`scope` 分为 `active_tabs`、`bookmarks`、`downloads`。
+来源身份含 `browser`、`profile_id`；本库键只用于库内关联。事件 ID 用于重试去重，观测 ID 表示入库顺序，`run_sequence` 表示采集会话内顺序。`scope` 分为 `tabs`、`bookmarks`、`downloads`。
 
 | 事实或视图 | 含义 |
 | --- | --- |
 | `visits` | Chrome 保留的访问记录，含来源访问时间、跳转类型、引荐访问和本地标记；属性只能补空，引荐访问为 `''` 表示没有 |
 | `history_page_title_observations` / `history_pages` | 按配置与 URL 保存非空标题初值和变化／最新标题；是读取时看到的标题，不代表历史访问当时的标题 |
-| `tab_observations` / `active_tab_focus_events` | 标签观测／聚焦窗口和标签；`has_tab=0` 表示没有可采集的前台标签 |
-| `tab_url_observations` / `tab_title_observations` | URL／标题独立变化；标签 ID 仅在采集会话内关联 |
-| `active_tab_state_history` / `current_active_tabs` | 事件后的完整状态／每个会话最后已知状态；旧会话不等于仍活动 |
+| `tabs` / `browser_windows` | 采集会话内的标签／窗口身份；Chrome 的标签和窗口 ID 只在会话内有效 |
+| `tab_observations` | 一次快照或通知；同次观测的事实共享 `observation_id` |
+| `tab_presence_events` / `window_presence_events` | 标签／窗口的存在初值、出现和关闭 |
+| `tab_window_observations` | 标签所属窗口的初值和变化；拖出窗口、尚未放下时 `has_window=0`。不记标签条位置 |
+| `tab_url_observations` / `tab_title_observations` | URL／标题独立变化；空为 `''`，读不到为空 |
+| `active_tab_focus_events` | 前台标签的初值和切换；`has_tab=0` 表示没有可采集的前台标签 |
+| `tab_history` / `current_tabs` | 每次变化后每个标签的完整状态，含是否前台和有效区间／每个配置最近一个会话里最后已知打开的标签；不等于现在仍打开 |
 | `downloads` / `download_observations` | 下载身份、URL 和来源开始时间（不变，只能补空）／观测、采集会话、时间与来源 ID 的关联 |
 | `download_response_observations` | 最终 URL、总大小、MIME 的初值与变化；不含进度字节数，未知大小为空 |
 | `download_state_observations` / `download_path_observations` | 状态及来源完成时间／本地路径，独立变化 |
 | `download_history` / `current_downloads` | 每次观测后的状态／最后已知状态 |
 
-只观察当前聚焦的普通标签；进入隐身窗口结束普通标签焦点，隐身下载不采集。下载回调未涉及的字段保留旧值；移除下载列表记录不证明本地文件被删除。
+采集所有普通窗口里打开的标签；隐身窗口和标签不采集，进入隐身窗口结束普通标签焦点，隐身下载不采集。下载回调未涉及的字段保留旧值；移除下载列表记录不证明本地文件被删除。
 
 访问通知先持久记录待查 URL，再读取 Chrome 保留的 visits；范围补扫仍保留。历史页面标题是现值观测。数据库 ID 变化使所有来源基线与历史游标失效，重放原待发队列后重建初值。工作线程正常唤醒沿用会话；读取失败后恢复建立新会话。队列只保护已经持久入队的事件。
 
-标签保留回调携带的 URL、标题及关闭事件。下载保留回调字段，每五分钟核对；对象已从列表消失时仍保存已知普通下载的有效变化。书签结构由事件驱动。扩展每分钟读一次树，树有变化才整树发送；接收端与已应用的事件比对，只写新的最后使用时间，其他差异说明漏了事件，记为 `reconciliation_changed`。读取期间发生事件则重试快照；新会话重建初值。
+标签先挂事件再读快照，快照前收到的事件排队后接上；工作线程唤醒和每分钟一次核对时，把排队事件推进后的状态与现值比较，不一致记 `reconciliation_changed` 并重建初值。值没变不发事件，标题加载中的每次变化都保留。被替换的标签（`onReplaced`）读一次新标签的 URL 和标题，读到前已关闭则为空。下载保留回调字段，每五分钟核对；对象已从列表消失时仍保存已知普通下载的有效变化。书签结构由事件驱动。扩展每分钟读一次树，树有变化才整树发送；接收端与已应用的事件比对，只写新的最后使用时间，其他差异说明漏了事件，记为 `reconciliation_changed`。读取期间发生事件则重试快照；新会话重建初值。
 
 | 书签表或视图 | 含义 |
 | --- | --- |
@@ -89,9 +92,15 @@ description: 现有来源的事实含义、身份与查询边界。
 | `time_zone_events` / `afk_events` | 时区／active、idle 的初值和变化；`idle_ms` 是当次检查的无输入时长 |
 | `system_sleep_events` / `user_session_events` | 休眠、唤醒／用户会话激活、停用通知，不补造启动前事件 |
 | `keyboard_presses` / `mouse_button_events` | 一次按键（键码、起止、按下时修饰键）／鼠标按下或释放（按钮、坐标）；自动重复不另计按键，未观察到释放时结束为空 |
+| `application_activation_policy_observations` / `regular_app_intervals` | 应用实例激活策略（`regular`、`accessory`、`prohibited`）的初值和变化，读不到为空／应用处于 `regular` 的区间，即有 Dock 图标的普通应用，到策略变化、消失或应用通道中断为止 |
+| `audio_process_instances` / `audio_process_presence_events` | CoreAudio 进程对象身份（PID、bundle ID，能确认时关联 `process_instances`）／出现和消失；`afplay`、系统守护进程等不是应用的也保留 |
+| `audio_input_observations` / `audio_output_observations` | 各音频进程是否在用麦克风／是否在出声的初值和变化 |
+| `camera_devices` / `camera_device_presence_events` / `camera_running_observations` | 摄像头身份（UID、名称）／连接和断开／是否在运行；系统不提供是哪个进程在用 |
 
-`capture_runs` 保存 AFK 阈值及窗口、输入开关；`timeline` 组合活动、权限和通道记录。网络的身份与计数边界见[设备网络采集](./network.mdx)。
+`capture_runs` 保存 AFK 阈值及窗口、输入、麦克风、音频输出、摄像头开关；`timeline` 组合活动、权限和通道记录。
 
 窗口按 AX 通知能力选择监听或每秒回退查询；支持通知时每 60 秒校准。输入可用时，键盘、鼠标移动、按钮和滚轮更新 AFK 活动时间，到期计时器判断离席；移动和滚轮不另存事件。输入不可用时每秒读系统 idle。权限核对和输入批量写入分别调度。
+
+激活策略先订阅 KVO 再读初值；实测 KVO 会漏掉变化，所以每秒再读一次现值核对。音频和摄像头先挂属性监听再读初值，通知只触发读取，每秒也核对一次，所以属于读当前值：时间是读取时间，一秒内的往返会丢。音频「在用」指流在运行，静音的流也算。音频进程与应用实例要 PID、bundle ID 一致，且 PID 反查回同一个 CoreAudio 对象才关联；当时对不上、后来确认的可以补上。这三个通道不需要授权。
 
 启动时缺少权限只停用对应通道，其他通道继续采集；权限恢复后建立初值。休眠、会话切换和输入 tap 中断同样记录可用性。未观察到按键释放时保留空结束时间。启动时间未知的进程身份在中断后断开，后来读到启动时间也不追溯认证。

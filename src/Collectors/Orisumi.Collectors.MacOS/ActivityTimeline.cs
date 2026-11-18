@@ -17,13 +17,6 @@ public static class ActivityTimeline
         if (!File.Exists(database))
             throw new FileNotFoundException($"macOS activity database not found: {database}");
 
-        using var versionResult = JsonDocument.Parse(await Query(database, "PRAGMA user_version"));
-        using var versionStream = typeof(MacOSStore).Assembly.GetManifestResourceStream("Orisumi.Collectors.MacOS.Schema.Version.txt")!;
-        using var versionReader = new StreamReader(versionStream);
-        var expectedVersion = int.Parse(versionReader.ReadToEnd(), CultureInfo.InvariantCulture);
-        if (versionResult.RootElement[0].GetProperty("user_version").GetInt32() != expectedVersion)
-            throw new IOException($"Unsupported macOS database schema. Expected version {expectedVersion}.");
-
         var sql = string.Create(CultureInfo.InvariantCulture, $"""
             WITH events(observed_at_utc_ms, run_id, run_sequence, source, event_kind, pid, bundle_id, app_name, window_title, state, idle_ms, permission) AS (
                 SELECT observed_at_utc_ms, run_id, run_sequence, 'foreground_app', event_kind, pid, bundle_id, app_name, NULL, NULL, NULL, NULL

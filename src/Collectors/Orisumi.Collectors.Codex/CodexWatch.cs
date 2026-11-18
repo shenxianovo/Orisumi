@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Orisumi.Collectors.Storage;
 
 namespace Orisumi.Collectors.Codex;
 
@@ -6,7 +7,7 @@ public static partial class CodexCollector
 {
     public static async Task Watch(string store, string? threadId, CancellationToken cancellation)
     {
-        using var captureLock = Lock(store);
+        using var captureLock = CollectorDatabase.Lock(store, Source);
         var source = SourceHome();
         var changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });
         FileSystemWatcher? watcher = null;

@@ -5,7 +5,7 @@ let path = CommandLine.arguments[1]
 if CommandLine.arguments.contains("reject") {
     do {
         _ = try ForegroundDatabase(path: path, captureWindows: false, captureInput: false)
-        fatalError("accepted an unsupported or invalid schema")
+        fatalError("accepted an invalid schema")
     } catch { print("Rejected schema: \(error.localizedDescription)") }
     exit(0)
 }

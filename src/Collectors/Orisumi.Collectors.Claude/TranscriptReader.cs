@@ -132,9 +132,9 @@ internal sealed class TranscriptReader(SqliteConnection connection, SqliteTransa
 
     private object? Execute(string sql, params object?[] values)
     {
-        using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql;
-        for (var index = 0; index < values.Length; index++) command.Parameters.AddWithValue($"$p{index}", values[index] ?? DBNull.Value);
-        return command.ExecuteScalar();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        return command.Scalar(sql, values);
     }
 
     private sealed record Cursor(string SourceId, string Identity, string Path, long Offset, int LineNumber,

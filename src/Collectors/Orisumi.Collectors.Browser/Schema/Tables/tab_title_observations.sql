@@ -1,2 +1,6 @@
 CREATE TABLE tab_title_observations (
- observation_id INTEGER PRIMARY KEY REFERENCES tab_observations(observation_id),tab_id INTEGER NOT NULL,title TEXT);
+    observation_id INTEGER NOT NULL REFERENCES tab_observations(observation_id),
+    tab_key INTEGER NOT NULL REFERENCES tabs(tab_key),
+    title TEXT,
+    PRIMARY KEY(tab_key, observation_id)
+);

@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net11.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <!-- The Swift helper writes macos.sqlite and loads the schema copied beside it. -->
+    <NativeSchema>true</NativeSchema>
   </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
@@ -29,7 +28,6 @@
     </ItemGroup>
   </Target>
   <ItemGroup>
-    <EmbeddedResource Include="Schema/Version.txt" LogicalName="$(AssemblyName).Schema.Version.txt" />
     <Content Include="Schema/**/*"
              Link="Orisumi.Collectors.MacOS/Schema/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"

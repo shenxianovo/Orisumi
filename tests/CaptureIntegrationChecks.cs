@@ -75,7 +75,7 @@ async Task Browser(Fixture fixture, JsonObject batch, bool expectedOk = true)
     var reply = await Run(cli, ["--store", fixture.Store, "browser", "native-host"], frame);
     Check(reply.Length >= 4 && BinaryPrimitives.ReadInt32LittleEndian(reply) == reply.Length - 4, "Native Messaging reply frame");
     using var json = JsonDocument.Parse(reply.AsMemory(4));
-    Check(json.RootElement.GetProperty("ok").GetBoolean() == expectedOk, "Native Messaging acknowledgement");
+    Check(json.RootElement.GetProperty("ok").GetBoolean() == expectedOk, $"Unexpected Native Messaging acknowledgement: {json.RootElement}");
 }
 
 async Task CodexChecks()
@@ -159,25 +159,87 @@ async Task ClaudeChecks()
 async Task TabChecks()
 {
     using var fixture = new Fixture();
-    var run = Guid.NewGuid().ToString();
-    JsonObject Tab(int sequence, string? title = "A", string? url = "https://example.com", string kind = "snapshot", bool blur = false) => new()
+    var run = Guid.NewGuid();
+    JsonObject Tab(int sequence, string kind, string fields) => new()
     {
-        ["eventId"] = Guid.NewGuid().ToString(), ["captureSessionId"] = run, ["runStartedAtUtcMs"] = 1000,
+        ["eventId"] = Guid.NewGuid().ToString(), ["captureSessionId"] = run.ToString(), ["runStartedAtUtcMs"] = 1000,
         ["sessionSequence"] = sequence, ["observedAtUtcMs"] = 1000 + sequence, ["eventKind"] = kind,
-        ["windowId"] = blur ? null : JsonValue.Create(1), ["tabId"] = blur ? null : JsonValue.Create(2),
-        ["url"] = url, ["title"] = title,
+        ["tabs"] = JsonNode.Parse(fields),
     };
-    var second = Tab(2, title: "B", kind: "title_changed");
-    await Browser(fixture, new() { ["activeTabEvents"] = new JsonArray(Tab(1), second,
-        Tab(3, "C", "https://example.com/other", "url_changed"), Tab(4, null, null, "window_blurred", true)) });
-    await Browser(fixture, new() { ["activeTabEvents"] = new JsonArray(second.DeepClone()) });
+    var first = Tab(1, "snapshot", """
+        [{"tabId":2,"fields":{"isPresent":true,"windowId":1,"url":"A","title":"Start"}},
+         {"tabId":3,"fields":{"isPresent":true,"windowId":1,"url":null,"title":""}}]
+        """);
+    first["windows"] = JsonNode.Parse("""[{"windowId":1,"isPresent":true},{"windowId":5,"isPresent":true}]""");
+    first["focus"] = JsonNode.Parse("""{"tabId":2}""");
+    var forward = Tab(3, "tab_updated", """[{"tabId":4,"fields":{"url":"B","title":""}}]""");
+    var replace = Tab(7, "tab_replaced", """
+        [{"tabId":2,"fields":{"isPresent":false}},
+         {"tabId":6,"fields":{"isPresent":true,"windowId":1,"url":"C","title":"Replacement"}}]
+        """);
+    replace["focus"] = JsonNode.Parse("""{"tabId":6}""");
+    var close = Tab(9, "window_removed", """[{"tabId":4,"fields":{"isPresent":false}}]""");
+    close["windows"] = JsonNode.Parse("""[{"windowId":5,"isPresent":false}]""");
+    await Browser(fixture, new() { ["tabEvents"] = new JsonArray(first,
+        Tab(2, "tab_created", """[{"tabId":4,"fields":{"isPresent":true,"windowId":1,"url":"A","title":null}}]"""),
+        forward, forward.DeepClone(),
+        Tab(4, "tab_updated", """[{"tabId":4,"fields":{"url":"A"}}]"""),
+        Tab(5, "tab_detached", """[{"tabId":4,"fields":{"windowId":null}}]"""),
+        Tab(6, "tab_attached", """[{"tabId":4,"fields":{"windowId":5}}]"""), replace,
+        Tab(8, "tab_removed", """[{"tabId":3,"fields":{"isPresent":false}}]"""), close) });
+    var replay = forward.DeepClone();
+    replay["focus"] = JsonNode.Parse("""{"tabId":4}""");
+    await Browser(fixture, new() { ["tabEvents"] = new JsonArray(replay, close.DeepClone()) });
+
     using var db = Open(fixture.Database("browser"));
     Count(db, "active_tab_focus_events", 2);
-    Count(db, "tab_url_observations", 2);
-    Count(db, "tab_title_observations", 3);
-    Count(db, "tab_observations", 4);
-    Rows(db, "SELECT title FROM active_tab_state_history ORDER BY run_sequence", ["A"], ["B"], ["C"], [null]);
-    Console.WriteLine("PASS: browser title, navigation, focus and retry");
+    Count(db, "tab_url_observations", 6);
+    Count(db, "tab_title_observations", 5);
+    Count(db, "tab_observations", 9);
+    Count(db, "tab_presence_events", 7);
+    Count(db, "tab_window_observations", 6);
+    Count(db, "window_presence_events", 3);
+
+    Rows(db, """
+        SELECT run_sequence,window_id,has_window,url,title,is_present FROM tab_history WHERE tab_id=4 ORDER BY run_sequence
+        """, [2, 1, 1, "A", null, 1], [3, 1, 1, "B", "", 1], [4, 1, 1, "A", "", 1],
+        [5, null, 0, "A", "", 1], [6, 5, 1, "A", "", 1], [9, 5, 1, "A", "", 0]);
+    Rows(db, """
+        SELECT tab_id,window_id,url,title,is_focused FROM tab_history
+        WHERE is_present=1 AND observed_at_utc_ms<=1006 AND (valid_until_utc_ms>1006 OR valid_until_utc_ms IS NULL)
+        ORDER BY tab_id
+        """, [2, 1, "A", "Start", 1], [3, 1, null, "", 0], [4, 5, "A", "", 0]);
+    Rows(db, "SELECT tab_id,window_id,url,title,is_focused FROM current_tabs", [6, 1, "C", "Replacement", 1]);
+
+    var invalid = Tab(11, "tab_updated", """[{"tabId":6,"fields":{"isPresent":4}}]""");
+    await Browser(fixture, new() { ["tabEvents"] = new JsonArray(
+        Tab(10, "tab_updated", """[{"tabId":6,"fields":{"title":"Uncommitted"}}]"""), invalid) }, expectedOk: false);
+    Count(db, "tab_observations", 9);
+    JsonObject Coverage(int started, string evidence) => new()
+    {
+        ["eventId"] = Guid.NewGuid().ToString(), ["scope"] = "tabs", ["mode"] = "notification",
+        ["startedAtUtcMs"] = started, ["evidence"] = evidence, ["runId"] = run.ToString(),
+    };
+    var gap = Coverage(1010, "unavailable");
+    gap["detail"] = "baseline_reset";
+    await Browser(fixture, new() { ["coverage"] = new JsonArray(Coverage(1001, "available"), gap) });
+    run = Guid.NewGuid();
+    var restart = Tab(1, "snapshot", """[{"tabId":6,"fields":{"isPresent":true,"windowId":5,"url":"C","title":"Replacement"}}]""");
+    restart["runStartedAtUtcMs"] = 1020;
+    restart["observedAtUtcMs"] = 1020;
+    restart["windows"] = JsonNode.Parse("""[{"windowId":5,"isPresent":true}]""");
+    restart["focus"] = JsonNode.Parse("""{"tabId":null}""");
+    await Browser(fixture, new() { ["tabEvents"] = new JsonArray(restart) });
+    await Browser(fixture, new() { ["coverage"] = new JsonArray(Coverage(1020, "available")) });
+    Rows(db, "SELECT tab_id,window_id,is_focused FROM current_tabs", [6, 5, 0]);
+    Rows(db, "SELECT started_at_utc_ms,stopped_at_utc_ms,evidence FROM capture_coverage ORDER BY started_at_utc_ms",
+        [1001, 1010, "available"], [1010, 1020, "unavailable"], [1020, null, "available"]);
+    Rows(db, """
+        SELECT tab_id FROM tab_history
+        WHERE is_present=1 AND observed_at_utc_ms<=1015 AND (valid_until_utc_ms>1015 OR valid_until_utc_ms IS NULL)
+        """);
+    Rows(db, "SELECT COUNT(DISTINCT tab_key) FROM tabs WHERE tab_id=6", [2]);
+    Console.WriteLine("PASS: browser inventory, as-of history, focus, retry, atomicity and recovery");
 }
 
 async Task DownloadChecks()
@@ -237,23 +299,17 @@ async Task MacOSChecks()
     Rows(db, "SELECT available FROM capture_channel_events ORDER BY run_sequence", [1], [0], [1]);
     Rows(db, "SELECT capture_windows,capture_input,stopped_at_utc_ms IS NOT NULL FROM capture_runs", [1, 1, 1]);
     Rows(db, "PRAGMA foreign_key_check");
-    Rows(db, "PRAGMA user_version", [long.Parse(File.ReadAllText(Path.Combine(schema, "Version.txt")))]);
     // The native fixture also opens twice with capture features disabled.
     using var disabled = Open(path + ".disabled");
     Rows(disabled, "SELECT COUNT(*) FROM window_history", [0]);
     Rows(disabled, "SELECT COUNT(*) FROM keyboard_presses", [0]);
     Rows(disabled, "SELECT capture_windows,capture_input FROM capture_runs", [0, 0], [0, 0]);
-    // A rejected version must preserve both metadata and previously collected facts.
-    Exec(db, "PRAGMA user_version=99");
-    await Run(binary, [path, "reject"]);
-    Rows(db, "PRAGMA user_version", [99]);
-    Count(db, "process_instances", 4);
+    // A failed initialization leaves the database empty.
     var broken = Path.Combine(packagedSchema, "Indexes/invalid.sql");
     File.WriteAllText(broken, "CREATE INDEX invalid ON nonexistent(column_name);");
     var failedPath = Path.Combine(fixture.Root, "failed.sqlite");
     await Run(binary, [failedPath, "reject"]);
     using var failed = Open(failedPath);
-    Rows(failed, "PRAGMA user_version", [0]);
     Rows(failed, "SELECT COUNT(*) FROM sqlite_schema", [0]);
     Console.WriteLine("PASS: macOS focus, titles, PID reuse and channel gaps");
 }

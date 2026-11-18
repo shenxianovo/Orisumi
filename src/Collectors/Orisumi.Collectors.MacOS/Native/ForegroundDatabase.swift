@@ -43,6 +43,34 @@ enum AppLifecycleEventKind: String {
     case snapshot, appeared, disappeared
 }
 
+enum ApplicationActivationPolicy: String {
+    case regular, accessory, prohibited
+}
+
+enum MediaObjectKind: String {
+    case audioProcess = "audio_process"
+    case cameraDevice = "camera_device"
+}
+
+enum MediaChannel: String, CaseIterable {
+    case microphone, audioOutput = "audio_output", camera
+
+    var observations: String {
+        switch self {
+        case .microphone: "audio_input_observations"
+        case .audioOutput: "audio_output_observations"
+        case .camera: "camera_running_observations"
+        }
+    }
+
+    var kind: MediaObjectKind { self == .camera ? .cameraDevice : .audioProcess }
+}
+
+enum MediaObjectIdentity {
+    case audio(pid: pid_t?, bundleID: String?, processInstanceID: String?)
+    case camera(uid: String?, name: String?)
+}
+
 struct ObservedApplication {
     let bundleID: String?
     let name: String?
@@ -90,14 +118,17 @@ final class ForegroundDatabase {
     private var sequence: Int64 = 0
     private let captureWindows: Bool
     private let captureInput: Bool
+    private let mediaChannels: Set<MediaChannel>
     private var processes: [Int32: (id: String, launch: Date?)] = [:]
+    private var activationPolicies: [String: ApplicationActivationPolicy?] = [:]
     private var focusID: String?
     private var channels: [String: Bool] = [:]
     private var methods: [String: String] = [:]
 
-    init(path: String, captureWindows: Bool, captureInput: Bool) throws {
+    init(path: String, captureWindows: Bool, captureInput: Bool, mediaChannels: Set<MediaChannel> = []) throws {
         self.captureWindows = captureWindows
         self.captureInput = captureInput
+        self.mediaChannels = mediaChannels
         var connection: OpaquePointer?
         guard sqlite3_open(path, &connection) == SQLITE_OK, let connection else {
             let error = DatabaseError(connection)
@@ -110,6 +141,8 @@ final class ForegroundDatabase {
                   sqlite3_exec(connection, "PRAGMA foreign_keys = ON", nil, nil, nil) == SQLITE_OK
             else { throw DatabaseError(connection) }
             try DatabaseSchema.ensureCreated(connection)
+            guard sqlite3_exec(connection, "PRAGMA journal_mode = WAL", nil, nil, nil) == SQLITE_OK
+            else { throw DatabaseError(connection) }
         } catch {
             sqlite3_close(connection)
             throw error
@@ -173,8 +206,11 @@ final class ForegroundDatabase {
     }
 
     func start(at time: Date, afkThresholdMS: Int64) throws {
+        let mediaColumns = MediaChannel.allCases.map { "capture_\($0.rawValue)" }.joined(separator: ",")
+        let mediaValues = MediaChannel.allCases.map { mediaChannels.contains($0) ? "1" : "0" }.joined(separator: ",")
         try writeRunTime("""
-            INSERT INTO capture_runs (run_id, started_at_utc_ms, afk_threshold_ms,capture_windows,capture_input) VALUES (?1, ?2, ?3,\(captureWindows ? 1 : 0),\(captureInput ? 1 : 0))
+            INSERT INTO capture_runs (run_id, started_at_utc_ms, afk_threshold_ms,capture_windows,capture_input,\(mediaColumns))
+            VALUES (?1, ?2, ?3,\(captureWindows ? 1 : 0),\(captureInput ? 1 : 0),\(mediaValues))
             """, at: time, afkThresholdMS: afkThresholdMS)
     }
 
@@ -253,6 +289,7 @@ final class ForegroundDatabase {
 
     func interruptUnverifiedProcesses() {
         processes = processes.filter { $0.value.launch != nil }
+        activationPolicies.removeAll()
     }
 
     func appendChannel(_ channel: String, available: Bool, reason: String, at time: Date = Date()) throws {
@@ -311,14 +348,157 @@ final class ForegroundDatabase {
         committed = true
     }
 
-    func appendApplicationLifecycle(_ kind: AppLifecycleEventKind, at time: Date, app: ObservedApplication) throws {
-        let instance = try processInstance(pid: app.pid, bundle: app.bundleID, name: app.name, launch: app.launchedAt)
-        let insert = try prepare("INSERT INTO running_app_observations VALUES(?,?,?,?,?)")
+    @discardableResult
+    func appendApplicationLifecycle(_ kind: AppLifecycleEventKind, at time: Date, app: ObservedApplication,
+                                    policy: ApplicationActivationPolicy? = nil, instance existing: String? = nil) throws -> String {
+        let previous = processes[app.pid]
+        let instance: String
+        do {
+            instance = try transaction {
+                let instance = try existing ?? processInstance(pid: app.pid, bundle: app.bundleID, name: app.name, launch: app.launchedAt)
+                let insert = try prepare("INSERT INTO running_app_observations VALUES(?,?,?,?,?)")
+                defer { sqlite3_finalize(insert) }
+                try bindEvent(insert, kind: kind.rawValue, at: time)
+                guard bindText(insert, 5, instance) == SQLITE_OK else { throw DatabaseError(database) }
+                try commitEvent(insert)
+                if kind != .disappeared {
+                    try writeActivationPolicy(policy, instance: instance, at: time, runSequence: sequence)
+                }
+                return instance
+            }
+        } catch {
+            processes[app.pid] = previous
+            throw error
+        }
+        if kind == .disappeared {
+            if processes[app.pid]?.id == instance { processes.removeValue(forKey: app.pid) }
+            activationPolicies.removeValue(forKey: instance)
+        } else {
+            activationPolicies[instance] = .some(policy)
+        }
+        return instance
+    }
+
+    func appendActivationPolicy(_ policy: ApplicationActivationPolicy?, instance: String, at time: Date) throws {
+        guard activationPolicies[instance] != .some(policy) else { return }
+        try writeActivationPolicy(policy, instance: instance, at: time, runSequence: sequence + 1)
+        sequence += 1
+        activationPolicies[instance] = .some(policy)
+    }
+
+    private func writeActivationPolicy(_ policy: ApplicationActivationPolicy?, instance: String,
+                                       at time: Date, runSequence: Int64) throws {
+        let insert = try prepare("INSERT INTO application_activation_policy_observations VALUES(?,?,?,?,?)")
         defer { sqlite3_finalize(insert) }
-        try bindEvent(insert, kind: kind.rawValue, at: time)
-        guard bindText(insert, 5, instance) == SQLITE_OK else { throw DatabaseError(database) }
+        try bindObservation(insert, at: time, runSequence: runSequence)
+        guard bindText(insert, 4, instance) == SQLITE_OK,
+              bindText(insert, 5, policy?.rawValue) == SQLITE_OK,
+              sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+    }
+
+    func appendMediaObject(_ kind: MediaObjectKind, objectID: UInt32, identity: MediaObjectIdentity,
+                           event: AppLifecycleEventKind, values: [MediaChannel: Bool?], at time: Date) throws -> String {
+        try transaction {
+            let instance = try mediaInstance(identity, objectID: objectID)
+            try appendMediaPresence(event, kind: kind, instance: instance, objectID: objectID, at: time)
+            for (channel, value) in values {
+                try writeMediaState(value, channel: channel, instance: instance, at: time, runSequence: sequence)
+            }
+            return instance
+        }
+    }
+
+    func appendMediaDisappearance(_ kind: MediaObjectKind, instance: String, objectID: UInt32,
+                                  stopped: [MediaChannel], at time: Date) throws {
+        try transaction {
+            try appendMediaPresence(.disappeared, kind: kind, instance: instance, objectID: objectID, at: time)
+            for channel in stopped {
+                try writeMediaState(false, channel: channel, instance: instance, at: time, runSequence: sequence)
+            }
+        }
+    }
+
+    private func appendMediaPresence(_ event: AppLifecycleEventKind, kind: MediaObjectKind, instance: String,
+                                     objectID: UInt32, at time: Date) throws {
+        let parameters = kind == .cameraDevice ? "?,?,?,?,?,?" : "?,?,?,?,?"
+        let insert = try prepare("INSERT INTO \(kind.rawValue)_presence_events VALUES(\(parameters))")
+        defer { sqlite3_finalize(insert) }
+        try bindObservation(insert, at: time, runSequence: sequence + 1)
+        guard bindText(insert, 4, instance) == SQLITE_OK,
+              bindText(insert, 5, event.rawValue) == SQLITE_OK else { throw DatabaseError(database) }
+        if kind == .cameraDevice {
+            guard sqlite3_bind_int64(insert, 6, Int64(objectID)) == SQLITE_OK else { throw DatabaseError(database) }
+        }
         try commitEvent(insert)
-        if kind == .disappeared { processes.removeValue(forKey: app.pid) }
+    }
+
+    func appendMediaState(_ value: Bool?, channel: MediaChannel, instance: String, at time: Date) throws {
+        try writeMediaState(value, channel: channel, instance: instance, at: time, runSequence: sequence + 1)
+        sequence += 1
+    }
+
+    func linkAudioProcess(instance: String, application: String) throws {
+        let update = try prepare("""
+            UPDATE audio_process_instances SET process_instance_id = ?
+            WHERE audio_process_instance_id = ? AND process_instance_id IS NULL
+            """)
+        defer { sqlite3_finalize(update) }
+        guard bindText(update, 1, application) == SQLITE_OK, bindText(update, 2, instance) == SQLITE_OK,
+              sqlite3_step(update) == SQLITE_DONE else { throw DatabaseError(database) }
+    }
+
+    private func writeMediaState(_ value: Bool?, channel: MediaChannel, instance: String,
+                                 at time: Date, runSequence: Int64) throws {
+        let insert = try prepare("INSERT INTO \(channel.observations) VALUES(?,?,?,?,?)")
+        defer { sqlite3_finalize(insert) }
+        try bindObservation(insert, at: time, runSequence: runSequence)
+        guard bindText(insert, 4, instance) == SQLITE_OK,
+              bindOptionalInteger(insert, 5, value.map { $0 ? 1 : 0 }) == SQLITE_OK,
+              sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+    }
+
+    private func mediaInstance(_ identity: MediaObjectIdentity, objectID: UInt32) throws -> String {
+        let instance = UUID().uuidString.lowercased()
+        switch identity {
+        case let .audio(pid, bundleID, processInstanceID):
+            let insert = try prepare("INSERT INTO audio_process_instances VALUES(?,?,?,?,?,?)")
+            defer { sqlite3_finalize(insert) }
+            guard bindText(insert, 1, instance) == SQLITE_OK, bindText(insert, 2, runID) == SQLITE_OK,
+                  sqlite3_bind_int64(insert, 3, Int64(objectID)) == SQLITE_OK,
+                  bindOptionalInteger(insert, 4, pid.map(Int64.init)) == SQLITE_OK,
+                  bindText(insert, 5, bundleID) == SQLITE_OK,
+                  bindText(insert, 6, processInstanceID) == SQLITE_OK,
+                  sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+            return instance
+        case let .camera(uid, name):
+            let insert = try prepare("""
+                INSERT INTO camera_devices VALUES(?,?,?)
+                ON CONFLICT(device_uid) DO UPDATE SET device_name = COALESCE(camera_devices.device_name, excluded.device_name)
+                RETURNING camera_device_id
+                """)
+            defer { sqlite3_finalize(insert) }
+            guard bindText(insert, 1, instance) == SQLITE_OK,
+                  bindText(insert, 2, uid) == SQLITE_OK,
+                  bindText(insert, 3, name) == SQLITE_OK,
+                  sqlite3_step(insert) == SQLITE_ROW else { throw DatabaseError(database) }
+            let device = String(cString: sqlite3_column_text(insert, 0))
+            guard sqlite3_step(insert) == SQLITE_DONE else { throw DatabaseError(database) }
+            return device
+        }
+    }
+
+    private func transaction<Result>(_ write: () throws -> Result) throws -> Result {
+        guard sqlite3_exec(database, "BEGIN IMMEDIATE", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+        let previousSequence = sequence
+        do {
+            let result = try write()
+            guard sqlite3_exec(database, "COMMIT", nil, nil, nil) == SQLITE_OK else { throw DatabaseError(database) }
+            return result
+        } catch {
+            sqlite3_exec(database, "ROLLBACK", nil, nil, nil)
+            sequence = previousSequence
+            throw error
+        }
     }
 
     func reserveInputSequence() -> Int64 {

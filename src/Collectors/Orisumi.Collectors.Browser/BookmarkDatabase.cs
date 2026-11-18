@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Orisumi.Collectors.Storage;
 
 namespace Orisumi.Collectors.Browser;
 
@@ -24,35 +25,21 @@ internal static class BookmarkDatabase
         Validate(observation);
         try
         {
-            using var connection = BrowserDatabase.OpenDatabase(store);
+            using var connection = CollectorDatabase.Open(store, BrowserDatabase.Source);
             using var transaction = connection.BeginTransaction();
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            long Execute(string sql, params object?[] values)
-            {
-                command.CommandText = sql;
-                command.Parameters.Clear();
-                for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
-                return command.ExecuteNonQuery();
-            }
-            object? Scalar(string sql, params object?[] values)
-            {
-                command.CommandText = sql;
-                command.Parameters.Clear();
-                for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
-                return command.ExecuteScalar();
-            }
-            if (Scalar("SELECT 1 FROM bookmark_observations WHERE event_id=$p0", observation.ObservationId.ToString()) is not null)
+            if (command.Scalar("SELECT 1 FROM bookmark_observations WHERE event_id=$p0", observation.ObservationId.ToString()) is not null)
                 return 0;
             var profile = profileId.ToString();
             var run = observation.RunId.ToString();
-            Execute("INSERT OR IGNORE INTO capture_runs VALUES ($p0,'chrome',$p1,'bookmarks',$p2,NULL)", run, profile, observation.RunStartedAtUtcMs);
-            if (Scalar("SELECT 1 FROM capture_runs WHERE run_id=$p0 AND profile_id=$p1 AND started_at_utc_ms=$p2", run, profile, observation.RunStartedAtUtcMs) is null)
+            command.Execute("INSERT OR IGNORE INTO capture_runs VALUES ($p0,'chrome',$p1,'bookmarks',$p2,NULL)", run, profile, observation.RunStartedAtUtcMs);
+            if (command.Scalar("SELECT 1 FROM capture_runs WHERE run_id=$p0 AND profile_id=$p1 AND started_at_utc_ms=$p2", run, profile, observation.RunStartedAtUtcMs) is null)
                 throw new InvalidDataException("bookmark capture run does not match its origin");
-            var lastSequence = Scalar("SELECT MAX(run_sequence) FROM bookmark_observations WHERE run_id=$p0", run);
+            var lastSequence = command.Scalar("SELECT MAX(run_sequence) FROM bookmark_observations WHERE run_id=$p0", run);
             if (lastSequence is long previousSequence && previousSequence >= observation.RunSequence)
                 throw new InvalidDataException("bookmark observations arrived out of order");
-            var baseline = observation.Kind == "snapshot" && Scalar("SELECT 1 FROM bookmark_observations WHERE run_id=$p0 AND kind='snapshot' LIMIT 1", run) is null;
+            var baseline = observation.Kind == "snapshot" && command.Scalar("SELECT 1 FROM bookmark_observations WHERE run_id=$p0 AND kind='snapshot' LIMIT 1", run) is null;
             command.CommandText = "SELECT bookmark_id,node_kind,added_at_utc_ms,present,title,url,parent_id,position,last_used_at_utc_ms FROM bookmark_state WHERE browser='chrome' AND profile_id=$p0";
             command.Parameters.Clear();
             command.Parameters.AddWithValue("$p0", profile);
@@ -76,31 +63,31 @@ internal static class BookmarkDatabase
                 transaction.Commit();
                 return 0;
             }
-            Execute("INSERT INTO bookmark_observations(event_id,run_id,run_sequence,observed_at_utc_ms,kind) VALUES($p0,$p1,$p2,$p3,$p4)",
+            command.Execute("INSERT INTO bookmark_observations(event_id,run_id,run_sequence,observed_at_utc_ms,kind) VALUES($p0,$p1,$p2,$p3,$p4)",
                 observation.ObservationId.ToString(), run, observation.RunSequence, observation.ObservedAtUtcMs, observation.Kind);
-            var observationId = (long)Scalar("SELECT last_insert_rowid()")!;
+            var observationId = (long)command.Scalar("SELECT last_insert_rowid()")!;
             // A later snapshot should only add last-use times to what the events already applied.
             // Anything else means an event was missed; record when the check found it.
             if (observation.Kind == "snapshot" && !baseline && changes.Any(state => before.TryGetValue(state.Id, out var old)
                     ? state.Present != old.Present || state.Title != old.Title || state.Url != old.Url || state.Parent != old.Parent || state.Position != old.Position
                     : state.Present))
-                Execute("INSERT INTO capture_channel_events VALUES($p0,'chrome',$p1,'bookmarks','snapshot',$p2,$p2,'reconciliation_changed',NULL,$p3)",
+                command.Execute("INSERT INTO capture_channel_events VALUES($p0,'chrome',$p1,'bookmarks','snapshot',$p2,$p2,'reconciliation_changed',NULL,$p3)",
                     observation.ObservationId + ":reconciliation", profile, observation.ObservedAtUtcMs, run);
             long written = 0;
             foreach (var state in changes)
             {
                 before.TryGetValue(state.Id, out var old);
-                Execute("""
+                command.Execute("""
                     INSERT INTO bookmarks(browser,profile_id,bookmark_id,node_kind,added_at_utc_ms) VALUES('chrome',$p0,$p1,$p2,$p3)
                     ON CONFLICT(browser,profile_id,bookmark_id) DO UPDATE SET
                         node_kind=COALESCE(bookmarks.node_kind,excluded.node_kind),
                         added_at_utc_ms=COALESCE(bookmarks.added_at_utc_ms,excluded.added_at_utc_ms)
                     """, profile, state.Id, state.Kind, state.Added);
-                var key = (long)Scalar("SELECT bookmark_key FROM bookmarks WHERE browser='chrome' AND profile_id=$p0 AND bookmark_id=$p1", profile, state.Id)!;
+                var key = (long)command.Scalar("SELECT bookmark_key FROM bookmarks WHERE browser='chrome' AND profile_id=$p0 AND bookmark_id=$p1", profile, state.Id)!;
                 void Append(string table, params object?[] values)
                 {
                     var all = new object?[] { key, observationId }.Concat(values).ToArray();
-                    written += Execute($"INSERT INTO {table} VALUES ({string.Join(',', Enumerable.Range(0, all.Length).Select(i => $"$p{i}"))})", all);
+                    written += command.Execute($"INSERT INTO {table} VALUES ({string.Join(',', Enumerable.Range(0, all.Length).Select(i => $"$p{i}"))})", all);
                 }
                 var initial = old is null || baseline && state.Present || old.Present == false && state.Present;
                 if (initial || state.Present != old!.Present) Append("bookmark_presence_events", state.Present ? 1 : 0);
@@ -110,8 +97,8 @@ internal static class BookmarkDatabase
                 // The root has no location; other nodes get one only once both parts are known.
                 if (state.Parent is not null && state.Position is not null && (initial || state.Parent != old!.Parent || state.Position != old.Position))
                 {
-                    Execute("INSERT OR IGNORE INTO bookmarks(browser,profile_id,bookmark_id) VALUES('chrome',$p0,$p1)", profile, state.Parent);
-                    var parentKey = (long)Scalar("SELECT bookmark_key FROM bookmarks WHERE browser='chrome' AND profile_id=$p0 AND bookmark_id=$p1", profile, state.Parent)!;
+                    command.Execute("INSERT OR IGNORE INTO bookmarks(browser,profile_id,bookmark_id) VALUES('chrome',$p0,$p1)", profile, state.Parent);
+                    var parentKey = (long)command.Scalar("SELECT bookmark_key FROM bookmarks WHERE browser='chrome' AND profile_id=$p0 AND bookmark_id=$p1", profile, state.Parent)!;
                     Append("bookmark_location_events", parentKey, state.Position);
                 }
                 if (state.LastUsed is not null && (initial || state.LastUsed != old!.LastUsed)) Append("bookmark_last_used_observations", state.LastUsed);

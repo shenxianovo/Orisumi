@@ -29,16 +29,15 @@ CLI 使用 `System.CommandLine`、`Spectre.Console`，开发命令在 `Orisumi.C
 | `orisumi capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](./recovery.mdx) |
 | `orisumi codex capture --all` | 导入所有 Codex 会话；单会话可传 ID，省略时读 `CODEX_THREAD_ID` |
 | `orisumi claude capture` | 导入 Claude 会话 |
-| `orisumi foreground --windows --input` | 持续采集 macOS；可指定秒数，Ctrl+C 正常停止 |
-| `orisumi network capture / query` | [设备网络采集与查询](./network.mdx) |
+| `orisumi foreground --windows --input --microphone --audio-output --camera` | 持续采集 macOS，选项各开一个通道；可指定秒数，Ctrl+C 正常停止 |
 | `orisumi timeline --from … --to …` | 查询活动时间线，时间参数包含 UTC 偏移或 `Z` |
 | `orisumi dev docs` | 文档预览；安装、检查和构建见[文档维护](./contributing.mdx) |
 
 `--store` 默认是当前目录的 `.orisumi`，数据库在 `raw/`，日志在 `logs/`。
 
-`capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动，以继承窗口和输入权限；PID 写入 `foreground.pid`，日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
+`capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动全部通道，以继承窗口和输入权限；PID 和进程启动时间写入 `foreground.pid`，停止前据此确认仍是同一进程；日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
 
-Codex、Claude 以 `capture --watch` 常驻监听，网络默认每 5 秒采样；三者由用户 LaunchAgent 保活。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
+Codex、Claude 以 `capture --watch` 常驻监听，由用户 LaunchAgent 保活。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
 
 重建输出库前停止相关监听和导入；重建后重启采集并重载扩展，建立新初值。来源数据保持只读，清空输出库不会删除来源内容。
 
@@ -73,13 +72,11 @@ dotnet run --file tests/CaptureCoverageChecks.cs
 dotnet run --file tests/ClaudeIncrementalChecks.cs
 dotnet run --file tests/CodexIncrementalChecks.cs
 dotnet run --file tests/MacOSObservationChecks.cs
-dotnet run --file tests/NetworkChecks.cs
-dotnet run --file tests/NetworkIntegrationChecks.cs
 npm --prefix src/Collectors/Orisumi.Collectors.Browser/Extension test
 dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
 dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
 ```
 
-启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查结构打包、视图、重复打开和版本拒绝；采集检查覆盖独立变化、修订、重试、身份与中断。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
+启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
 
 新增采集器的来源、恢复和数据库要求见[采集开发](./capture.mdx)。

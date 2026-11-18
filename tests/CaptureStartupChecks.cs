@@ -55,11 +55,9 @@ static void Check(bool condition, string message)
 async Task ConfigurationChecks()
 {
     var store = Path.Combine(temp.FullName, "store & spaces ' 引号");
-    foreach (var (name, command) in new (string, string[])[]
+    foreach (var source in CaptureSources.All)
     {
-        ("codex", ["codex", "capture", "--all", "--watch"]), ("claude-code", ["claude", "capture", "--watch"]), ("network", ["network", "capture"]),
-    })
-    {
+        if (source is not { Name: var name, Agent: { } command }) continue;
         var config = CaptureStartup.LaunchAgent(name, dotnet, assembly, temp.FullName, store, command);
         var path = Path.Combine(temp.FullName, name + ".plist");
         config.Save(path);
@@ -101,11 +99,11 @@ async Task BackgroundChecks()
         await Task.Delay(100);
         Check(!child.HasExited, "terminal hangup must not stop the collector");
         var pidFile = Path.Combine(temp.FullName, "foreground.pid");
-        string[] expected = [dotnet, assembly, "--child", ready, text];
-        File.WriteAllText(pidFile, Environment.ProcessId.ToString());
-        await CaptureStartup.StopForeground(pidFile, expected, CancellationToken.None);
-        File.WriteAllText(pidFile, pid.ToString());
-        await CaptureStartup.StopForeground(pidFile, expected, CancellationToken.None);
+        // A reused PID (here: this test process) has another start time and is left alone.
+        File.WriteAllText(pidFile, $"{Environment.ProcessId} 1");
+        await CaptureStartup.StopForeground(pidFile, CancellationToken.None);
+        CaptureStartup.WritePidFile(pidFile, pid);
+        await CaptureStartup.StopForeground(pidFile, CancellationToken.None);
         Check(child.HasExited && File.ReadAllText(stdout).EndsWith("stopped\n"), "matching collector stops gracefully");
     }
     finally

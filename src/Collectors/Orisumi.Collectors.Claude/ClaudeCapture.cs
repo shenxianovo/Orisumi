@@ -11,9 +11,8 @@ public static partial class ClaudeCollector
 
     private static string Capture(string store, IReadOnlyCollection<string>? changedPaths)
     {
-        var database = Path.GetFullPath(Path.Combine(store, "raw", "claude.sqlite"));
-        using var connection = OpenDatabase(database);
-        SqliteSchema.EnsureCreated(connection);
+        var database = CollectorDatabase.PathFor(store, Source);
+        using var connection = CollectorDatabase.Open(store, Source);
         using var command = connection.CreateCommand();
         command.CommandText = "INSERT INTO capture_runs(started_at_utc_ms) VALUES($at); SELECT last_insert_rowid();";
         command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());

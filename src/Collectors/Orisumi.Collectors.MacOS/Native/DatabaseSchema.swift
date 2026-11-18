@@ -10,10 +10,6 @@ enum DatabaseSchema {
     static func ensureCreated(_ database: OpaquePointer) throws {
         let directory = Bundle.main.executableURL!.deletingLastPathComponent()
             .appendingPathComponent("Orisumi.Collectors.MacOS/Schema", isDirectory: true)
-        let versionText = try String(contentsOf: directory.appendingPathComponent("Version.txt"), encoding: .utf8)
-        guard let version = Int64(versionText.trimmingCharacters(in: .whitespacesAndNewlines)), version > 0 else {
-            throw SchemaError("Invalid macOS schema version")
-        }
         func execute(_ sql: String) throws {
             guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
                 throw SchemaError(String(cString: sqlite3_errmsg(database)))
@@ -32,12 +28,8 @@ enum DatabaseSchema {
         try execute("BEGIN IMMEDIATE")
         var committed = false
         defer { if !committed { sqlite3_exec(database, "ROLLBACK", nil, nil, nil) } }
-        let actual = try scalar("PRAGMA user_version")
-        if actual != version {
-            guard actual == 0,
-                  try scalar("SELECT COUNT(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'") == 0 else {
-                throw SchemaError("Unsupported macOS database schema. Expected version \(version). Stop this collector and rebuild its output database.")
-            }
+        // An existing database is used as is; a changed schema needs a rebuilt database.
+        if try scalar("SELECT COUNT(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'") == 0 {
             for group in ["Tables", "Indexes", "Views"] {
                 let files = try FileManager.default.contentsOfDirectory(
                     at: directory.appendingPathComponent(group, isDirectory: true),
@@ -49,7 +41,6 @@ enum DatabaseSchema {
                     catch { throw SchemaError("Could not initialize \(group)/\(file.lastPathComponent): \(error.localizedDescription)") }
                 }
             }
-            try execute("PRAGMA user_version = \(version)")
         }
         try execute("COMMIT")
         committed = true

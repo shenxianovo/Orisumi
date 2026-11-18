@@ -6,7 +6,8 @@ namespace Orisumi.Collectors.MacOS;
 
 public static class MacOSForeground
 {
-    public static async Task<int> Run(string store, int? seconds, bool captureWindows, int? afkThresholdSeconds, bool captureInput)
+    public static async Task<int> Run(string store, int? seconds, bool captureWindows, int? afkThresholdSeconds,
+        bool captureInput, bool captureMicrophone, bool captureAudioOutput, bool captureCamera)
     {
         var helper = Path.Combine(AppContext.BaseDirectory, "orisumi-macos-foreground");
         var database = MacOSStore.GetDatabasePath(store);
@@ -26,6 +27,12 @@ public static class MacOSForeground
 
         if (captureInput)
             start.ArgumentList.Add("--input");
+        if (captureMicrophone)
+            start.ArgumentList.Add("--microphone");
+        if (captureAudioOutput)
+            start.ArgumentList.Add("--audio-output");
+        if (captureCamera)
+            start.ArgumentList.Add("--camera");
 
         var interrupted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         ConsoleCancelEventHandler onInterrupt = (_, signal) =>

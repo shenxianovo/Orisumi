@@ -24,36 +24,39 @@ internal static class CaptureStartup
         if (extensionId is not null)
             output.WriteLine(ChromeNativeHost.Register(store, extensionId, Path.Combine(AppContext.BaseDirectory, "Orisumi")));
 
-        string[] foreground = [dotnet, assembly, "--store", store, "foreground", "--windows", "--input"];
+        string[] foreground = [dotnet, assembly, "--store", store, "foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"];
         var pidFile = Path.Combine(store, "foreground.pid");
-        await StopForeground(pidFile, foreground, cancellation);
+        await StopForeground(pidFile, cancellation);
         cancellation.ThrowIfCancellationRequested();
         // Keep the caller's permission context. Native spawn redirects directly to files,
         // so logging and the collector survive after this short-lived command exits.
         var pid = DetachedProcess.Start(foreground, Path.Combine(logs, "foreground.out.log"), Path.Combine(logs, "foreground.err.log"));
-        File.WriteAllText(pidFile, pid.ToString(CultureInfo.InvariantCulture));
         await Task.Delay(500, CancellationToken.None);
         if (DetachedProcess.HasExited(pid)) throw new IOException($"前台采集启动失败，请查看 {Path.Combine(logs, "foreground.err.log")}。");
+        WritePidFile(pidFile, pid);
         output.WriteLine($"Started foreground collector: pid {pid}");
 
         var domain = $"gui/{getuid()}";
-        foreach (var (name, arguments) in new (string, string[])[]
+        foreach (var source in CaptureSources.All)
         {
-            ("codex", ["codex", "capture", "--all", "--watch"]),
-            ("claude-code", ["claude", "capture", "--watch"]),
-            ("network", ["network", "capture"]),
-        })
-        {
+            if (source is not { Name: var name, Agent: { } arguments }) continue;
             cancellation.ThrowIfCancellationRequested();
             var label = $"dev.orisumi.capture.{name}";
             // A missing service is normal on first installation. Bootstrap reports real failures.
             await Run("/bin/launchctl", ["bootout", $"{domain}/{label}"], cancellation, allowFailure: true);
+            // bootout can return before launchd has removed the service; bootstrap then fails with an I/O error.
+            var removal = Stopwatch.StartNew();
+            while (await Run("/bin/launchctl", ["print", $"{domain}/{label}"], cancellation, allowFailure: true) == 0)
+            {
+                if (removal.Elapsed > TimeSpan.FromSeconds(10)) throw new IOException($"{label} 未能在 10 秒内停止。");
+                await Task.Delay(100, cancellation);
+            }
             var path = Path.Combine(agents, label + ".plist");
             LaunchAgent(name, dotnet, assembly, root, store, arguments).Save(path);
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             await Run("/bin/launchctl", ["enable", $"{domain}/{label}"], cancellation);
             await Run("/bin/launchctl", ["bootstrap", domain, path], cancellation);
-            output.WriteLine($"Started {label}: {(name == "network" ? "continuous, samples every 5 seconds" : "watching source changes")}");
+            output.WriteLine($"Started {label}");
         }
     }
 
@@ -74,17 +77,26 @@ internal static class CaptureStartup
             new XElement("plist", new XAttribute("version", "1.0"), dictionary));
     }
 
-    internal static async Task StopForeground(string pidFile, string[] expectedCommand, CancellationToken cancellation)
+    // PID and start time together identify the process; a reused PID has a different start time.
+    internal static void WritePidFile(string pidFile, int pid)
     {
-        if (!File.Exists(pidFile) || !int.TryParse(File.ReadAllText(pidFile), out var pid) || pid <= 0) return;
-        var previous = await Run("/bin/ps", ["-ww", "-p", pid.ToString(CultureInfo.InvariantCulture), "-o", "command="], cancellation, allowFailure: true);
-        // An old pid file may refer to a reused PID. Only stop our exact command and store.
-        if (previous.Trim() != string.Join(' ', expectedCommand)) return;
+        using var process = Process.GetProcessById(pid);
+        File.WriteAllText(pidFile, string.Create(CultureInfo.InvariantCulture, $"{pid} {process.StartTime.ToUniversalTime().Ticks}"));
+    }
+
+    internal static async Task StopForeground(string pidFile, CancellationToken cancellation)
+    {
+        if (!File.Exists(pidFile) || File.ReadAllText(pidFile).Split(' ') is not [var pidText, var startText] ||
+            !int.TryParse(pidText, CultureInfo.InvariantCulture, out var pid) ||
+            !long.TryParse(startText, CultureInfo.InvariantCulture, out var started)) return;
         Process process;
         try { process = Process.GetProcessById(pid); }
         catch (ArgumentException) { return; }
         using (process)
         {
+            try { if (process.StartTime.ToUniversalTime().Ticks != started) return; }
+            catch (InvalidOperationException) { return; } // exited meanwhile
+
             await Run("/bin/kill", ["-TERM", pid.ToString(CultureInfo.InvariantCulture)], cancellation, allowFailure: true);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
@@ -96,7 +108,7 @@ internal static class CaptureStartup
         }
     }
 
-    private static async Task<string> Run(string executable, string[] arguments, CancellationToken cancellation, bool allowFailure = false)
+    private static async Task<int> Run(string executable, string[] arguments, CancellationToken cancellation, bool allowFailure = false)
     {
         var start = new ProcessStartInfo(executable)
         {
@@ -113,10 +125,10 @@ internal static class CaptureStartup
             await process.WaitForExitAsync(CancellationToken.None);
             throw;
         }
-        var result = await stdout;
+        await stdout;
         var error = await stderr;
         if (process.ExitCode != 0 && !allowFailure) throw new IOException($"{Path.GetFileName(executable)}: {error.Trim()}");
-        return result;
+        return process.ExitCode;
     }
 
     [DllImport("/usr/lib/libSystem.B.dylib")]

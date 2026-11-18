@@ -9,9 +9,8 @@ internal static class CaptureCoverage
     {
         if (from >= to) throw new ArgumentException("--from 必须早于 --to。");
         var sources = new List<object>();
-        foreach (var source in new[] { "claude", "codex", "browser", "macos", "network" })
+        foreach (var (source, path) in CaptureSources.All.Select(source => (source.Name, source.Database(store))))
         {
-            var path = Path.GetFullPath(Path.Combine(store, "raw", source + ".sqlite"));
             if (!File.Exists(path))
             {
                 sources.Add(new { source, status = "no_database", evidence = Array.Empty<object>() });

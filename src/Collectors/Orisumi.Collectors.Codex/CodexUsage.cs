@@ -18,12 +18,6 @@ internal static class CodexUsage
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        object? Execute(string sql, params object?[] values)
-        {
-            command.CommandText = sql; command.Parameters.Clear();
-            for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
-            return command.ExecuteScalar();
-        }
         var cursors = new Dictionary<string, Cursor>(StringComparer.Ordinal);
         command.CommandText = "SELECT thread_id,path,file_id,length,modified_ticks,byte_offset,line_number,prefix_hash,tail_hash,models_json FROM _token_usage_rollouts";
         using (var reader = command.ExecuteReader())
@@ -36,7 +30,7 @@ internal static class CodexUsage
             }
         void Availability(string thread, string path, bool available)
         {
-            Execute("""
+            command.Scalar("""
                 INSERT INTO usage_source_events(run_id,thread_id,source_path,observed_at_utc_ms,available)
                 SELECT $p0,$p1,$p2,$p3,$p4 WHERE ($p2,$p4) IS NOT
                 (SELECT source_path,available FROM usage_source_events WHERE thread_id=$p1 ORDER BY event_id DESC LIMIT 1)
@@ -66,7 +60,7 @@ internal static class CodexUsage
                 cursors.TryGetValue(threadId, out var previous);
                 if (previous is not null && previous.FileId == fileId && previous.Length == length && previous.Modified == modified)
                 {
-                    if (previous.Path != path) Execute("UPDATE _token_usage_rollouts SET path=$p1 WHERE thread_id=$p0", threadId, path);
+                    if (previous.Path != path) command.Scalar("UPDATE _token_usage_rollouts SET path=$p1 WHERE thread_id=$p0", threadId, path);
                     continue;
                 }
 
@@ -106,10 +100,10 @@ internal static class CodexUsage
                             DateTimeStyles.AssumeUniversal, out var observed)) return;
                     var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(line)));
                     if (!occurrences.TryGetValue(hash, out var occurrence))
-                        occurrence = reset is null ? Convert.ToInt64(Execute(
+                        occurrence = reset is null ? Convert.ToInt64(command.Scalar(
                             "SELECT COALESCE(MAX(occurrence),0) FROM response_token_usage_observations WHERE thread_id=$p0 AND record_hash=$p1", threadId, hash)) : 0;
                     occurrences[hash] = ++occurrence;
-                    written += Convert.ToInt32(Execute("""
+                    written += Convert.ToInt32(command.Scalar("""
                         INSERT OR IGNORE INTO response_token_usage_observations
                         (run_id,source_line,record_hash,occurrence,thread_id,response_id,turn_id,recorded_at_utc_ms,model,
                          total_input_tokens,cache_read_input_tokens,cache_write_input_tokens,total_output_tokens,reasoning_output_tokens)
@@ -143,13 +137,13 @@ internal static class CodexUsage
                 }
                 catch (JsonException error) { throw new InvalidDataException($"invalid Codex usage event in {Path.GetFileName(path)} at line {lineNumber}", error); }
                 bytesRead += readBytes;
-                Execute("""
+                command.Scalar("""
                     INSERT INTO usage_reads(run_id,thread_id,source_path,started_at_utc_ms,stopped_at_utc_ms,
                       start_offset,end_offset,bytes_read,first_line,last_line,read_kind)
                     VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7,$p8,$p9,$p10)
                     """, runId, threadId, path, started, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), firstOffset, offset,
                     readBytes, firstLine, lineNumber, reset ?? "appended");
-                Execute("""
+                command.Scalar("""
                     INSERT INTO _token_usage_rollouts VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7,$p8,$p9)
                     ON CONFLICT(thread_id) DO UPDATE SET path=excluded.path,file_id=excluded.file_id,length=excluded.length,
                       modified_ticks=excluded.modified_ticks,byte_offset=excluded.byte_offset,line_number=excluded.line_number,
