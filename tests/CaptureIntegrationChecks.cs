@@ -285,17 +285,17 @@ async Task MacOSChecks()
     var main = Path.Combine(fixture.Root, "main.swift");
     File.Copy(Path.Combine(root, "tests/macos_facts.swift"), main);
     var binary = Path.Combine(fixture.Root, "facts");
-    await Run("/usr/bin/xcrun", ["swiftc", main, .. new[] { "DatabaseSchema.swift", "ForegroundDatabase.swift", "InputEventObserver.swift", "KeyboardPressAccumulator.swift" }
-        .Select(name => Path.Combine(native, name)), "-lsqlite3", "-o", binary]);
-    // The build copies the collector's and the shared Storage schema into one directory.
+    await Run("/usr/bin/xcrun", ["swiftc", main, .. Directory.GetFiles(native, "*.swift").Where(path => Path.GetFileName(path) != "main.swift"),
+        "-lsqlite3", "-o", binary]);
+    // A copy of the schema exactly as the build packages it beside the executable; a check below breaks it.
+    var schema = Path.Combine(root, "src/Collectors/Orisumi.Collectors.MacOS/bin/Debug/net11.0/Orisumi.Collectors.MacOS/Schema");
     var packagedSchema = Path.Combine(fixture.Root, "Orisumi.Collectors.MacOS/Schema");
-    foreach (var schema in new[] { "src/Collectors/Orisumi.Collectors.MacOS/Schema", "src/Collectors/Storage/Schema" }.Select(path => Path.Combine(root, path)))
-        foreach (var file in Directory.EnumerateFiles(schema, "*", SearchOption.AllDirectories))
-        {
-            var target = Path.Combine(packagedSchema, Path.GetRelativePath(schema, file));
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(file, target);
-        }
+    foreach (var file in Directory.EnumerateFiles(schema, "*", SearchOption.AllDirectories))
+    {
+        var target = Path.Combine(packagedSchema, Path.GetRelativePath(schema, file));
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.Copy(file, target);
+    }
     var path = Path.Combine(fixture.Root, "macos.sqlite");
     await Run(binary, [path]);
     using var db = Open(path);

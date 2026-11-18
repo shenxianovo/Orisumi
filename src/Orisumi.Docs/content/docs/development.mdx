@@ -76,6 +76,6 @@ dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
 dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
 ```
 
-启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
+启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断；macOS 检查另用替身来源让每个通道走一遍开始、核对、中断、恢复，并读取构建产物里打包好的 schema，所以先构建。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
 
 新增采集器的来源、恢复和数据库要求见[采集开发](./capture.mdx)。

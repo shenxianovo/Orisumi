@@ -81,17 +81,14 @@ enum MediaHardware {
         }
     }
 
-    static func audio(applications: ApplicationLifecycleObserver) -> MediaObjectSource {
+    static func audio(applications: ApplicationsChannel) -> MediaObjectSource {
         let hardware = System.audio
         let system = AudioObjectID(kAudioObjectSystemObject)
         func selector(_ channel: MediaChannel) -> UInt32 {
             channel == .microphone ? kAudioProcessPropertyIsRunningInput : kAudioProcessPropertyIsRunningOutput
         }
         func matchApplication(_ id: UInt32, _ pid: pid_t, _ bundle: String?) -> String? {
-            guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
-                  bundle == nil || bundle == "" || bundle == app.bundleIdentifier,
-                  let instance = applications.observedInstance(of: app)
-            else { return nil }
+            guard let instance = applications.observedInstance(pid: pid, bundleID: bundle) else { return nil }
             // The live PID must still map back to this HAL process object.
             var qualifier = pid
             var address = audioAddress(kAudioHardwarePropertyTranslatePIDToProcessObject)
@@ -99,7 +96,7 @@ enum MediaHardware {
             var size = UInt32(MemoryLayout.size(ofValue: object))
             let status = AudioObjectGetPropertyData(system, &address, UInt32(MemoryLayout.size(ofValue: qualifier)),
                                                     &qualifier, &size, &object)
-            return status == noErr && object == id && !app.isTerminated ? instance : nil
+            return status == noErr && object == id && applications.observedInstance(pid: pid, bundleID: bundle) == instance ? instance : nil
         }
         return MediaObjectSource(
             list: { hardware.objects(system, kAudioHardwarePropertyProcessObjectList) },

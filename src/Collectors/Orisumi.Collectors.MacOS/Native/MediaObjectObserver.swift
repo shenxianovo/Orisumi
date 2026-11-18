@@ -163,3 +163,9 @@ final class MediaObjectObserver {
         }
     }
 }
+
+// Audio processes or cameras as one channel: reconciling lists the objects and records each change.
+extension MediaObjectObserver: CaptureChannel {
+    func start() throws { try reconcile() }
+    func resume() throws { try reconcile() }
+}

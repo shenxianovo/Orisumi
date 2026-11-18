@@ -14,16 +14,23 @@ try
     File.Copy(Path.Combine(root, "tests/macos_observation.swift"), main);
     var binary = Path.Combine(temp.FullName, "checks");
     await Run("/usr/bin/xcrun", ["swiftc", main, .. Directory.GetFiles(native, "*.swift").Where(path => Path.GetFileName(path) != "main.swift"), "-lsqlite3", "-o", binary]);
-    // The build copies the collector's and the shared Storage schema into one directory.
-    foreach (var schema in new[] { "src/Collectors/Orisumi.Collectors.MacOS/Schema", "src/Collectors/Storage/Schema" }.Select(path => Path.Combine(root, path)))
-        foreach (var file in Directory.GetFiles(schema, "*", SearchOption.AllDirectories))
-        {
-            var target = Path.Combine(temp.FullName, "Orisumi.Collectors.MacOS/Schema", Path.GetRelativePath(schema, file));
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(file, target);
-        }
+    // Use the schema exactly as the build packages it beside the executable.
+    var schema = Path.Combine(root, "src/Collectors/Orisumi.Collectors.MacOS/bin/Debug/net11.0/Orisumi.Collectors.MacOS/Schema");
+    foreach (var file in Directory.GetFiles(schema, "*", SearchOption.AllDirectories))
+    {
+        var target = Path.Combine(temp.FullName, "Orisumi.Collectors.MacOS/Schema", Path.GetRelativePath(schema, file));
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.Copy(file, target);
+    }
     var db = Path.Combine(temp.FullName, "macos.sqlite");
     await Run(binary, [db]);
+    // Every channel against stand-in sources, in a database of its own.
+    var channelsMain = Path.Combine(temp.FullName, "channels", "main.swift");
+    Directory.CreateDirectory(Path.GetDirectoryName(channelsMain)!);
+    File.Copy(Path.Combine(root, "tests/macos_channels.swift"), channelsMain);
+    var channels = Path.Combine(temp.FullName, "channels-checks");
+    await Run("/usr/bin/xcrun", ["swiftc", channelsMain, .. Directory.GetFiles(native, "*.swift").Where(path => Path.GetFileName(path) != "main.swift"), "-lsqlite3", "-o", channels]);
+    Console.Write(await Run(channels, [Path.Combine(temp.FullName, "channels.sqlite")]));
     using var connection = new SqliteConnection($"Data Source={db};Pooling=False");
     connection.Open();
     Check(Number("SELECT COUNT(*) FROM process_instances WHERE pid=123456789") == 2, "a newly verified birth cannot retroactively certify an unknown process segment");
