@@ -48,7 +48,7 @@ orisumi dev browser build
 orisumi browser register-chrome EXTENSION_ID
 ```
 
-在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，使用页面显示的 ID 注册。修改扩展后重新构建并重载；注册指向当前构建的接收端，其 stdout 专用于 Native Messaging 二进制协议。
+在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，使用页面显示的 ID 注册。修改扩展后重新构建并重载；注册指向当前构建的接收端，扩展通过 `connectNative` 保持长连接，断开后退避重连。接收端 stdout 专用于 Native Messaging 二进制协议。
 
 ## 行数统计
 
@@ -68,6 +68,7 @@ dotnet run --file tests/PlatformChecks.cs
 dotnet run --file tests/CaptureStartupChecks.cs
 dotnet run --file tests/SchemaChecks.cs
 dotnet run --file tests/CaptureIntegrationChecks.cs
+dotnet run --file tests/BrowserIntegrationChecks.cs
 dotnet run --file tests/CaptureCoverageChecks.cs
 dotnet run --file tests/ClaudeIncrementalChecks.cs
 dotnet run --file tests/CodexIncrementalChecks.cs
@@ -77,6 +78,6 @@ dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
 dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
 ```
 
-平台检查覆盖主机标识、库的选择、主机绑定和并发建库；启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断；macOS 检查另用替身来源让每个通道走一遍开始、核对、中断、恢复，并读取构建产物里打包好的 schema，所以先构建。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
+平台检查覆盖主机标识、库的选择、主机绑定和并发建库；启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断；浏览器检查覆盖扩展转发、入队、重连与隐身过滤，以及接收端的快照核对、EOF、超时和历史事务；macOS 检查另用替身来源让每个通道走一遍开始、核对、中断、恢复，检查 Swift 输出的 JSONL 和 C# 入库结果，覆盖积压、事务回滚及两侧进程退出。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
 
 新增采集器的来源、恢复和数据库要求见[采集开发](./capture.mdx)。

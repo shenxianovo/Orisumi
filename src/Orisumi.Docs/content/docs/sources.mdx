@@ -7,42 +7,42 @@ description: 现有来源的事实含义、身份与查询边界。
 
 | 来源 | 当前采集方式 | `capture_runs` 当前含义 |
 | --- | --- | --- |
-| 浏览器 | 通知入持久队列，接收端提交后确认；历史补读，受限字段采样 | 各配置下标签、书签、下载的采集会话；无可靠关闭回调，结束未确认 |
-| Codex / Claude | 常驻监听；日志按完整行增量读，Codex 源库现值另行核对 | 一次读取尝试，失败也保留；不表示完整历史覆盖 |
-| macOS | 常驻监听；权限核对、窗口回退与无输入监听时的 AFK 采样 | 运行区间及启用通道；可用性与采集方式另记 |
+| 浏览器 | 通知与快照入持久队列，接收端提交后确认；按库中游标补读历史 | 每条 Native Messaging 长连接一次运行，收到 stdin EOF 确认结束 |
+| Codex / Claude | 常驻监听；日志按完整行增量读，Codex 源库现值另行核对 | 常驻进程生命期，进度与读取失败见[覆盖与恢复](./recovery.mdx) |
+| macOS | 常驻监听；权限核对、窗口回退与无输入监听时的 AFK 采样 | 常驻进程生命期；可用性与采集方式另记 |
 
 ## 浏览器
 
-来源身份含 `browser`、`profile_id`；本库键只用于库内关联。事件 ID 用于重试去重，观测 ID 表示入库顺序，`run_sequence` 表示采集会话内顺序。`scope` 分为 `tabs`、`bookmarks`、`downloads`。
+来源身份含 `browser`、`profile_id`。`profile_id` 是本次扩展安装生成的随机 ID，重连沿用，卸载后重新安装会生成新 ID。是否属于同一个 Chrome 配置由派生层判断。观测 ID 表示入库顺序，`run_sequence` 取扩展投递序号。本库键只用于库内关联。
 
 | 事实或视图 | 含义 |
 | --- | --- |
 | `visits` | Chrome 保留的访问记录，含来源访问时间、跳转类型、引荐访问和本地标记；属性只能补空，引荐访问为 `''` 表示没有 |
 | `history_page_title_observations` / `history_pages` | 按配置与 URL 保存非空标题初值和变化／最新标题；是读取时看到的标题，不代表历史访问当时的标题 |
-| `tabs` / `browser_windows` | 采集会话内的标签／窗口身份；Chrome 的标签和窗口 ID 只在会话内有效 |
+| `tabs` / `browser_windows` | Chrome 会话内的标签、窗口身份，接收端重连和 worker 唤醒时沿用 |
 | `tab_observations` | 一次快照或通知；同次观测的事实共享 `observation_id` |
 | `tab_presence_events` / `window_presence_events` | 标签／窗口的存在初值、出现和关闭 |
 | `tab_window_observations` | 标签所属窗口的初值和变化；拖出窗口、尚未放下时 `has_window=0`。不记标签条位置 |
 | `tab_url_observations` / `tab_title_observations` | URL／标题独立变化；空为 `''`，读不到为空 |
 | `active_tab_focus_events` | 前台标签的初值和切换；`has_tab=0` 表示没有可采集的前台标签 |
-| `tab_history` / `current_tabs` | 每次变化后每个标签的完整状态，含是否前台和有效区间／每个配置最近一个会话里最后已知打开的标签；不等于现在仍打开 |
+| `tab_history` / `current_tabs` | 每次变化后每个标签的完整状态，含是否前台和有效区间／每个配置最近一次 Chrome 会话里最后已知打开的标签 |
 | `downloads` / `download_observations` | 下载身份、URL 和来源开始时间（不变，只能补空）／观测、采集会话、时间与来源 ID 的关联 |
 | `download_response_observations` | 最终 URL、总大小、MIME 的初值与变化；不含进度字节数，未知大小为空 |
 | `download_state_observations` / `download_path_observations` | 状态及来源完成时间／本地路径，独立变化 |
 | `download_history` / `current_downloads` | 每次观测后的状态／最后已知状态 |
 
-采集所有普通窗口里打开的标签；隐身窗口和标签不采集，进入隐身窗口结束普通标签焦点，隐身下载不采集。下载回调未涉及的字段保留旧值；移除下载列表记录不证明本地文件被删除。
+扩展在入队前排除隐身窗口、标签和下载。聚焦到隐身窗口时结束普通标签焦点。标签和窗口每分钟发完整快照，下载列表和书签树每五分钟发一次。连接建立后也读取全部快照。扩展按收到的顺序持久化通知，接收端在 SQLite 中比较已知值，提交后确认，扩展再删除已确认的投递。
 
-访问通知先持久记录待查 URL，再读取 Chrome 保留的 visits；范围补扫仍保留。历史页面标题是现值观测。数据库 ID（`database_identity`）变化使所有来源基线与历史游标失效，重放原待发队列后重建初值。工作线程正常唤醒沿用会话；读取失败后恢复建立新会话。队列只保护已经持久入队的事件。
+标签 URL 和标题由 Chrome 通知独立提供。替换标签时读一次新标签属性。下载通知省略的字段沿用上次值，列表移除时保留最后已知事实。快照读取期间收到相关通知会重读；两次快照之间只靠通知保留中间变化。
 
-标签先挂事件再读快照，快照前收到的事件排队后接上；工作线程唤醒和每分钟一次核对时，把排队事件推进后的状态与现值比较，不一致记 `reconciliation_changed` 并重建初值。值没变不发事件，标题加载中的每次变化都保留。被替换的标签（`onReplaced`）读一次新标签的 URL 和标题，读到前已关闭则为空。下载保留回调字段，每五分钟核对；对象已从列表消失时仍保存已知普通下载的有效变化。书签结构由事件驱动。扩展每分钟读一次树，树有变化才整树发送；接收端与已应用的事件比对，只写新的最后使用时间，其他差异说明漏了事件，记为 `reconciliation_changed`。读取期间发生事件则重试快照；新会话重建初值。
+历史按 Chrome 保留的 URL 最近访问时间查询范围，对每个 URL 读取所有保留的 visits 和当时可读的页面标题。历史事实和读取位置在同一事务提交。
 
 | 书签表或视图 | 含义 |
 | --- | --- |
 | `bookmarks` | 配置内节点身份、节点种类、来源创建时间；未知身份属性可后续补全 |
 | `bookmark_observations` | 观测时间、事件种类及会话顺序，同次事实共享 `observation_id` |
 | `bookmark_presence_events` / `bookmark_title_events` / `bookmark_url_events` | 存在性／名称／目标 URL；文件夹没有 URL 事实 |
-| `bookmark_location_events` | 父节点与从零开始的位置；根节点（`node_kind='root'`）没有位置，移动影响的相邻节点也记录位置变化 |
+| `bookmark_location_events` | 父文件夹的初值与变化；根节点没有父文件夹 |
 | `bookmark_last_used_observations` | 来源最后使用时间；未知不覆盖已知，不能列出每次使用 |
 | `bookmark_state` / `current_bookmarks` / `bookmark_history` | 含删除节点的最新状态／当前存在节点／每次观测后的状态 |
 
@@ -50,41 +50,45 @@ description: 现有来源的事实含义、身份与查询边界。
 
 ## Codex
 
-只读 `CODEX_HOME`（默认 `~/.codex`）下的 `state_5.sqlite`、`thread_history_1.sqlite` 和 rollout，包含归档会话。当前源库读取的是现值，两次读取间 A→B→A 无法还原；属性时间关联导入区间，不借用会话整体更新时间。
+只读 `CODEX_HOME`（默认 `~/.codex`）下 `sessions/` 和 `archived_sessions/` 的 rollout，含 `.zst`。同时从 `state_5.sqlite` 读取会话名称、归档和置顶的现值。监听变更并每 60 秒核对，失败后重试。
 
 | 事实或视图 | 含义 |
 | --- | --- |
-| `threads` / `thread_*_observations` | 会话身份、来源创建时间，以及标题、工作目录、归档状态的独立变化；标题优先显示名称 |
-| `turns` / `turn_status_observations` | 会话内回合身份和来源开始时间／状态与完成时间的变化，未知时间为空 |
-| `messages` / `message_content_observations` | 会话、回合、消息身份，角色、来源创建时间与 `rollout_ordinal`／来源 `item_json` 的修订 |
-| `current_threads` / `current_turns` / `current_messages` | 最新已知属性的组合 |
-| `response_token_usage_observations` / `response_token_usage` | 来源日志行的用量及记录时间／每个响应的最后用量，汇总使用后者，避免累加修订 |
+| `threads` / `current_threads` | 日志中的会话身份、创建时间、工作目录、Git、来源、发起方和已知父会话／合并最新名称、归档和置顶。名称为空字符串表示未命名，为 NULL 表示未知 |
+| `thread_name_observations` / `thread_archive_observations` / `thread_pin_observations` | 三个现值独立记录初值和变化，同一轮的变化共享 `database_observation_id` |
+| `turns` / `current_turns` | 会话内回合身份／来源开始、结束和最后的生命周期状态。未读到生命周期时状态未知 |
+| `rollouts` / `source_file_events` | rollout 文件名身份及首次读取、移动、版本变化和缺失等观测。事件及用量通过 `source_file_event_id` 查首次入库的路径和文件身份 |
+| `rollout_events` / `event_contents` | 回合生命周期、回合上下文和条目事件，含来源行号。正文保留消息内容、模型与审批和沙箱策略、命令摘要、文件路径和改动类型、MCP 调用、搜索查询与状态、休眠毫秒数和图像生成的提示词与状态。图像生成结果省略。命令输出长度以 UTF-16 计，仅非零退出码保留整段输出。推理和未知条目只记事件 |
+| `message_timeline` | 用户和助手消息的正文及来源顺序 |
+| `response_token_usage_events` / `response_token_usage` | 每响应一行，含输入、缓存读写、输出、推理与总用量。视图从同一回合的上下文取模型 |
 
-用量保留总输入、缓存读写、总输出、推理 token，缺失值为空；模型来自对应 `turn_context`，无法关联时为空。活跃 JSONL 按完整行增量读，位置、行号、模型上下文与事实原子提交；残行下次重读。Zstandard 归档按文件版本完整解码，移动与压缩转换后去重。
-
-数据库、WAL、journal 通知触发现值核对；仅日志变化时只读用量。每 60 秒核对，失败每 5 秒重试。文件移动、替换、截断与已识别的重写会重新读取；来源删除保留已采事实。增量日志的共同限制见[覆盖与恢复](./recovery.mdx)。
+同一会话可以有多个 rollout，各自保存读取位置。子 Agent 的父会话取自日志，分叉取自日志或与会话 ID 相符的文件名。搜索调用和条目完成可以是同一条目的两条来源事件，按会话、回合和条目 ID 关联。增量和重放边界见[覆盖与恢复](./recovery.mdx#恢复边界)。
 
 ## Claude
 
-只读 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）的主会话 JSONL。采集用户、助手可见内容（文本、图像、文档）与响应用量，排除 sidechain、用户元消息、压缩摘要。同一日志的标题变化与内容修订按来源顺序保留；完整行可导入，末尾残行下次重读。
+只读 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）下的主会话与子 Agent JSONL。监听变更并每五分钟核对文件，增量和重放边界见[覆盖与恢复](./recovery.mdx#恢复边界)。
 
 | 事实或视图 | 含义 |
 | --- | --- |
-| `sessions` / `source_records` | 会话身份／来源文件身份、路径、行号、内容摘要和导入批次；重放去重并保留重复内容的出现顺序 |
-| `session_title_observations` | 关联来源行的标题；`custom-title` 没有来源时间，不生成改名时间 |
-| `messages` / `message_content_observations` | 会话与消息身份、父消息（链首为 `''`）、角色、来源创建时间（缺失为空，记录照常保留）、消息工作目录和助手响应 ID／内容修订 |
-| `response_token_usage_observations` / `response_token_usage` | 响应用量及修订／每个响应的最后用量；含模型、来源记录时间、输入、缓存读写、输出及可选推理 token |
-| `current_messages` / `current_sessions` | 消息最新内容／会话最后标题和已采集消息的最早、最晚时间；消息工作目录不是会话属性 |
+| `sessions` / `current_sessions` | 会话及已知父会话／最新自定义、AI 标题与可见消息的最早、最晚时间 |
+| `source_records` | 导入记录的文件身份、路径、行号、哈希和运行 ID |
+| `transcript_events` | 带 UUID 的事件及其父节点，保留分支、sidechain 与 Agent ID。链首的父 UUID 为 `''`，字段缺失为 NULL。人输入的提示行记录来源与权限模式，斜杠命令的提示来源为空 |
+| `event_contents` | 可见文本、图像、文档，工具名称与完整输入，及工具结果的错误标记、权限决定和来源、内容长度。长度以 UTF-16 计，结构化结果取原始 JSON 长度。仅错误结果保留完整错误文本，thinking、attachment 和其他未选正文的事件无内容行 |
+| `message_timeline` | 可见用户与助手消息，按 `session_id, chain_order` 排列，`visible_parent_uuid` 指向链上最近的可见祖先。分支和 sidechain 均保留 |
+| `session_title_observations` | `custom`、`ai` 标题分别保留初值和变化，沿来源行顺序写入 |
+| `response_token_usage_observations` / `response_token_usage` | 同一响应分行记录的用量初值与变化／每个响应的最后用量，汇总使用后者 |
 
-监听目录变化，只读新增完整行；游标与事实原子提交。以设备号、inode 和出生时间识别文件，移动沿用身份，替换、截断、重写重新读取。通知出错、目录变化或每五分钟重新枚举元数据；静止文件不读正文。来源目录移除后恢复会重建监听，失败尝试保留。
+跳过文件历史、API 请求、队列操作、Agent 名称和单独的权限模式记录。
 
 ## macOS
 
-事件以 `run_id`、`run_sequence`、`observed_at_utc_ms` 关联监听区间、顺序与接收时间。应用列表来自 `NSWorkspace.runningApplications`，不是全设备所有进程。
+Swift 以 JSONL 发送观测，C# 把完整的一轮写入同一事务。事件以 `run_id`、`run_sequence`、`observed_at_utc_ms` 关联运行、观测顺序与 Swift 当时读到值或通知的时间。按键顺序在按下时确定，事实在观察到释放或结束监听时入库。
+
+应用通道从 `NSWorkspace` 观察应用。进程实例第一次被观察到是 `regular` 或进入前台时开始记录，之后持续跟踪其策略和存在性。
 
 | 事实或视图 | 含义 |
 | --- | --- |
-| `process_instances` / `running_app_observations` | 观察到的进程生命期、PID、bundle ID、名称、来源启动时间／初始可见、出现和消失 |
+| `process_instances` / `running_app_observations` | 观察到的进程生命期、PID、bundle ID、名称、来源启动时间／首次纳入、恢复初值和消失 |
 | `foreground_app_events` / `foreground_app_history` / `running_app_history` | 前台初值和切换，`has_app=0` 表示无前台应用／组合进程身份的历史视图 |
 | `window_focus_instances` / `focused_window_events` | 连续焦点段及所属进程／焦点初值和切换；`has_window=0` 表示无聚焦窗口，读取失败记 `read_failed` 且 `has_window` 为空；焦点 ID 不是稳定窗口 ID |
 | `window_title_observations` / `window_history` | 焦点段内标题初值和变化／焦点与当时标题；无标题为 `''`，读取失败为空；初始标题与焦点共享序号 |
@@ -92,16 +96,19 @@ description: 现有来源的事实含义、身份与查询边界。
 | `time_zone_events` / `afk_events` | 时区／active、idle 的初值和变化；`idle_ms` 是当次检查的无输入时长 |
 | `clock_events` | 墙钟与 `mach_continuous_time`（含休眠，纳秒）一起读的初值，以及 `NSSystemClockDidChange` 通知后的变化；两者之差变了说明时钟被调过，NTP 的渐进微调看不到 |
 | `system_sleep_events` / `user_session_events` | 休眠、唤醒／用户会话激活、停用通知，不补造启动前事件 |
+| `screen_lock_events` / `display_sleep_events` | 锁定／显示器休眠各自的初值和变化，NULL 表示当次读不到初值 |
 | `keyboard_presses` / `mouse_button_events` | 一次按键（键码、起止、按下时修饰键）／鼠标按下或释放（按钮、坐标）；自动重复不另计按键，未观察到释放时结束为空 |
 | `application_activation_policy_observations` / `regular_app_intervals` | 应用实例激活策略（`regular`、`accessory`、`prohibited`）的初值和变化，读不到为空／应用处于 `regular` 的区间，即有 Dock 图标的普通应用，到策略变化、消失或应用通道中断为止 |
-| `audio_process_instances` / `audio_process_presence_events` | CoreAudio 进程对象身份（PID、bundle ID，能确认时关联 `process_instances`）／出现和消失；`afplay`、系统守护进程等不是应用的也保留 |
-| `audio_input_observations` / `audio_output_observations` | 各音频进程是否在用麦克风／是否在出声的初值和变化 |
+| `audio_process_instances` / `audio_process_presence_events` | CoreAudio 进程对象身份（客户端 PID、bundle ID，可关联负责应用的 `process_instances`）／出现和消失 |
+| `audio_input_observations` / `audio_output_observations` | 所有音频进程是否在用麦克风／有应用归属的音频进程是否在出声，各有初值和变化 |
 | `camera_devices` / `camera_device_presence_events` / `camera_running_observations` | 摄像头身份（UID、名称）／连接和断开／是否在运行；系统不提供是哪个进程在用 |
 
-`capture_runs` 保存 AFK 阈值及窗口、输入、麦克风、音频输出、摄像头开关；`timeline` 组合活动、权限和通道记录。
+`capture_run_configuration` 按运行保存 AFK 阈值与各可选通道开关。每轮提交更新 `confirmed_until_utc_ms`，取 Swift 的观测轮次时间。读取失败另记。助手异常退出、传输积压超限或写入失败时结束当前运行；C# 意外退出时，助手随控制管道关闭而退出，运行结束保留未确认。`timeline` 组合活动、屏幕状态、权限和通道记录。
 
 窗口按 AX 通知能力选择监听或每秒回退查询；支持通知时每 60 秒校准。输入可用时，键盘、鼠标移动、按钮和滚轮更新 AFK 活动时间，到期计时器判断离席；移动和滚轮不另存事件。输入不可用时每秒读系统 idle。权限核对和输入批量写入分别调度。
 
-激活策略先订阅 KVO 再读初值；实测 KVO 会漏掉变化，所以每秒再读一次现值核对。音频和摄像头先挂属性监听再读初值，通知只触发读取，每秒也核对一次，所以属于读当前值：时间是读取时间，一秒内的往返会丢。音频「在用」指流在运行，静音的流也算。音频进程与应用实例要 PID、bundle ID 一致，且 PID 反查回同一个 CoreAudio 对象才关联；当时对不上、后来确认的可以补上。这三个通道不需要授权。
+激活策略先订阅 KVO 再读初值；实测 KVO 会漏掉变化，所以每秒再读一次现值核对。音频和摄像头先挂属性监听再读初值，通知只触发读取，每秒也核对一次，所以属于读当前值：时间是读取时间，一秒内的往返会丢。音频「在用」指流在运行，静音的流也算。确认客户端 PID 仍反查到同一个 CoreAudio 对象后，用系统的 responsible PID 找已记录的应用实例。查找不可用或失败时用客户端 PID，并核对已知的 bundle ID。归属可稍后补上，音频输出从确认归属时开始记录。这三个通道不需要授权。
 
-启动时缺少权限只停用对应通道，其他通道继续采集；权限恢复后建立初值。休眠和会话切换中断所有通道：各通道记为不可用并停止监听，期间的前台切换不记录；恢复后每个通道都重新记初值，时区和时钟也不例外。输入 tap 中断只影响输入和 AFK，同样记录可用性。每个通道实现 `Native/CaptureChannel.swift` 的开始、中断、恢复、核对、停止，新通道加进 `tests/macos_channels.swift` 的契约检查。未观察到按键释放时保留空结束时间。启动时间未知的进程身份在中断后断开，后来读到启动时间也不追溯认证。
+锁屏和解锁取分布式通知，启动和恢复时通过 `CGSessionCopyCurrentDictionary()` 读取未公开键 `CGSSessionScreenIsLocked`。字典或键读不到时，初值为 NULL。显示器休眠和唤醒取 `NSWorkspace` 通知，初值检查在线显示器是否都在休眠。这两组状态独立记录，其他通道继续观测。[Apple 的显示器与会话查询](https://developer.apple.com/documentation/coregraphics/quartz-display-services) · [屏幕通知](https://developer.apple.com/documentation/AppKit/NSWorkspace/screensDidSleepNotification)
+
+系统休眠和用户会话停用中断应用、窗口、输入、AFK、时区、时钟和媒体观测。恢复后重建各自初值，也重新读取锁屏和显示器状态。权限丢失只影响依赖该权限的通道；输入 tap 中断只影响输入和 AFK。启动时间未知的进程身份在中断后断开，后来读到启动时间也不追溯认证。

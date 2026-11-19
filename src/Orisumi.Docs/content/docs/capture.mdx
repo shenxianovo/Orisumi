@@ -67,7 +67,8 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 等式只在一条不断的观测链上成立。采集器停了、权限丢了、电脑休眠了，中间发生了什么我们不知道。如果直接接着记，查询会把断开的那段当成“没变”。
 
 - 每段连续观测有自己的初值。恢复后能补读就先补读；补不齐就记下缺口，再重新记初值。
-- `capture_runs` 记每段采集的起止。结束时间和 `stop_reason` 一起写，失败时 `error` 才有值。异常退出时两者都留空，表示未确认，不用重启时间或查询时间补。
+- `capture_runs` 每个常驻进程或浏览器连接的生命期记一行。开始时写主机观测，结束时间和 `stop_reason` 一起写，因错误终止时 `error` 才有值。未能确认结束时保留空值。
+- 每轮成功后，在事实与游标的事务里原地更新 `confirmed_until_utc_ms`。一轮失败则回滚，尽力在 `capture_read_failures` 另记时点和错误，继续沿用当前运行。覆盖只在状态变化、失败或缺口时另记。当前使用这套写入规则的来源见[采集数据](./sources.mdx)。
 - 运行中也可能缺权限、通道不可用、采样漏掉短暂变化，这些另外记。所以采集在运行，不等于全程都看到了。
 - 没有新变化，只在链没断的前提下才能说明状态没变。
 
@@ -91,10 +92,10 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 
 - 一次观测产生的几条事实，在同一个事务里提交，各表的行共享同一个观测标识。读取游标和事实一起提交，否则会出现游标前进了但事实没写，或反过来。
 - 保留能回到来源核对的上下文，比如日志的文件和行号、来源对象的 ID。
-- 重试不能重复入库。跨进程投递用稳定的事件 ID；接收端提交后再确认，确认后才从持久队列删除。确认丢了，重发也安全。
-- 日志游标记文件身份和读取位置，要处理截断、替换、移动和末尾的半行。文件变化通知只用来触发读取，事实以文件内容为准。
-- 输出库重建后，读取游标和发送端的基线都作废：能回放历史的来源重新回填，其余重新记初值。
-- `_collector_state`、`_token_usage_rollouts`、读取游标、待发队列是采集进度，可以原地更新，不算历史事实。
+- 重试不能重复入库。可重试的跨进程投递用稳定的事件 ID；接收端提交后再确认，确认后才从持久队列删除。确认丢了，重发也安全。
+- `Storage/JsonlReader` 按文件身份和读取位置增量读取 JSONL，处理截断、替换、改写和残行，也支持由来源提供解码器、按版本读取整份归档。来源负责发现文件、挑选事实，并在写事实的事务内提交游标。文件变化通知只用来触发读取。
+- 输出库重建后，在新库中建立读取游标和初值；可回放的历史从来源重新补读。
+- `_source_cursors`、`_rollout_cursors`、`_history_cursors`、`_browser_deliveries`、`_browser_snapshots`、`capture_runs.confirmed_until_utc_ms` 和扩展待发队列保存采集进度，可以原地更新。
 
 ## 查询视图
 
@@ -115,7 +116,7 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 
 构建时自动收集这些文件，按表、索引、视图的顺序执行，同组按文件名排序，不用登记清单。这些文件只定义结构；导入时用的临时视图留在采集代码里。
 
-C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载程序集内的 SQL。常驻的 C# 采集器通过 `Storage/CaptureWriter` 写入：它在进程存活期间持有该来源的单写入锁（`state/locks/<来源>.writer.lock`），同一存储目录下第二个写入进程直接失败；每轮采集是一行 `capture_runs`，开始时写主机观测，事实与“完成”在同一事务提交，失败时回滚事实、记下错误。Swift 用 `Native/DatabaseSchema.swift` 加载可执行文件旁边的 `Orisumi.Collectors.MacOS/Schema/`，由构建和发布负责复制；库路径和主机信息由 `MacOSForeground` 传入。
+C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载程序集内的 SQL。常驻的 C# 采集器通过 `Storage/CaptureWriter` 写入：它在进程存活期间持有该来源的单写入锁（`state/locks/<来源>.writer.lock`），同一存储目录下第二个同来源写入进程直接失败。浏览器按配置加锁，各配置的写入事务由 SQLite 串行提交。macOS 的 Swift 助手在内存里比较观测值，以 JSONL 把变化和观测时间交给 C# 入库。
 
 没有任何用户对象的空库在一个事务里建结构，失败时回滚；已有对象的库原样使用，不核对结构。打开连接时启用外键、3 秒锁等待和 WAL。
 
@@ -126,7 +127,7 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 - `database_identity`：建库时在同一事务里写一行，`database_id` 是随机 32 位十六进制，等于库文件名，之后不变。库在设备间合并时靠它区分，见[多设备](./devices.mdx)。
 - `host_observations`：运行开始时由 `Orisumi.Platform.HostIdentity` 读到的主机原始标识，包括硬件 UUID、主机名、型号、系统版本、启动 ID、系统用户和存储目录；读不到的为空。和上一行完全相同时不写新行，所以重启开机或换了存储目录才会多一行。
 
-`capture_runs` 的最后一列 `host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；为空表示加这列之前的运行，主机未知。C# 由 `CaptureWriter` 写（浏览器接收端的运行由扩展发起，直接用 `Storage/HostObservation.cs`），Swift 在 `ForegroundDatabase.swift` 里按同样的规则写传入的值。
+`capture_runs` 的最后一列 `host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入。由 `CaptureWriter` 写入。
 
 结构没有版本号，代码里不做迁移；SQLite 文件自带建表语句，旧库按它自己的结构读。改结构时停掉对应采集器，能迁移的用一次性脚本迁移现有库，再启动：只增不改的变更（加表、加可为空的列）不影响已有数据，新加的部分在此前没有行，即未观测；开发期破坏性变更也尽量原地迁移。迁移不了的破坏性更改，除非明确声明可以删，删掉 `state/current/<来源>.json`，下次采集新建库，旧库留在原处只读。旧库不会在打开时被拒绝，要到写入时才在 SQL 层报错。有了跨设备副本后，迁移生成的库是否换新 ID 待定。macOS 库总是建完整结构，选项只控制哪些通道采集和写入。
 
@@ -140,10 +141,10 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 
 ## 新增采集器
 
-采集器只共享建库、单写入与运行记录、参数绑定这些工具，不共享采集流程：取数、监听、游标和 `capture_runs` 里来源自己的列由各来源按上面的原则自己定。
+采集器共享建库、单写入与运行记录、JSONL 增量读取和参数绑定工具。取数、监听与游标持久化由各来源按上面的原则自己定。
 
-1. 建 `src/Collectors/Orisumi.Collectors.<来源>/`。`Collectors/Directory.Build.props` 已提供框架、SQLite、`Schema/` 打包和 `Storage/` 工具，C# 项目文件只写来源自己的依赖；库由其他工具链写入时设 `NativeSchema=true`。
-2. 按上面的约定写 `Schema/`，包括 `capture_runs`（最后一列 `host_observation_id`）和 `capture_coverage`；共享表不用写。
+1. 建 `src/Collectors/Orisumi.Collectors.<来源>/`。`Collectors/Directory.Build.props` 已提供框架、SQLite、`Schema/` 打包和 `Storage/` 工具，C# 项目文件只写来源自己的依赖。
+2. 按上面的约定写 `Schema/`，包括 `capture_coverage`。共享结构提供运行表和读取失败事件表。
 3. 在 `Orisumi.slnx` 登记项目，在 `Orisumi.Cli/Capture/CaptureSources.cs` 登记来源名（即库文件名）；常驻采集同时写 LaunchAgent 的名称和参数，`capture start` 和 `capture coverage` 都从这里读取。
 4. 在 `Orisumi.Cli/Commands.cs` 加命令。
 5. 加 `tests/<来源>Checks.cs`，并登记到[命令行与开发](./development.mdx#验证)。`SchemaChecks` 会核对项目目录、`Orisumi.slnx` 和来源清单是否一致，以及 `capture_coverage` 的列。
