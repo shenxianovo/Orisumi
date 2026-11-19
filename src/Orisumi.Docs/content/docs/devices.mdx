@@ -11,22 +11,31 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 
 | 概念 | 怎么来 | 状态 |
 | --- | --- | --- |
-| 库实例 | `database_identity`，建库时生成 | 已实现，见[数据库结构](./capture.mdx#数据库结构) |
+| 库实例 | `database_identity`，建库时生成，即库文件名；库绑定建库的主机 | 已实现，见[存储](./storage.mdx) |
 | 主机观测 | `host_observations`，每次运行开始时读平台原始标识 | macOS 已实现，同上 |
-| 设备 | 由主机观测和少量人工合并规则读出，含显示名 | 未实现，在派生层做，可以改 |
+| 设备 | 由主机观测和少量人工合并规则读出，含显示名 | 未实现，在派生层做，可以改；做法见下 |
 | 来源实例 | 浏览器配置、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 等 | 已由各来源记录 |
 
 - 迁移助理把用户目录拷到新 Mac：硬件 UUID 不同，读出两台设备。设备 ID 若存成本地文件，会被一起拷走，新机器冒充旧机器。
 - 一台机器上两个存储目录：两个库实例，硬件 UUID 相同，读出同一台设备。
 - 重装系统：硬件 UUID 不变，仍是同一台；换主板后加一条人工合并。
 
-各平台标识的稳定程度不同：macOS 的 `IOPlatformUUID` 重装不变；Windows 的 `MachineGuid` 重装会变，SMBIOS UUID 不变；Android 应用拿不到硬件标识，`ANDROID_ID` 随签名密钥和恢复出厂设置变化。所以主机观测按平台记原始值，不假定有通用的稳定 ID；新平台在 `host_observations.platform` 加值，并补上自己的标识列。
+各平台标识的稳定程度不同：macOS 的 `IOPlatformUUID` 重装不变；Windows 的 `MachineGuid` 重装会变，SMBIOS UUID 不变；Android 应用拿不到硬件标识，`ANDROID_ID` 随签名密钥和恢复出厂设置变化。所以主机观测按平台记原始值，不假定有通用的稳定 ID；新平台在 `HostIdentity` 和 `host_observations.platform` 加值，并补上自己的标识列。
+
+### 读出设备
+
+未实现，等第二台设备接入时做。
+
+- 每条主机观测算出主机键：macOS `macos:<IOPlatformUUID>`，Windows `windows:<SMBIOS UUID>`，Android `android:<ANDROID_ID>`；读不到硬件标识时用 `db:<database_id>`，让该库自成一台，等人工归类。不按主机名猜。
+- `rules/devices.json` 把多个主机键归到一台设备并命名。未归类的主机键各自是一台；设备 ID 用规则里的 ID，否则用主机键；显示名用规则里的名字，否则用最近的主机名。
+- 系统用户不算进设备：同一台 Mac 上的两个账号是同一台设备、不同用户。
+- 机器转手需要给规则加生效区间，暂不做。
 
 ## 合并
 
 未实现。
 
-- 各设备的库按 `<来源>/<database_id>.sqlite` 汇总。本地 ID 只在库内有效，跨库用库实例加本地 ID。
+- 其他设备的库作为只读副本放进同一个 `observations/<来源>/`，见[存储](./storage.mdx)。本地 ID 只在库内有效，跨库用库实例加本地 ID。
 - 只读保留的旧库同样参与汇总，按它自己的结构读。
 - 观测设备不等于事情发生的设备。浏览器同步会带来其他设备的访问和书签，访问用 `visits.is_local` 区分。同一对象被多台设备观测到时，在派生层按来源自己的身份去重，例如书签 GUID。
 

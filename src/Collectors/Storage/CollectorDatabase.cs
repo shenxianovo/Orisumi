@@ -1,18 +1,14 @@
 using Microsoft.Data.Sqlite;
+using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Storage;
 
-// Each source writes its own STORE/raw/<source>.sqlite; the connection rules live in capture.mdx.
+// Opens the database the source writes in the store (storage.mdx); the connection rules live in capture.mdx.
 internal static class CollectorDatabase
 {
-    internal static string PathFor(string store, string source) =>
-        Path.GetFullPath(Path.Combine(store, "raw", source + ".sqlite"));
-
     internal static SqliteConnection Open(string store, string source)
     {
-        var path = PathFor(store, source);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        CreatePrivateFile(path);
+        var (path, databaseId) = new Store(store).WritableDatabase(source);
         // A file: data source enables URI filenames, so read-only sources can be attached with ?mode=ro.
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -21,7 +17,7 @@ internal static class CollectorDatabase
         try
         {
             connection.Open();
-            SqliteSchema.EnsureCreated(connection);
+            SqliteSchema.EnsureCreated(connection, databaseId);
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA journal_mode = WAL";
             command.ExecuteNonQuery();
@@ -53,15 +49,5 @@ internal static class CollectorDatabase
         command.CommandText = sql;
         command.Parameters.Clear();
         for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue($"$p{i}", values[i] ?? DBNull.Value);
-    }
-
-    private static void CreatePrivateFile(string path)
-    {
-        // Opening an existing file through FileStream can conflict with SQLite's locks.
-        if (File.Exists(path)) return;
-        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.ReadWrite,
-            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite };
-        try { using var file = File.Open(path, options); }
-        catch (IOException) when (File.Exists(path)) { } // Another writer created the file first.
     }
 }

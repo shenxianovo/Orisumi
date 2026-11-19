@@ -5,6 +5,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Claude;
+using Orisumi.Platform;
 
 var originalHome = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
 try
@@ -96,7 +97,7 @@ try
     Equal(fixture.Number("SELECT COUNT(*) FROM source_records"), beforeRewrite + 1, "Rewrite replays existing records without duplicates");
     Equal(fixture.Number("SELECT COUNT(*) FROM source_file_events WHERE kind='rewritten'"), 1L, "Rewrite records discontinuity");
 
-    File.Delete(Path.Combine(fixture.Store, "raw", "claude.sqlite"));
+    File.Delete(new Store(fixture.Store).CurrentDatabase("claude")!);
     ClaudeCollector.Capture(fixture.Store);
     Equal(fixture.Number("SELECT COUNT(*) FROM _source_cursors"), 2L, "Output database replacement establishes new cursors");
     Equal(fixture.Number("SELECT COUNT(*) FROM capture_runs"), 1L, "Rebuilt output records fresh import");
@@ -165,21 +166,21 @@ sealed class Fixture : IDisposable
     public Fixture() => Directory.CreateDirectory(Path.GetDirectoryName(Log)!);
     public long Number(string sql)
     {
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Store, "raw", "claude.sqlite")};Pooling=False");
+        using var connection = new SqliteConnection($"Data Source={new Store(Store).CurrentDatabase("claude")};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand(); command.CommandText = sql;
         return Convert.ToInt64(command.ExecuteScalar());
     }
     public string Text(string sql)
     {
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Store, "raw", "claude.sqlite")};Pooling=False");
+        using var connection = new SqliteConnection($"Data Source={new Store(Store).CurrentDatabase("claude")};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand(); command.CommandText = sql;
         return Convert.ToString(command.ExecuteScalar()) ?? "";
     }
     public void Execute(string sql)
     {
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(Store, "raw", "claude.sqlite")};Pooling=False");
+        using var connection = new SqliteConnection($"Data Source={new Store(Store).CurrentDatabase("claude")};Pooling=False");
         connection.Open();
         using var command = connection.CreateCommand(); command.CommandText = sql; command.ExecuteNonQuery();
     }

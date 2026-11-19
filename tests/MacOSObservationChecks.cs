@@ -22,7 +22,7 @@ try
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         File.Copy(file, target);
     }
-    var db = Path.Combine(temp.FullName, "macos.sqlite");
+    var db = Path.Combine(temp.FullName, Guid.NewGuid().ToString("N") + ".sqlite");
     await Run(binary, [db]);
     // Every channel against stand-in sources, in a database of its own.
     var channelsMain = Path.Combine(temp.FullName, "channels", "main.swift");
@@ -30,14 +30,14 @@ try
     File.Copy(Path.Combine(root, "tests/macos_channels.swift"), channelsMain);
     var channels = Path.Combine(temp.FullName, "channels-checks");
     await Run("/usr/bin/xcrun", ["swiftc", channelsMain, .. Directory.GetFiles(native, "*.swift").Where(path => Path.GetFileName(path) != "main.swift"), "-lsqlite3", "-o", channels]);
-    Console.Write(await Run(channels, [Path.Combine(temp.FullName, "channels.sqlite")]));
+    Console.Write(await Run(channels, [Path.Combine(temp.FullName, Guid.NewGuid().ToString("N") + ".sqlite")]));
     using var connection = new SqliteConnection($"Data Source={db};Pooling=False");
     connection.Open();
     Check(Number("SELECT COUNT(*) FROM process_instances WHERE pid=123456789") == 2, "a newly verified birth cannot retroactively certify an unknown process segment");
     Check(Number("SELECT COUNT(*) FROM process_instances WHERE pid=123456788") == 2, "an unverified identity cannot span an observation gap");
     Check(Number("SELECT COUNT(*) FROM capture_method_events") == 2, "unchanged capture method is not rewritten");
     Check(Number("SELECT COUNT(*) FROM capture_runs") == 2 && Number("SELECT COUNT(*) FROM host_observations") == 1
-        && Number($"SELECT COUNT(*) FROM capture_runs JOIN host_observations ON observation_id=host_observation_id WHERE hardware_uuid GLOB '????????-????-????-????-????????????' AND boot_id IS NOT NULL AND store_path='{Path.GetDirectoryName(temp.FullName.TrimEnd('/'))}'") == 2,
+        && Number("SELECT COUNT(*) FROM capture_runs JOIN host_observations ON observation_id=host_observation_id WHERE platform='macos' AND hardware_uuid='00000000-0000-0000-0000-000000000001' AND store_path='/fixture/store'") == 2,
         "runs on an unchanged host share one host observation");
     Check(Number("SELECT COUNT(*) FROM database_identity") == 1, "a new database records its identity");
     Check(Number("SELECT COUNT(*) FROM capture_coverage WHERE evidence='unavailable' AND started_at_utc_ms=1002000 AND stopped_at_utc_ms=1003000") == 1, "gap has its actual observation interval");
@@ -104,16 +104,19 @@ try
         command.CommandText = "CREATE TRIGGER reject_stop BEFORE UPDATE OF stopped_at_utc_ms ON capture_runs BEGIN SELECT RAISE(ABORT,'stop marker rejected'); END";
         command.ExecuteNonQuery();
     }
-    Check((await Run(binary, [db, "1"], expectedExit: 1)).Contains("stop marker rejected"), "stop write failure must reach stderr and the exit code");
+    // The real entry point records the host it is given and refuses to start without one.
+    var host = """--host={"platform":"macos","hardwareUuid":null,"hostName":null,"model":null,"osVersion":null,"osBuild":null,"bootId":null,"userId":501,"userName":"fixture","storePath":"/fixture/store"}""";
+    await Run(binary, [db, "1"], expectedExit: 2);
+    Check((await Run(binary, [db, host, "1"], expectedExit: 1)).Contains("stop marker rejected"), "stop write failure must reach stderr and the exit code");
     using (var command = connection.CreateCommand())
     {
         command.CommandText = "CREATE TRIGGER reject_sample BEFORE INSERT ON afk_events BEGIN SELECT RAISE(ABORT,'sample marker rejected'); END";
         command.ExecuteNonQuery();
     }
-    var failed = await Run(binary, [db, "1"], expectedExit: 1);
+    var failed = await Run(binary, [db, host, "1"], expectedExit: 1);
     Check(failed.Contains("sample marker rejected") && failed.Contains("stop marker rejected"), "both capture and stop failures must be visible");
-    var denied = Path.Combine(temp.FullName, "denied.sqlite");
-    await Run(binary, [denied, "1", "--windows", "--input"]);
+    var denied = Path.Combine(temp.FullName, Guid.NewGuid().ToString("N") + ".sqlite");
+    await Run(binary, [denied, host, "1", "--windows", "--input"]);
     using (var deniedDb = new SqliteConnection($"Data Source={denied};Pooling=False"))
     {
         deniedDb.Open();

@@ -1,11 +1,17 @@
 import Darwin
+import Foundation
 
 func usage() -> Never {
-    fputs("Usage: orisumi-macos-foreground DATABASE [SECONDS] [--windows] [--afk-threshold=SECONDS] [--input] [--microphone] [--audio-output] [--camera]\n", stderr)
+    fputs("Usage: orisumi-macos-foreground DATABASE --host=JSON [SECONDS] [--windows] [--afk-threshold=SECONDS] [--input] [--microphone] [--audio-output] [--camera]\n", stderr)
     exit(2)
 }
 
 var arguments = CommandLine.arguments.dropFirst()
+let hostOption = "--host="
+guard let hostIndex = arguments.firstIndex(where: { $0.hasPrefix(hostOption) }),
+      let host = try? JSONDecoder().decode(HostObservation.self, from: Data(arguments[hostIndex].dropFirst(hostOption.count).utf8))
+else { usage() }
+arguments.remove(at: hostIndex)
 var mediaChannels: Set<MediaChannel> = []
 while arguments.count > 1, let option = arguments.last,
       let channel = MediaChannel.allCases.first(where: { "--" + $0.rawValue.replacingOccurrences(of: "_", with: "-") == option }) {
@@ -37,7 +43,7 @@ else {
 signal(SIGINT, SIG_IGN)
 umask(0o077)
 do {
-    try captureForeground(in: ForegroundDatabase(path: path, captureWindows: captureWindows, captureInput: captureInput,
+    try captureForeground(in: ForegroundDatabase(path: path, host: host, captureWindows: captureWindows, captureInput: captureInput,
                                                  mediaChannels: mediaChannels),
                           seconds: seconds, captureWindows: captureWindows, afkThresholdMS: afkThresholdMS,
                           captureInput: captureInput, mediaChannels: mediaChannels)

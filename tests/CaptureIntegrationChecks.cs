@@ -11,6 +11,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
+using Orisumi.Platform;
 
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
 var cli = Path.Combine(root, "src/Orisumi.Cli/bin/Debug/net11.0/Orisumi");
@@ -21,8 +22,7 @@ await DownloadChecks();
 await BookmarkChecks();
 using (var corrupt = new Fixture())
 {
-    Directory.CreateDirectory(Path.Combine(corrupt.Store, "raw"));
-    File.WriteAllText(corrupt.Database("browser"), "invalid database contents");
+    File.WriteAllText(new Store(corrupt.Store).WritableDatabase("browser").Path, "invalid database contents");
     await Browser(corrupt, new() { ["getDatabaseId"] = true }, expectedOk: false);
     Check(File.ReadAllText(corrupt.Database("browser")) == "invalid database contents", "Corrupt database was modified");
 }
@@ -296,7 +296,7 @@ async Task MacOSChecks()
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         File.Copy(file, target);
     }
-    var path = Path.Combine(fixture.Root, "macos.sqlite");
+    var path = Path.Combine(fixture.Root, Guid.NewGuid().ToString("N") + ".sqlite");
     await Run(binary, [path]);
     using var db = Open(path);
     // The fixture PID is absent from the OS: its window observations have an
@@ -313,14 +313,16 @@ async Task MacOSChecks()
     Rows(db, "SELECT capture_windows,capture_input,stopped_at_utc_ms IS NOT NULL FROM capture_runs", [1, 1, 1]);
     Rows(db, "PRAGMA foreign_key_check");
     // The native fixture also opens twice with capture features disabled.
-    using var disabled = Open(path + ".disabled");
+    using var disabled = Open(Path.Combine(fixture.Root, new string('d', 32) + ".sqlite"));
+    Check(!File.Exists(Path.Combine(fixture.Root, "macos.sqlite")), "a file name that is not a database ID is rejected before opening");
+    Rows(db, "SELECT store_path,boot_id FROM host_observations", ["/fixture/store", "fixture-boot"]);
     Rows(disabled, "SELECT COUNT(*) FROM window_history", [0]);
     Rows(disabled, "SELECT COUNT(*) FROM keyboard_presses", [0]);
     Rows(disabled, "SELECT capture_windows,capture_input FROM capture_runs", [0, 0], [0, 0]);
     // A failed initialization leaves the database empty.
     var broken = Path.Combine(packagedSchema, "Indexes/invalid.sql");
     File.WriteAllText(broken, "CREATE INDEX invalid ON nonexistent(column_name);");
-    var failedPath = Path.Combine(fixture.Root, "failed.sqlite");
+    var failedPath = Path.Combine(fixture.Root, Guid.NewGuid().ToString("N") + ".sqlite");
     await Run(binary, [failedPath, "reject"]);
     using var failed = Open(failedPath);
     Rows(failed, "SELECT COUNT(*) FROM sqlite_schema", [0]);
@@ -397,6 +399,6 @@ sealed class Fixture : IDisposable
     private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("orisumi-facts-");
     internal string Root => directory.FullName;
     internal string Store => Path.Combine(Root, "store");
-    internal string Database(string source) => Path.Combine(Store, "raw", source + ".sqlite");
+    internal string Database(string source) => new Orisumi.Platform.Store(Store).CurrentDatabase(source)!;
     public void Dispose() => directory.Delete(recursive: true);
 }

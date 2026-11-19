@@ -7,6 +7,7 @@ using System.Text;
 using ZstdSharp;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Codex;
+using Orisumi.Platform;
 
 var root = Directory.CreateTempSubdirectory("orisumi-codex-incremental-").FullName;
 var previousHome = Environment.GetEnvironmentVariable("CODEX_HOME");
@@ -27,7 +28,7 @@ try
         """);
     File.WriteAllText(rollout, Usage("first", 1) + "\n");
     CodexCollector.Capture(store);
-    using var db = Open(Path.Combine(store, "raw/codex.sqlite"));
+    using var db = Open(new Store(store).CurrentDatabase("codex")!);
     // Replacing a source file must not discard a new response at the same source line.
     File.WriteAllText(rollout, Usage("second", 2) + "\n");
     CodexCollector.Capture(store);
@@ -168,9 +169,8 @@ try
         var watch=Task.Run(()=>CodexCollector.Watch(replacementStore,stop.Token));
         try
         {
-            var replacementOutput=Path.Combine(replacementStore,"raw/codex.sqlite");
-            await Until(()=>File.Exists(replacementOutput));
-            using var replacementDb=Open(replacementOutput);
+            await Until(()=>new Store(replacementStore).CurrentDatabase("codex") is not null);
+            using var replacementDb=Open(new Store(replacementStore).CurrentDatabase("codex")!);
             await Until(()=>Text(replacementDb,"SELECT title FROM current_threads")=="before-recreation");
             Directory.Move(replacementHome,replacementHome+".old");
             CreateSource("after-recreation");

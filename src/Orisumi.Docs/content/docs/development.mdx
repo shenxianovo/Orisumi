@@ -8,8 +8,8 @@ description: 源码入口、采集运行与验证。
 只支持 macOS。需要 .NET 11 SDK 和 Xcode Command Line Tools。在仓库根目录安装全局入口：
 
 ```sh
-dotnet pack src/Orisumi.Cli -c Release -o .orisumi/packages
-dotnet tool install --global Orisumi.Cli --source .orisumi/packages --version 0.1.1
+dotnet pack src/Orisumi.Cli -c Release -o bin/packages
+dotnet tool install --global Orisumi.Cli --source bin/packages --version 0.1.1
 ```
 
 将全局工具目录 `~/.dotnet/tools` 加入 `PATH`。`orisumi` 从当前目录向上定位 `Orisumi.slnx` 与 CLI 项目，遇到其他 Git 仓库即停止；仓库外不能使用源码入口。
@@ -25,16 +25,16 @@ CLI 使用 `System.CommandLine`、`Spectre.Console`，开发命令在 `Orisumi.C
 | 命令 | 用途 |
 | --- | --- |
 | `orisumi dev build [-c Release]` | 构建项目 |
-| `orisumi capture start --store .orisumi` | 启动或重启系统采集器，保留数据 |
+| `orisumi capture start` | 启动或重启系统采集器，保留数据 |
 | `orisumi capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](./recovery.mdx) |
 | `orisumi codex capture` / `orisumi claude capture` | 常驻监听并增量导入，由 `capture start` 装成 LaunchAgent；没有一次性导入 |
 | `orisumi foreground --windows --input --microphone --audio-output --camera` | 持续采集 macOS，选项各开一个通道；可指定秒数，Ctrl+C 正常停止 |
 | `orisumi timeline --from … --to …` | 查询活动时间线，时间参数包含 UTC 偏移或 `Z` |
 | `orisumi dev docs` | 文档预览；安装、检查和构建见[文档维护](./contributing.mdx) |
 
-`--store` 默认是当前目录的 `.orisumi`，数据库在 `raw/`，日志在 `logs/`。
+`--store` 默认是 `~/Library/Application Support/Orisumi`，目录结构见[存储](./storage.mdx)。
 
-`capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动全部通道，以继承窗口和输入权限；PID 和进程启动时间写入 `foreground.pid`，停止前据此确认仍是同一进程；日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
+`capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动全部通道，以继承窗口和输入权限；PID 和进程启动时间写入 `state/foreground.pid`，停止前据此确认仍是同一进程；日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
 
 Codex、Claude 常驻监听，由用户 LaunchAgent 保活；启动时先全量核对，之后按来源通知和定期核对增量导入。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
 
@@ -45,7 +45,7 @@ Codex、Claude 常驻监听，由用户 LaunchAgent 保活；启动时先全量�
 ```sh
 orisumi dev browser install
 orisumi dev browser build
-orisumi browser register-chrome EXTENSION_ID --store .orisumi
+orisumi browser register-chrome EXTENSION_ID
 ```
 
 在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，使用页面显示的 ID 注册。修改扩展后重新构建并重载；注册指向当前构建的接收端，其 stdout 专用于 Native Messaging 二进制协议。
@@ -64,6 +64,7 @@ JSON stdout 包含 `code`、`roles`、`modules`、`languages`、`unclassifiedPat
 
 ```sh
 dotnet build Orisumi.slnx
+dotnet run --file tests/PlatformChecks.cs
 dotnet run --file tests/CaptureStartupChecks.cs
 dotnet run --file tests/SchemaChecks.cs
 dotnet run --file tests/CaptureIntegrationChecks.cs
@@ -76,6 +77,6 @@ dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
 dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
 ```
 
-启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断；macOS 检查另用替身来源让每个通道走一遍开始、核对、中断、恢复，并读取构建产物里打包好的 schema，所以先构建。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
+平台检查覆盖主机标识、库的选择、主机绑定和并发建库；启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断；macOS 检查另用替身来源让每个通道走一遍开始、核对、中断、恢复，并读取构建产物里打包好的 schema，所以先构建。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
 
 新增采集器的来源、恢复和数据库要求见[采集开发](./capture.mdx)。

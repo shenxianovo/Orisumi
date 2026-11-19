@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,13 +35,16 @@ function database(t) {
     return reply;
   }
   const send = (value, profile = profileId) => sendBatch({ bookmarkObservation: value }, profile);
-  const sql = query => JSON.parse(execFileSync("sqlite3", ["-json", join(store, "raw/browser.sqlite"), query], { encoding: "utf8" }) || "[]");
+  // The database the receiver writes now, as the store's pointer names it (storage.mdx).
+  const file = () => join(store, "observations/browser",
+    JSON.parse(readFileSync(join(store, "state/current/browser.json"), "utf8")).databaseId + ".sqlite");
+  const sql = query => JSON.parse(execFileSync("sqlite3", ["-json", file(), query], { encoding: "utf8" }) || "[]");
   function write(change) {
     const value = observation(change);
     assert.equal(send(value).ok, true, JSON.stringify(value));
     return value;
   }
-  return { send, sendBatch, write, observation, sql, profileId, store };
+  return { send, sendBatch, write, observation, sql, file, profileId, store };
 }
 
 const node = (id, parentId, position, title = id, url = `https://example.com/${id}`) => ({
@@ -215,7 +218,7 @@ test("delayed title callbacks survive newer samples and retry with the same iden
 test("native host waits for a concurrent SQLite writer without reopening the database as a file", async t => {
   const db = database(t);
   assert.equal(db.sendBatch({ getDatabaseId: true }).ok, true);
-  const writer = spawn("sqlite3", [join(db.store, "raw/browser.sqlite")]);
+  const writer = spawn("sqlite3", [db.file()]);
   const exited = new Promise(resolve => writer.on("exit", resolve));
   t.after(() => writer.kill());
   const locked = new Promise(resolve => writer.stdout.once("data", resolve));

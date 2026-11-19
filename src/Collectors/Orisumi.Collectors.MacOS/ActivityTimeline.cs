@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using Orisumi.Platform;
 
 namespace Orisumi.Collectors.MacOS;
 
@@ -13,9 +14,9 @@ public static class ActivityTimeline
 
     public static async Task Write(string store, DateTimeOffset from, DateTimeOffset to, TextWriter output)
     {
-        var database = MacOSStore.GetDatabasePath(store);
-        if (!File.Exists(database))
-            throw new FileNotFoundException($"macOS activity database not found: {database}");
+        // The timeline of this host: the database macOS capture writes now.
+        var database = new Store(store).CurrentDatabase("macos")
+            ?? throw new FileNotFoundException($"no macOS activity database in {new Store(store).Root}");
 
         var sql = string.Create(CultureInfo.InvariantCulture, $"""
             WITH events(observed_at_utc_ms, run_id, run_sequence, source, event_kind, pid, bundle_id, app_name, window_title, state, idle_ms, permission) AS (

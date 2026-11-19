@@ -59,6 +59,17 @@ function removeTab(state: Inventory, tabId: number, changes: Changes) {
   delete state.tabs[tabId];
   (changes.tabs ??= []).push({ tabId, fields: { isPresent: false } });
 }
+// Compare fields, not JSON: chrome.storage returns object keys sorted rather than in insertion order.
+function sameInventory(a: Inventory, b: Inventory) {
+  const tabs = Object.keys(a.tabs).map(Number), windows = Object.keys(a.windows).map(Number);
+  return a.focusedWindowId === b.focusedWindowId &&
+    tabs.length === Object.keys(b.tabs).length && windows.length === Object.keys(b.windows).length &&
+    tabs.every(id => {
+      const x = a.tabs[id]!, y = b.tabs[id];
+      return y?.windowId === x.windowId && y.url === x.url && y.title === x.title;
+    }) &&
+    windows.every(id => b.windows[id]?.activeTabId === a.windows[id]!.activeTabId);
+}
 function baseline(state: Inventory): Changes {
   return {
     windows: Object.keys(state.windows).map(id => ({ windowId: Number(id), isPresent: true })),
@@ -267,7 +278,7 @@ export function observeTabs() {
           if (!reason) {
             // Recover waking notifications in order before comparing with the live inventory.
             for (const update of queue.slice(0, cut)) await apply(candidate, update);
-            if (JSON.stringify(candidate.inventory) !== JSON.stringify(inventory)) reason = "reconciliation_changed";
+            if (!sameInventory(candidate.inventory, inventory)) reason = "reconciliation_changed";
           }
           if (reason) {
             if (state.captureSessionId) await markGap(state, reason);

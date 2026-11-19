@@ -5,6 +5,7 @@ using Orisumi.Collectors.Browser;
 using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
 using Orisumi.Collectors.MacOS;
+using Orisumi.Platform;
 using Spectre.Console;
 
 namespace Orisumi.Cli;
@@ -15,8 +16,8 @@ internal static class Commands
     {
         var store = new Option<string>("--store")
         {
-            Description = "采集存储目录；各来源数据库放在 raw/ 下。",
-            DefaultValueFactory = _ => ".orisumi",
+            Description = "采集存储目录，默认 ~/Library/Application Support/Orisumi；布局见文档「多设备」。",
+            DefaultValueFactory = _ => Store.DefaultRoot(),
             Recursive = true,
         };
         var root = new RootCommand("Orisumi · 采集、查询与开发") { store };

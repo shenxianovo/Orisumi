@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Xml.Linq;
 using Orisumi.Collectors.Browser;
+using Orisumi.Platform;
 
 namespace Orisumi.Cli.Capture;
 
@@ -11,12 +12,14 @@ internal static class CaptureStartup
     internal static async Task Start(string store, string? extensionId, TextWriter output, CancellationToken cancellation)
     {
         var root = Repository.Require();
-        store = Path.GetFullPath(store);
+        var location = new Store(store);
+        store = location.Root;
         var assembly = typeof(CaptureStartup).Assembly.Location;
         var dotnet = SourceLauncher.Dotnet;
-        var logs = Path.Combine(store, "logs");
+        var logs = location.Logs;
         var agents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/LaunchAgents");
         Directory.CreateDirectory(logs);
+        Directory.CreateDirectory(location.State);
         Directory.CreateDirectory(agents);
         // Serialize startup across stores too: the LaunchAgent labels belong to this user.
         using var startupLock = new FileStream(Path.Combine(agents, "dev.orisumi.capture.lock"),
@@ -25,7 +28,7 @@ internal static class CaptureStartup
             output.WriteLine(ChromeNativeHost.Register(store, extensionId, Path.Combine(AppContext.BaseDirectory, "Orisumi")));
 
         string[] foreground = [dotnet, assembly, "--store", store, "foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"];
-        var pidFile = Path.Combine(store, "foreground.pid");
+        var pidFile = Path.Combine(location.State, "foreground.pid");
         await StopForeground(pidFile, cancellation);
         cancellation.ThrowIfCancellationRequested();
         // Keep the caller's permission context. Native spawn redirects directly to files,
@@ -68,8 +71,8 @@ internal static class CaptureStartup
                 new[] { dotnet, assembly, "--store", store }.Concat(arguments).Select(value => new XElement("string", value))),
             new XElement("key", "WorkingDirectory"), new XElement("string", root),
             new XElement("key", "RunAtLoad"), new XElement("true"),
-            new XElement("key", "StandardOutPath"), new XElement("string", Path.Combine(store, "logs", name + ".out.log")),
-            new XElement("key", "StandardErrorPath"), new XElement("string", Path.Combine(store, "logs", name + ".err.log")));
+            new XElement("key", "StandardOutPath"), new XElement("string", Path.Combine(new Store(store).Logs, name + ".out.log")),
+            new XElement("key", "StandardErrorPath"), new XElement("string", Path.Combine(new Store(store).Logs, name + ".err.log")));
         dictionary.Add(new XElement("key", "KeepAlive"), new XElement("true"),
             new XElement("key", "ThrottleInterval"), new XElement("integer", 10));
         return new XDocument(new XDeclaration("1.0", "UTF-8", null),

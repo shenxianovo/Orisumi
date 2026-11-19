@@ -7,6 +7,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Store paths and host identity come from the platform layer. -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../Orisumi.Platform/Orisumi.Platform.csproj" />
+  </ItemGroup>
+
   <!-- C# collectors: the schema is embedded and opened through the shared Storage code.
        A collector that writes its database from another toolchain sets NativeSchema=true.
        Storage/Schema holds the tables every source database has. -->

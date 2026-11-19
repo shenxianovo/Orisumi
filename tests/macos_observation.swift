@@ -38,7 +38,11 @@ if case .keyboardPress(let press) = interrupted[0].event { check(press.releasedA
 check(keyboard.consume(.keyUp, keyCode: 42, flags: [], isRepeat: false, at: Date(), reserveSequence: reserve) == nil,
       "recovery does not join a press across the gap")
 
-let database = try ForegroundDatabase(path: CommandLine.arguments[1], captureWindows: true, captureInput: true)
+// The host the .NET platform layer would pass; the helper records it as given.
+let host = HostObservation(platform: "macos", hardwareUuid: "00000000-0000-0000-0000-000000000001", hostName: "fixture",
+                           model: nil, osVersion: nil, osBuild: nil, bootId: "fixture-boot", userId: 501, userName: "fixture",
+                           storePath: "/fixture/store")
+let database = try ForegroundDatabase(path: CommandLine.arguments[1], host: host, captureWindows: true, captureInput: true)
 let start = Date(timeIntervalSince1970: 1000)
 try database.start(at: start, afkThresholdMS: 10000)
 try database.appendApplicationLifecycle(.snapshot, at: start,
@@ -77,7 +81,7 @@ let replaced = try database.appendApplicationLifecycle(.appeared, at: at(8), app
 check(replaced != application, "a reused PID gets a new application identity")
 try database.stop(at: at(9), failed: true)
 
-let mediaDatabase = try ForegroundDatabase(path: CommandLine.arguments[1], captureWindows: false, captureInput: false,
+let mediaDatabase = try ForegroundDatabase(path: CommandLine.arguments[1], host: host, captureWindows: false, captureInput: false,
                                            mediaChannels: [.microphone, .audioOutput, .camera])
 try mediaDatabase.start(at: Date(), afkThresholdMS: 10000)
 var listChanged: (() -> Void)?

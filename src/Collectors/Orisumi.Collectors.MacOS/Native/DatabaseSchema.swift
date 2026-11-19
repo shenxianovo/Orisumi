@@ -7,7 +7,7 @@ enum DatabaseSchema {
         init(_ message: String) { errorDescription = message }
     }
 
-    static func ensureCreated(_ database: OpaquePointer) throws {
+    static func ensureCreated(_ database: OpaquePointer, databaseID: String) throws {
         let directory = Bundle.main.executableURL!.deletingLastPathComponent()
             .appendingPathComponent("Orisumi.Collectors.MacOS/Schema", isDirectory: true)
         func execute(_ sql: String) throws {
@@ -41,8 +41,8 @@ enum DatabaseSchema {
                     catch { throw SchemaError("Could not initialize \(group)/\(file.lastPathComponent): \(error.localizedDescription)") }
                 }
             }
-            // Same statement as SqliteSchema.DatabaseIdentity.
-            try execute("INSERT INTO database_identity VALUES (1, lower(hex(randomblob(16))), CAST(unixepoch('subsec') * 1000 AS INTEGER))")
+            // Same statement as SqliteSchema.DatabaseIdentity; the caller has checked that the ID is 32 hex digits.
+            try execute("INSERT INTO database_identity VALUES (1, '\(databaseID)', CAST(unixepoch('subsec') * 1000 AS INTEGER))")
         }
         try execute("COMMIT")
         committed = true

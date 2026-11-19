@@ -1,4 +1,5 @@
 using Orisumi.Collectors.Storage;
+using Orisumi.Platform;
 using Microsoft.Data.Sqlite;
 
 namespace Orisumi.Collectors.Codex;
@@ -86,7 +87,7 @@ public static partial class CodexCollector
         }, [("trigger", trigger)],
         [("source_state", Path.Combine(codexHome, "state_5.sqlite")), ("source_history", Path.Combine(codexHome, "thread_history_1.sqlite"))]);
         return $"Codex: {threadsChanged} thread row(s), {turnsChanged} turn row(s), {messagesChanged} message row(s), " +
-            $"{usageChanged} usage row(s), {bytesRead} rollout bytes read in {CollectorDatabase.PathFor(store, Source)}, {unavailable} rollouts unavailable";
+            $"{usageChanged} usage row(s), {bytesRead} rollout bytes read in {new Store(store).CurrentDatabase(Source)}, {unavailable} rollouts unavailable";
     }
 
     private static string SourceHome()

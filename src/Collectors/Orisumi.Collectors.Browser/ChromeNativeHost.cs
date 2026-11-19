@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Browser;
 
@@ -15,15 +16,15 @@ public static class ChromeNativeHost
         if (extensionId.Length != 32 || extensionId.Any(character => character is < 'a' or > 'p'))
             throw new ArgumentException("expected a 32-character Chrome extension ID");
 
-        var storePath = Path.GetFullPath(store);
-        var launcher = Path.Combine(storePath, "chrome-native-host");
-        Directory.CreateDirectory(storePath);
+        var location = new Store(store);
+        var launcher = Path.Combine(location.State, "chrome-native-host");
+        Directory.CreateDirectory(location.State);
         // Chrome does not inherit the shell's .NET environment.
         var dotnet = Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet"));
         var command = File.Exists(dotnet)
             ? $"{ShellQuote(dotnet)} {ShellQuote(Path.ChangeExtension(executable, ".dll"))}"
             : ShellQuote(executable);
-        File.WriteAllText(launcher, $"#!/bin/sh\nexec {command} --store {ShellQuote(storePath)} browser native-host\n");
+        File.WriteAllText(launcher, $"#!/bin/sh\nexec {command} --store {ShellQuote(location.Root)} browser native-host\n");
         File.SetUnixFileMode(launcher, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         var manifestDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

@@ -100,7 +100,11 @@ let cameraSource = MediaObjectSource(
 var zone = "Asia/Shanghai"
 var monotonic: Int64 = 1_000_000
 
-let database = try ForegroundDatabase(path: path, captureWindows: true, captureInput: true, mediaChannels: [.camera])
+// The host the .NET platform layer would pass; the helper records it as given.
+let host = HostObservation(platform: "macos", hardwareUuid: "00000000-0000-0000-0000-000000000001", hostName: "fixture",
+                           model: nil, osVersion: nil, osBuild: nil, bootId: "fixture-boot", userId: 501, userName: "fixture",
+                           storePath: "/fixture/store")
+let database = try ForegroundDatabase(path: path, host: host, captureWindows: true, captureInput: true, mediaChannels: [.camera])
 try database.start(at: Date(), afkThresholdMS: 300_000)
 let failed: (Error) -> Void = { fatalError("\($0)") }
 let applications = ApplicationsChannel(source: applicationsSource, database: database, failed: failed)

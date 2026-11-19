@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Storage;
 
@@ -61,7 +62,7 @@ internal sealed class CaptureWriter(string store, string source) : IDisposable
 
     private static FileStream Lock(string store, string source)
     {
-        var path = CollectorDatabase.PathFor(store, source) + ".capture.lock";
+        var path = new Store(store).LockFile(source + ".writer");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
         catch (IOException error) { throw new IOException($"{source} already has a capture writer for {Path.GetFullPath(store)}", error); }

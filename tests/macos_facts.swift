@@ -1,20 +1,30 @@
 import Foundation
 import Darwin
 
+// The host the .NET platform layer would pass; the helper records it as given.
+let host = HostObservation(platform: "macos", hardwareUuid: "00000000-0000-0000-0000-000000000001", hostName: "fixture",
+                           model: nil, osVersion: nil, osBuild: nil, bootId: "fixture-boot", userId: 501, userName: "fixture",
+                           storePath: "/fixture/store")
 let path = CommandLine.arguments[1]
+let directory = URL(fileURLWithPath: path).deletingLastPathComponent()
 if CommandLine.arguments.contains("reject") {
     do {
-        _ = try ForegroundDatabase(path: path, captureWindows: false, captureInput: false)
+        _ = try ForegroundDatabase(path: path, host: host, captureWindows: false, captureInput: false)
         fatalError("accepted an invalid schema")
     } catch { print("Rejected schema: \(error.localizedDescription)") }
     exit(0)
 }
+do {
+    _ = try ForegroundDatabase(path: directory.appendingPathComponent("macos.sqlite").path, host: host, captureWindows: false, captureInput: false)
+    fatalError("accepted a file name that is not a database ID")
+} catch { print("Rejected file name: \(error.localizedDescription)") }
 for _ in 0..<2 {
-    let disabled = try ForegroundDatabase(path: path + ".disabled", captureWindows: false, captureInput: false)
+    let disabled = try ForegroundDatabase(path: directory.appendingPathComponent(String(repeating: "d", count: 32) + ".sqlite").path,
+                                          host: host, captureWindows: false, captureInput: false)
     try disabled.start(at: Date(), afkThresholdMS: 300000)
     try disabled.stop(at: Date())
 }
-let db = try ForegroundDatabase(path: path, captureWindows: true, captureInput: true)
+let db = try ForegroundDatabase(path: path, host: host, captureWindows: true, captureInput: true)
 let now = Date()
 try db.start(at: now, afkThresholdMS: 300000)
 let app = ObservedApplication(bundleID: "test.app", name: "Test", pid: 123456, launchedAt: now)

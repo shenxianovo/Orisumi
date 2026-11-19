@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Orisumi.Platform;
 
 namespace Orisumi.Cli.Capture;
 
@@ -9,41 +10,44 @@ internal static class CaptureCoverage
     {
         if (from >= to) throw new ArgumentException("--from 必须早于 --to。");
         var sources = new List<object>();
-        foreach (var (source, path) in CaptureSources.All.Select(source => (source.Name, source.Database(store))))
+        // Every database of a source, including earlier ones; each keeps its own evidence.
+        foreach (var source in CaptureSources.All.Select(source => source.Name))
         {
-            if (!File.Exists(path))
-            {
-                sources.Add(new { source, status = "no_database", evidence = Array.Empty<object>() });
-                continue;
-            }
-            using var database = new SqliteConnection(new SqliteConnectionStringBuilder
-            {
-                DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false,
-            }.ToString());
-            database.Open();
-            using var command = database.CreateCommand();
-            command.CommandText = """
-                SELECT *
-                FROM capture_coverage
-                WHERE started_at_utc_ms < $to
-                  AND (stopped_at_utc_ms IS NULL OR stopped_at_utc_ms > $from
-                       OR (stopped_at_utc_ms=started_at_utc_ms AND started_at_utc_ms >= $from))
-                ORDER BY started_at_utc_ms,scope,evidence
-                """;
-            command.Parameters.AddWithValue("$from", CeilingMilliseconds(from));
-            command.Parameters.AddWithValue("$to", CeilingMilliseconds(to));
-            using var reader = command.ExecuteReader();
-            var rows = new List<Dictionary<string, object?>>();
-            while (reader.Read())
-            {
-                var row = new Dictionary<string, object?>();
-                for (var i = 0; i < reader.FieldCount; i++)
-                    row.Add(reader.GetName(i), reader.IsDBNull(i) ? null : reader.GetValue(i));
-                rows.Add(row);
-            }
-            sources.Add(new { source, status = "queried", evidence = rows });
+            var paths = new Store(store).Databases(source);
+            if (paths.Count == 0) sources.Add(new { source, database = (string?)null, status = "no_database", evidence = Array.Empty<object>() });
+            foreach (var path in paths) sources.Add(Query(source, path, from, to));
         }
         output.WriteLine(JsonSerializer.Serialize(new { from, to, sources }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static object Query(string source, string path, DateTimeOffset from, DateTimeOffset to)
+    {
+        using var database = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false,
+        }.ToString());
+        database.Open();
+        using var command = database.CreateCommand();
+        command.CommandText = """
+            SELECT *
+            FROM capture_coverage
+            WHERE started_at_utc_ms < $to
+              AND (stopped_at_utc_ms IS NULL OR stopped_at_utc_ms > $from
+                   OR (stopped_at_utc_ms=started_at_utc_ms AND started_at_utc_ms >= $from))
+            ORDER BY started_at_utc_ms,scope,evidence
+            """;
+        command.Parameters.AddWithValue("$from", CeilingMilliseconds(from));
+        command.Parameters.AddWithValue("$to", CeilingMilliseconds(to));
+        using var reader = command.ExecuteReader();
+        var rows = new List<Dictionary<string, object?>>();
+        while (reader.Read())
+        {
+            var row = new Dictionary<string, object?>();
+            for (var i = 0; i < reader.FieldCount; i++)
+                row.Add(reader.GetName(i), reader.IsDBNull(i) ? null : reader.GetValue(i));
+            rows.Add(row);
+        }
+        return new { source, database = (string?)Path.GetFileNameWithoutExtension(path), status = "queried", evidence = rows };
     }
 
     private static long CeilingMilliseconds(DateTimeOffset value)

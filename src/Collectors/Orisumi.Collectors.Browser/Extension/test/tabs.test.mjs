@@ -3,9 +3,14 @@ import test from "node:test";
 import { observeTabs } from "../../ChromeExtension/tabs.js";
 import { flushCoverage } from "../../ChromeExtension/coverage.js";
 
+// Chrome storage returns object keys in sorted order, not insertion order.
+const sorted = value => value && typeof value === "object" && !Array.isArray(value)
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])]))
+  : Array.isArray(value) ? value.map(sorted) : value;
+
 function browser() {
   const local = {}, session = {}, listeners = {}, sent = [];
-  const storage = data => ({ get: async keys => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key, structuredClone(data[key])])),
+  const storage = data => ({ get: async keys => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key, sorted(structuredClone(data[key]))])),
     set: async values => Object.assign(data, structuredClone(values)) });
   const event = name => ({ addListener: callback => { listeners[name] = callback; } });
   const tab = (id, windowId, details = {}) => ({ id, windowId, active: false, incognito: false, url: "A", title: "A", ...details });

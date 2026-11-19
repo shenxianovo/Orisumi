@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using System.Text;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Storage;
+using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Claude;
 
@@ -21,7 +22,7 @@ public static partial class ClaudeCollector
             if (!Directory.Exists(projects)) throw new DirectoryNotFoundException($"Claude Code projects directory not found: {projects}");
             var written = Import(command.Connection!, command.Transaction!, runId, projects, changedPaths, out var bytes, out var records);
             command.Execute("UPDATE capture_runs SET bytes_read=$p0,records_read=$p1 WHERE run_id=$p2", bytes, records, runId);
-            return $"Claude Code: {written} source records captured in {CollectorDatabase.PathFor(store, Source)}";
+            return $"Claude Code: {written} source records captured in {new Store(store).CurrentDatabase(Source)}";
         });
 
     public static async Task Watch(string store, CancellationToken cancellation)

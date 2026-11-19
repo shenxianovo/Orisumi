@@ -9,7 +9,7 @@ internal static class SqliteSchema
     private static readonly System.Reflection.Assembly Assembly = typeof(SqliteSchema).Assembly;
     private static readonly string Prefix = Assembly.GetName().Name + ".Schema.";
 
-    internal static void EnsureCreated(SqliteConnection connection)
+    internal static void EnsureCreated(SqliteConnection connection, string databaseId)
     {
         // Serialize the empty-database check with creation, including concurrent first opens.
         using var transaction = connection.BeginTransaction(deferred: false);
@@ -33,14 +33,15 @@ internal static class SqliteSchema
                 }
             }
             command.CommandText = DatabaseIdentity;
+            command.Parameters.AddWithValue("$id", databaseId);
             command.ExecuteNonQuery();
         }
         transaction.Commit();
     }
 
-    // The new database's identity is created with its structure; DatabaseSchema.swift runs the same statement.
+    // The new database's identity is created with its structure and equals its file name; DatabaseSchema.swift runs the same statement.
     internal const string DatabaseIdentity =
-        "INSERT INTO database_identity VALUES (1, lower(hex(randomblob(16))), CAST(unixepoch('subsec') * 1000 AS INTEGER))";
+        "INSERT INTO database_identity VALUES (1, $id, CAST(unixepoch('subsec') * 1000 AS INTEGER))";
 
     private static string Read(string resource)
     {

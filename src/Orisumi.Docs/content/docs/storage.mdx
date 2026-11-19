@@ -1,0 +1,30 @@
+---
+title: 存储
+description: 存储目录的位置与结构，以及每个来源写哪个库。
+---
+
+存储目录默认在 `~/Library/Application Support/Orisumi`；`--store` 可指定别处，开发和测试用临时目录。Windows 计划用 `%LOCALAPPDATA%\Orisumi`，Android 用应用私有目录，尚未实现。路径只由 `src/Orisumi.Platform` 的 `Store` 拼出，原生程序从 .NET 接收路径和主机信息，自己不推算。
+
+正在写的库不放进 iCloud Drive、Dropbox 等同步盘：同步工具复制或覆盖写入中的 SQLite（尤其是 WAL）会损坏它。也不放 `~/Documents`、`~/Desktop`：这些目录受 macOS 隐私保护，后台 LaunchAgent 访问会被拦。
+
+## 目录
+
+| 路径 | 内容 | 丢失后 | 同步 |
+| --- | --- | --- | --- |
+| `observations/<来源>/<database_id>.sqlite` | 观测库：本机正在写的、以前写的、其他设备的副本 | 补不回来 | 要 |
+| `rules/` | 人写的规则，如设备合并（未实现） | 补不回来 | 要 |
+| `derived/` | 确定性派生，能从上两项原样重建（未实现） | 重建 | 不 |
+| `state/` | 本机运行状态：`current/<来源>.json`、`locks/`、`foreground.pid`、`chrome-native-host` | 下次采集从新库开始 | 不 |
+| `logs/` | 采集器日志 | 无影响 | 不 |
+
+备份和同步只管 `observations/` 和 `rules/`。重跑结果会变或要付费的派生（如模型读出）不算可重建，出现时另定需要备份的位置。
+
+## 每个来源写哪个库
+
+- 文件名就是库 ID（`database_identity.database_id`），建库时生成，之后不变。
+- 一个库只有一个写入方：创建它的主机上的采集器。其他设备只保存只读副本，所以同步只是复制文件。
+- `state/current/<来源>.json` 记当前写的库 ID 和建库时的硬件 UUID。写入前由 `Store.WritableDatabase` 取库：没有指针、库文件不在，或硬件 UUID 与指针不同（如用迁移助理把存储拷到新 Mac），就新建一个库并改指针，旧库留在原处只读。读不到硬件 UUID 时无法证明换了机器，沿用当前库。
+- 新库在锁内建成空文件，同时到达的多个写入进程（Chrome 每条消息启动一个接收端）得到同一个库。
+- 只读命令不建库：`capture coverage` 读每个来源的所有库，`timeline` 只读本机当前的 macOS 库。
+
+改结构的规则见[数据库结构](./capture.mdx#数据库结构)。
