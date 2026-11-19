@@ -29,8 +29,14 @@ const describeWindow = ({ id, focused }: chrome.windows.Window) => ({ id, focuse
 async function publicTab(id: number) {
   return tabs.has(id) || await chrome.tabs.get(id).then(tabId, () => false);
 }
-async function publicWindow(id: number) {
-  return id !== none && (windows.has(id) || await chrome.windows.get(id).then(windowId, () => false));
+async function focusedWindow(id: number) {
+  if (id === none) return { windowId: null };
+  if (windows.has(id)) return { windowId: id };
+  try {
+    return { windowId: (await chrome.windows.get(id)).incognito ? null : id };
+  } catch {
+    return {};
+  }
 }
 
 chrome.windows.onCreated.addListener(window => {
@@ -42,7 +48,7 @@ chrome.windows.onRemoved.addListener(windowId => {
   if (windows.delete(windowId)) send("tabs", "window_removed", { windowId });
 });
 chrome.windows.onFocusChanged.addListener(id => {
-  send("tabs", "window_focus_changed", publicWindow(id).then(visible => ({ windowId: visible ? id : null })));
+  send("tabs", "window_focus_changed", focusedWindow(id));
 });
 chrome.tabs.onCreated.addListener(tab => {
   if (!tabId(tab)) return;

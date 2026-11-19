@@ -18,6 +18,7 @@ using Orisumi.Platform;
 WriterFailure();
 WriterConnection();
 await RejectedDelivery();
+await TabFocus();
 await Tabs();
 await BookmarksAndDownloads();
 await History();
@@ -167,7 +168,62 @@ static async Task Tabs()
     Equal(2L, Value(db, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason='completed'"), "two connections produce two ended runs");
     Equal(1L, Value(db, "SELECT COUNT(*) FROM tabs WHERE tab_id=4"), "reconnect keeps the Chrome session identity");
     Equal(0L, Value(db, "SELECT COUNT(*) FROM pragma_foreign_key_check"), "all browser facts reference existing identities");
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='active_tab_focus_events'"),
+        "foreground focus is derived from the two source facts");
     Console.WriteLine("PASS: tab A→B→A, stationary observations, replay across connections, focus, reconciliation and EOF");
+}
+
+static async Task TabFocus()
+{
+    using var fixture = new Fixture();
+    await using var port = await fixture.Connect();
+    using var db = fixture.Database();
+    var snapshot = JsonNode.Parse("""
+        {"windows":[{"id":1},{"id":2}],"focusedWindowId":1,
+         "tabs":[{"id":10,"windowId":1,"active":true},{"id":20,"windowId":2,"active":true},
+                 {"id":21,"windowId":2,"active":false}]}
+        """)!;
+    await port.Deliver(1, "tabs", "snapshot", snapshot);
+    snapshot["focusedWindowId"] = 2;
+    snapshot["tabs"]![1]!["active"] = false;
+    snapshot["tabs"]![2]!["active"] = true;
+    await port.Deliver(2, "tabs", "snapshot", snapshot);
+    Equal(21L, Value(db, "SELECT tab_id FROM current_tabs WHERE is_focused=1"), "focus and active tab both use the new snapshot");
+    Equal(21L, Value(db, "SELECT tab_id FROM tab_history WHERE run_sequence=2 AND is_focused=1"),
+        "history has one foreground tab after the combined observation");
+    Equal(0L, Value(db, "SELECT is_focused FROM tab_history WHERE run_sequence=2 AND tab_id=20"),
+        "history never foregrounds the previously active tab of the newly focused window");
+
+    await port.Deliver(3, "tabs", "window_focus_changed", JsonNode.Parse("""{"windowId":3}""")!);
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM current_tabs WHERE is_focused IS NULL"), "focused window's active tab is unknown");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM tab_history WHERE run_sequence=3 AND is_focused IS NULL"),
+        "the loss of focus knowledge ends all previous focus states");
+    snapshot["focusedWindowId"] = 3;
+    snapshot["windows"]!.AsArray().Add(JsonNode.Parse("""{"id":3}"""));
+    await port.Deliver(4, "tabs", "snapshot", snapshot);
+    Equal(0L, Value(db, "SELECT has_tab FROM window_active_tab_events JOIN browser_windows USING(window_key) WHERE window_id=3"),
+        "complete snapshot of a window without tabs records known empty");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM current_tabs WHERE is_focused=0"), "no tab is focused when the focused window is empty");
+
+    await port.Deliver(5, "tabs", "window_focus_changed", new JsonObject());
+    Equal(null, Value(db, "SELECT has_window FROM browser_window_focus_events ORDER BY observation_id DESC LIMIT 1"),
+        "a failed focus lookup records unknown");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM current_tabs WHERE is_focused IS NULL"), "unknown window yields unknown foreground tab");
+    await port.Deliver(6, "tabs", "window_focus_changed", JsonNode.Parse("""{"windowId":null}""")!);
+    Equal(0L, Value(db, "SELECT has_window FROM browser_window_focus_events ORDER BY observation_id DESC LIMIT 1"),
+        "an explicit no-window notification records known empty");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM current_tabs WHERE is_focused=0"), "no focused window means no focused tab");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM tab_history WHERE run_sequence=6 AND is_focused=0"),
+        "the return of focus knowledge ends all previous unknown states");
+
+    await port.Deliver(7, "tabs", "window_focus_changed", JsonNode.Parse("""{"windowId":2}""")!);
+    await port.Deliver(8, "tabs", "tab_detached", JsonNode.Parse("""{"tabId":21,"oldWindowId":2}""")!);
+    Equal(1L, Value(db, """
+        SELECT COUNT(*) FROM window_active_tab_events JOIN tab_observations USING(observation_id)
+        WHERE run_sequence=8 AND has_tab IS NULL AND tab_key IS NULL
+        """), "detaching the active tab leaves its replacement unknown");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM current_tabs WHERE is_focused IS NULL"), "active tab detachment clears stale focus");
+    Console.WriteLine("PASS: foreground focus is derived at observation boundaries with distinct unknown and empty states");
 }
 
 static async Task BookmarksAndDownloads()

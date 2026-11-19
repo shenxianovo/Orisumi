@@ -1,15 +1,24 @@
 CREATE VIEW tab_history AS
-WITH focus AS (
-    SELECT observation_id,tab_key,
-           LAG(tab_key) OVER (PARTITION BY profile_id,o.browser_session ORDER BY observation_id) AS previous_tab_key
-    FROM active_tab_focus_events JOIN tab_observations o USING(observation_id) JOIN browser_runs USING(run_id)
+WITH focus_observations AS (
+    SELECT observation_id FROM browser_window_focus_events
+    UNION SELECT observation_id FROM window_active_tab_events
+), focus AS (
+    SELECT *,LAG(tab_key) OVER per_run AS previous_tab_key,
+           LAG(has_tab IS NOT NULL,1,0) OVER per_run AS was_known
+    FROM focus_observations JOIN active_tab_focus USING(observation_id)
+    WHERE observation_id IN (window_focus_observation_id,window_active_observation_id)
+    WINDOW per_run AS (PARTITION BY run_id,browser_session ORDER BY observation_id)
 ), changes AS (
     SELECT observation_id,tab_key FROM tab_presence_events
     UNION SELECT observation_id,tab_key FROM tab_window_observations
     UNION SELECT observation_id,tab_key FROM tab_url_observations
     UNION SELECT observation_id,tab_key FROM tab_title_observations
-    UNION SELECT observation_id,tab_key FROM focus WHERE tab_key IS NOT NULL
-    UNION SELECT observation_id,previous_tab_key FROM focus WHERE previous_tab_key IS NOT NULL
+    UNION SELECT observation_id,tab_key FROM focus WHERE tab_key IS NOT NULL AND tab_key IS NOT previous_tab_key
+    UNION SELECT observation_id,previous_tab_key FROM focus WHERE previous_tab_key IS NOT NULL AND tab_key IS NOT previous_tab_key
+    UNION SELECT f.observation_id,t.tab_key FROM focus f JOIN tabs t USING(profile_id,browser_session)
+    WHERE (f.has_tab IS NOT NULL) != f.was_known AND (
+        SELECT is_present FROM tab_presence_events
+        WHERE tab_key=t.tab_key AND observation_id<=f.observation_id ORDER BY observation_id DESC LIMIT 1)=1
 ), intervals AS (
     SELECT o.*,c.tab_key,
            LEAD(run_sequence) OVER per_tab AS next_run_sequence,
@@ -23,9 +32,9 @@ SELECT i.observation_id,i.event_id,i.run_id,i.run_sequence,i.observed_at_utc_ms,
        l.has_window,w.window_id,
        (SELECT url FROM tab_url_observations WHERE tab_key=i.tab_key AND observation_id<=i.observation_id ORDER BY observation_id DESC LIMIT 1) AS url,
        (SELECT title FROM tab_title_observations WHERE tab_key=i.tab_key AND observation_id<=i.observation_id ORDER BY observation_id DESC LIMIT 1) AS title,
-       (SELECT COALESCE(f.tab_key=i.tab_key,0) FROM active_tab_focus_events f
-        JOIN tab_observations o USING(observation_id) WHERE o.browser_session=i.browser_session
-           AND o.run_id=i.run_id AND o.observation_id<=i.observation_id ORDER BY o.observation_id DESC LIMIT 1) AS is_focused,
+       (SELECT CASE f.has_tab WHEN 0 THEN 0 WHEN 1 THEN f.tab_key=i.tab_key END FROM focus f
+        WHERE f.browser_session=i.browser_session AND f.run_id=i.run_id AND f.observation_id<=i.observation_id
+        ORDER BY f.observation_id DESC LIMIT 1) AS is_focused,
        i.next_run_sequence,
        (SELECT MAX(i.observed_at_utc_ms,MIN(until)) FROM (
            SELECT i.next_at AS until UNION ALL SELECT r.stopped_at_utc_ms
