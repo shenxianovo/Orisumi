@@ -3,6 +3,7 @@
   "name": "Orisumi Chrome Collector",
   "version": "0.7.0",
   "minimum_chrome_version": "115",
-  "permissions": ["alarms", "bookmarks", "downloads", "history", "nativeMessaging", "storage", "tabs"],
+  "incognito": "not_allowed",
+  "permissions": ["alarms", "bookmarks", "downloads", "history", "nativeMessaging", "storage", "tabs", "unlimitedStorage"],
   "background": { "service_worker": "worker.js", "type": "module" }
 }

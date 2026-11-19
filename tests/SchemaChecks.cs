@@ -27,7 +27,10 @@ try
     {
         var source = project[prefix.Length..];
         // Each database has the shared Storage/Schema tables; loaders order both sets by file name.
-        string[] schemas = [Path.Combine(root, "src/Collectors", project, "Schema"), Path.Combine(root, "src/Collectors/Storage/Schema")];
+        string[] schemas = [
+            Path.Combine(root, "src/Collectors", project, "Schema"),
+            Path.Combine(root, "src/Collectors/Storage/Schema"),
+        ];
         using var expected = Open(":memory:");
         foreach (var group in new[] { "Tables", "Indexes", "Views" })
             foreach (var file in schemas.Select(schema => Path.Combine(schema, group)).Where(Directory.Exists)
@@ -35,16 +38,15 @@ try
                 Execute(expected, File.ReadAllText(file));
         Check(TextRows(expected, "SELECT name FROM pragma_table_info('capture_coverage') ORDER BY cid").Take(coverageColumns.Length)
             .SequenceEqual(coverageColumns), source + " capture_coverage columns");
+        var assembly = Assembly.Load(project);
+        Check(assembly.GetReferencedAssemblies().Any(reference => reference.Name == "ZstdSharp") == (source == "Codex"),
+            source + " Zstandard assembly dependency");
+        Check(TextRows(expected, "SELECT name FROM pragma_table_info('capture_coverage')")
+            .Contains("confirmed_until_utc_ms"), source + " capture_coverage includes run confirmation");
         foreach (var view in TextRows(expected, "SELECT name FROM sqlite_schema WHERE type='view'"))
             Execute(expected, $"SELECT * FROM \"{view}\" LIMIT 0");
 
-        var initializer = Assembly.Load(project).GetType("Orisumi.Collectors.Storage.SqliteSchema");
-        if (initializer is null)
-        {
-            // Native collectors load the same files with their own toolchain.
-            Console.WriteLine($"PASS: {source} schema files, views and coverage columns");
-            continue;
-        }
+        var initializer = assembly.GetType("Orisumi.Collectors.Storage.SqliteSchema")!;
         var ensureCreated = initializer.GetMethod("EnsureCreated", BindingFlags.Static | BindingFlags.NonPublic)!
             .CreateDelegate<Action<SqliteConnection, string>>();
         var newId = Guid.NewGuid().ToString("N");
@@ -63,13 +65,10 @@ try
             Check(identities.SequenceEqual([newId]), source + " database identity is the given ID");
             databaseId = identities[0];
             // Reopening must not recreate objects or lose an existing capture interval.
-            var insertRun = source switch
-            {
-                "Browser" => "INSERT INTO capture_runs VALUES('test','chrome','profile','bookmarks',1,NULL,NULL)",
-                "Codex" => "INSERT INTO capture_runs(started_at_utc_ms,trigger) VALUES(1,'startup')",
-                _ => "INSERT INTO capture_runs(started_at_utc_ms) VALUES(1)",
-            };
-            Execute(actual, insertRun);
+            Execute(actual, """
+                INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'macos','test');
+                INSERT INTO capture_runs(started_at_utc_ms,host_observation_id) VALUES(1,1);
+                """);
         }
         using (var reopened = Open(path))
         {

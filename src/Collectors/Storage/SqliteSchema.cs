@@ -39,7 +39,7 @@ internal static class SqliteSchema
         transaction.Commit();
     }
 
-    // The new database's identity is created with its structure and equals its file name; DatabaseSchema.swift runs the same statement.
+    // The new database's identity is created with its structure and equals its file name.
     internal const string DatabaseIdentity =
         "INSERT INTO database_identity VALUES (1, $id, CAST(unixepoch('subsec') * 1000 AS INTEGER))";
 

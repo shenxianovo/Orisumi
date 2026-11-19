@@ -1,0 +1,422 @@
+#:project ../src/Collectors/Orisumi.Collectors.Browser/Orisumi.Collectors.Browser.csproj
+#:property AssemblyName=BrowserIntegrationChecks
+#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
+
+using System.Buffers.Binary;
+using System.IO.Pipes;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Runtime.Versioning;
+using Microsoft.Data.Sqlite;
+using Orisumi.Collectors.Browser;
+using Orisumi.Collectors.Storage;
+using Orisumi.Platform;
+
+[assembly: SupportedOSPlatform("macos")]
+
+WriterFailure();
+WriterConnection();
+await RejectedDelivery();
+await Tabs();
+await BookmarksAndDownloads();
+await History();
+await Timeout();
+await CorruptDatabase();
+Console.WriteLine("Browser capture integration checks passed.");
+
+static void WriterFailure()
+{
+    using var fixture = new Fixture();
+    using var writer = new CaptureWriter(fixture.Store, "browser");
+    using var db = fixture.Database();
+    Execute(db, """
+        CREATE TRIGGER fail_diagnostic BEFORE INSERT ON capture_read_failures
+        BEGIN SELECT RAISE(ABORT,'diagnostic write failed'); END
+        """);
+    try
+    {
+        writer.Run((command, _) => command.Execute("INSERT INTO missing_source VALUES(1)"));
+        throw new Exception("The failed round returned success");
+    }
+    catch (IOException error) when (error.InnerException is SqliteException sqlite &&
+        sqlite.Message.Contains("no such table: missing_source")) { }
+    Equal(1L, writer.Run((command, _) => command.Scalar("SELECT 1")), "the next round can succeed");
+    Console.WriteLine("PASS: a failed diagnostic write preserves the original SQLite error and allows another round");
+}
+
+static void WriterConnection()
+{
+    using var fixture = new Fixture();
+    using var writer = new CaptureWriter(fixture.Store, "browser");
+    writer.Run((command, _) => command.Execute("CREATE TEMP TABLE resident_marker(id); INSERT INTO resident_marker VALUES(1)"));
+    writer.Run((command, _) => command.Execute("CREATE TEMP TABLE round_marker(id)"), readOnlySources: []);
+    var count = writer.Run((command, _) => command.Scalar("SELECT COUNT(*) FROM resident_marker"));
+    Equal(1L, count, "ordinary rounds reuse the resident connection");
+    Equal(0L, writer.Run((command, _) => command.Scalar("SELECT COUNT(*) FROM sqlite_temp_schema WHERE name='round_marker'")),
+        "attachment rounds have their own connection");
+    Console.WriteLine("PASS: ordinary rounds reuse the resident connection and attachment rounds are isolated");
+}
+
+static async Task RejectedDelivery()
+{
+    using var fixture = new Fixture();
+    var malformed = JsonNode.Parse("""{"tabId":4,"change":{"title":"discard me"}}""")!;
+    await using (var port = await fixture.Connect())
+    {
+        var rejected = await port.Deliver(1, "tabs", "unknown_event", malformed);
+        Equal(true, rejected["rejected"]?.GetValue<bool>(), "permanent failure acknowledges the queue head");
+    }
+    await using (var port = await fixture.Connect())
+    {
+        var replay = await port.Deliver(1, "tabs", "unknown_event", malformed, inParts: true);
+        Equal(true, replay["rejected"]?.GetValue<bool>(), "lost rejection ACK can be replayed");
+        using var db = fixture.Database();
+        using (var busy = db.BeginTransaction())
+        {
+            var retry = await port.Deliver(2, "tabs", "snapshot", JsonNode.Parse("""{"tabs":[],"windows":[]}""")!, expectedOk: false);
+            Equal(null, retry["sequence"], "SQLite busy does not acknowledge the delivery");
+            busy.Rollback();
+        }
+        await port.Deliver(2, "tabs", "snapshot", JsonNode.Parse("""{"tabs":[],"windows":[]}""")!);
+        Equal(1L, Value(db, "SELECT COUNT(*) FROM browser_rejected_deliveries"), "rejection is idempotent across reconnects");
+        Equal("discard me", Value(db, "SELECT json_extract(payload_json,'$.data.change.title') FROM browser_rejected_deliveries"),
+            "original delivery remains available");
+        Equal("invalid tab event", Value(db, "SELECT error FROM browser_rejected_deliveries"), "original error is recorded");
+        Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_coverage WHERE scope='tabs' AND evidence='delivery_rejected'"),
+            "rejection is visible as a gap");
+        Equal(2L, Value(db, "SELECT sequence FROM _browser_deliveries"), "valid delivery after rejection commits");
+        Execute(db, """
+            CREATE TRIGGER fail_reject BEFORE INSERT ON browser_rejected_deliveries
+            BEGIN SELECT RAISE(ABORT,'fixture cannot persist the rejection'); END
+            """);
+        await port.Deliver(3, "tabs", "unknown_event", malformed, expectedOk: false);
+        Equal(2L, Value(db, "SELECT sequence FROM _browser_deliveries"), "rejection is not confirmed until its evidence commits");
+        Execute(db, "DROP TRIGGER fail_reject");
+
+        var format = await port.Deliver(3, "tabs", "tab_updated", JsonNode.Parse("""{"tabId":4.5,"change":{}}""")!);
+        Equal(true, format["rejected"]?.GetValue<bool>(), "invalid Chrome integer is permanently rejected");
+        var json = await port.Exchange(new { type = "delivery", sequence = 4, scope = "tabs", browserSession = 123 });
+        Equal(true, json["rejected"]?.GetValue<bool>(), "invalid envelope field type is permanently rejected");
+        Equal(4L, json["sequence"]?.GetValue<long>(), "JSON deserialization failure acknowledges the exact sequence");
+    }
+    Console.WriteLine("PASS: permanent delivery rejection is durable, duplicate-safe and unblocks later deliveries; busy is retryable");
+}
+
+static async Task Tabs()
+{
+    using var fixture = new Fixture();
+    var initial = JsonNode.Parse("""
+        {"windows":[{"id":1,"focused":true},{"id":2,"focused":false}],
+         "tabs":[{"id":4,"windowId":1,"active":true,"url":"https://example.test","title":"A"},
+                 {"id":5,"windowId":2,"active":true,"url":"https://other.test","title":"Other"}],
+         "focusedWindowId":1}
+        """)!;
+    var toB = JsonNode.Parse("""{"tabId":4,"change":{"title":"B"}}""")!;
+    var toA = JsonNode.Parse("""{"tabId":4,"change":{"title":"A"}}""")!;
+
+    await using (var port = await fixture.Connect())
+    {
+        await port.Deliver(1, "tabs", "snapshot", initial);
+        await port.Deliver(2, "tabs", "tab_updated", toB);
+    }
+    using var db = fixture.Database();
+    Equal("completed", Value(db, "SELECT stop_reason FROM capture_runs"), "stdin EOF confirms the stop");
+    Equal(1L, Value(db, """
+        SELECT COUNT(*) FROM capture_runs WHERE stopped_at_utc_ms >= confirmed_until_utc_ms
+        AND confirmed_until_utc_ms >= started_at_utc_ms AND error IS NULL
+        """), "run start, progress and end");
+    await using (var port = await fixture.Connect())
+    {
+        await port.Deliver(2, "tabs", "tab_updated", toB);
+        await port.Deliver(3, "tabs", "tab_updated", toA);
+        await port.Deliver(2, "tabs", "tab_updated", toB);
+        Equal("A,B,A", Value(db, """
+            SELECT group_concat(title,',') FROM (SELECT title FROM tab_title_observations WHERE tab_key=
+                (SELECT tab_key FROM tabs WHERE tab_id=4) ORDER BY observation_id)
+            """), "transitions survive, even when a committed ACK was lost");
+
+        await port.Deliver(4, "tabs", "snapshot", initial);
+        await port.Deliver(5, "tabs", "snapshot", initial);
+        await port.Deliver(6, "tabs", "tab_updated", toA);
+        Equal(4L, Value(db, "SELECT COUNT(*) FROM tab_observations"), "new run baseline, then stationary snapshots and events do not write");
+        Equal(0L, Value(db, "SELECT COUNT(*) FROM capture_channel_events"), "identical snapshot does not create a gap");
+
+        await port.Deliver(7, "tabs", "window_focus_changed", JsonNode.Parse("""{"windowId":2}""")!);
+        Equal(5L, Value(db, "SELECT tab_id FROM current_tabs WHERE is_focused=1"), "switching windows uses that window's last active tab");
+        await port.Deliver(8, "tabs", "tab_detached", JsonNode.Parse("""{"tabId":4,"oldWindowId":1,"oldPosition":0}""")!);
+        Equal(0L, Value(db, "SELECT has_window FROM current_tabs WHERE tab_id=4"), "detached tab has no window");
+        await port.Deliver(9, "tabs", "tab_attached", JsonNode.Parse("""{"tabId":4,"newWindowId":1,"newPosition":0}""")!);
+        await port.Deliver(10, "tabs", "tab_activated", JsonNode.Parse("""{"tabId":4,"windowId":1}""")!);
+        var corrected = initial.DeepClone();
+        corrected["tabs"]![0]!["title"] = "Missed title";
+        corrected["focusedWindowId"] = 2;
+        await port.Deliver(11, "tabs", "snapshot", corrected, inParts: true);
+        await port.Deliver(12, "tabs", "snapshot", corrected);
+        Equal("Missed title", Value(db, "SELECT title FROM current_tabs WHERE tab_id=4"), "corrects the missed title event");
+        Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_channel_events WHERE evidence='reconciliation_changed'"), "one gap per inconsistent snapshot");
+        Equal(2L, Value(db, """
+            SELECT COUNT(*) FROM tab_history WHERE run_sequence=11 AND is_present=1 AND event_kind='snapshot'
+            """), "reconciliation starts both tabs from the snapshot");
+        Equal(1005L, Value(db, """
+            SELECT valid_until_utc_ms FROM tab_history WHERE run_sequence=4 AND tab_id=4
+            """), "the previous known interval ends at the last matching snapshot");
+        Equal(0L, Value(db, "SELECT COUNT(*) FROM history_page_title_observations"), "tab updates do not write history titles");
+        Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_runs WHERE stopped_at_utc_ms IS NULL"), "one open run regardless of message count");
+    }
+    Equal(2L, Value(db, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason='completed'"), "two connections produce two ended runs");
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM tabs WHERE tab_id=4"), "reconnect keeps the Chrome session identity");
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM pragma_foreign_key_check"), "all browser facts reference existing identities");
+    Console.WriteLine("PASS: tab A→B→A, stationary observations, replay across connections, focus, reconciliation and EOF");
+}
+
+static async Task BookmarksAndDownloads()
+{
+    using var fixture = new Fixture();
+    await using var port = await fixture.Connect();
+    using var db = fixture.Database();
+
+    var tree = JsonNode.Parse("""
+        [{"id":"0","title":""},{"id":"1","parentId":"0","title":"Bookmarks bar"},
+         {"id":"2","parentId":"0","title":"Other bookmarks"},
+         {"id":"3","parentId":"1","title":"A","url":"https://example.test","dateAdded":1770000000000}]
+        """)!;
+    await port.Deliver(1, "bookmarks", "snapshot", tree);
+    await port.Deliver(2, "bookmarks", "changed", JsonNode.Parse("""{"id":"3","change":{"title":"B"}}""")!);
+    await port.Deliver(3, "bookmarks", "changed", JsonNode.Parse("""{"id":"3","change":{"title":"A"}}""")!);
+    await port.Deliver(4, "bookmarks", "moved", JsonNode.Parse("""{"id":"3","parentId":"1","index":2}""")!);
+    await port.Deliver(5, "bookmarks", "moved", JsonNode.Parse("""{"id":"3","parentId":"2","index":0}""")!);
+    tree[3]!["parentId"] = "2";
+    await port.Deliver(6, "bookmarks", "snapshot", tree);
+    Equal(4L, Value(db, "SELECT COUNT(*) FROM bookmark_observations"), "unchanged tree and same-parent move do not create facts");
+    Equal("A,B,A", Value(db, """
+        SELECT group_concat(title,',') FROM (SELECT title FROM bookmark_title_events f
+        JOIN bookmarks USING(bookmark_key) WHERE bookmark_id='3' ORDER BY observation_id)
+        """), "bookmark title A→B→A");
+    tree[3]!["dateLastUsed"] = 1770000060000L;
+    await port.Deliver(7, "bookmarks", "snapshot", tree);
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM capture_channel_events"), "last-use information is expected from polling");
+    Equal("2", Value(db, "SELECT parent_id FROM current_bookmarks WHERE bookmark_id='3'"), "bookmark location stores only the parent");
+    await port.Deliver(8, "bookmarks", "removed", JsonNode.Parse("""{"id":"2"}""")!);
+    Equal(2L, Value(db, "SELECT COUNT(*) FROM current_bookmarks"), "folder removal applies to known descendants");
+
+    var item = JsonNode.Parse("""
+        {"id":12,"incognito":false,"url":"https://example.test/file","finalUrl":"https://example.test/file",
+         "startTime":"2026-02-02T02:40:00.000Z","filename":"/tmp/A","mime":"text/plain","totalBytes":100,"state":"in_progress"}
+        """)!;
+    await port.Deliver(9, "downloads", "created", item);
+    await port.Deliver(10, "downloads", "changed", JsonNode.Parse("""{"id":12,"filename":{"previous":"/tmp/A","current":"/tmp/B"}}""")!);
+    await port.Deliver(11, "downloads", "changed", JsonNode.Parse("""{"id":12,"filename":{"previous":"/tmp/B","current":"/tmp/A"}}""")!);
+    var done = JsonNode.Parse("""
+        {"id":12,"state":{"previous":"in_progress","current":"complete"},
+         "endTime":{"current":"2026-02-02T02:40:05.000Z"}}
+        """)!;
+    await port.Deliver(12, "downloads", "changed", done);
+    await port.Deliver(13, "downloads", "changed", done);
+    Equal("complete:/tmp/A:100", Value(db, "SELECT state||':'||local_path||':'||total_bytes FROM current_downloads"), "delta keeps unrelated fields");
+    Equal(3L, Value(db, "SELECT COUNT(*) FROM download_path_observations"), "download path A→B→A");
+    Equal(2L, Value(db, "SELECT COUNT(*) FROM download_state_observations"), "state only changes on completion");
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM download_response_observations"), "response fields stay independent");
+    var full = new JsonArray(item.DeepClone());
+    full[0]!["state"] = "complete";
+    full[0]!["endTime"] = "2026-02-02T02:40:05.000Z";
+    await port.Deliver(14, "downloads", "snapshot", full);
+    await port.Deliver(15, "downloads", "snapshot", full);
+    Equal(5L, Value(db, "SELECT COUNT(*) FROM download_observations"), "steady full download list does not duplicate observations");
+    await port.Deliver(16, "downloads", "snapshot", new JsonArray());
+    await port.Deliver(17, "downloads", "snapshot", new JsonArray());
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_channel_events WHERE scope='downloads' AND evidence='reconciliation_changed'"),
+        "a missed removal is reconciled once");
+    Equal("complete:/tmp/A", Value(db, "SELECT state||':'||local_path FROM current_downloads"), "erasure preserves the last download facts");
+    Console.WriteLine("PASS: bookmark parent-only changes, download field groups and full-list reconciliation");
+}
+
+static async Task History()
+{
+    using var fixture = new Fixture();
+    await using var port = await fixture.Connect();
+    using var db = fixture.Database();
+    var next = (await port.Exchange(new { type = "history_poll" }))["history"]!;
+    Equal("backfill", next["direction"]!.GetValue<string>(), "receiver chooses the history range");
+    var previous = next["cursor"]!.GetValue<long>();
+    var range = next.DeepClone();
+    range["startTime"] = previous - 600_000;
+    range["pages"] = JsonNode.Parse("""
+        [{"url":"https://example.test","title":"Chrome history title","visits":[
+            {"id":"15","visitId":"155","visitTime":1770000000000.5,"transition":"link","referringVisitId":"0","isLocal":true},
+            {"id":"15","visitId":"156","visitTime":1770000001000,"transition":"reload","referringVisitId":"155","isLocal":true}
+        ]}]
+        """);
+    Execute(db, """
+        CREATE TRIGGER fail_second_visit BEFORE INSERT ON visits WHEN NEW.visit_id='156'
+        BEGIN SELECT RAISE(ABORT,'fixture rejects the second visit'); END;
+        """);
+    await port.Deliver(1, "history", "range", range, expectedOk: false);
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM visits"), "failed range rolls back earlier visits");
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM history_pages"), "failed range rolls back its page title");
+    Equal(previous, Value(db, "SELECT backfill_before_utc_ms FROM _history_cursors"), "failed visits do not advance the cursor");
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM _browser_deliveries"), "failed range is not acknowledged");
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_read_failures"), "failed round records one read failure");
+    Equal(null, Value(db, "SELECT stopped_at_utc_ms FROM capture_runs"), "failed round keeps the run open");
+
+    Execute(db, "DROP TRIGGER fail_second_visit");
+    var reply = await port.Deliver(1, "history", "range", range);
+    Equal(previous - 600_000, reply["history"]!["cursor"]!.GetValue<long>(), "host asks for the next range after commit");
+    Equal(previous - 600_000, Value(db, "SELECT backfill_before_utc_ms FROM _history_cursors"), "cursor commits with successful visits");
+    Equal(2L, Value(db, "SELECT COUNT(*) FROM visits"), "retry commits both visits");
+    Equal("", Value(db, "SELECT referring_visit_id FROM visits WHERE visit_id='155'"), "Chrome no-referrer sentinel");
+    Equal("Chrome history title", Value(db, "SELECT title FROM history_pages"), "history ranges still capture page titles");
+    await port.Deliver(1, "history", "range", range);
+    Equal(2L, Value(db, "SELECT COUNT(*) FROM visits"), "repeat range does not duplicate visits");
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM history_page_title_observations"), "repeat range does not duplicate titles");
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_coverage WHERE evidence='range_read'"), "history coverage comes from the committed cursor");
+    Console.WriteLine("PASS: history receiver range, retained visits and titles, atomic failure and retry");
+}
+
+static async Task Timeout()
+{
+    using var fixture = new Fixture();
+    await using var port = await fixture.Connect(TimeSpan.FromMilliseconds(250));
+    using var db = fixture.Database();
+    var empty = JsonNode.Parse("""{"windows":[],"tabs":[],"focusedWindowId":null}""")!;
+    var observedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    await port.Deliver(1, "tabs", "snapshot", empty, observedAt: observedAt);
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    while (!Equals(1L, Value(db, "SELECT COUNT(*) FROM capture_channel_events WHERE evidence='snapshot_timeout'")))
+        await Task.Delay(10, deadline.Token);
+    Equal(null, Value(db, "SELECT stopped_at_utc_ms FROM capture_channel_events"), "timeout opens a gap while the pipe is still open");
+    await port.Deliver(2, "bookmarks", "snapshot", new JsonArray());
+    await Task.Delay(300, deadline.Token);
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_channel_events"), "continued silence records one gap even with other messages");
+    await port.Deliver(3, "tabs", "snapshot", empty, observedAt: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_channel_events WHERE stopped_at_utc_ms > started_at_utc_ms"), "fresh snapshot closes the gap");
+    Equal(2L, Value(db, "SELECT COUNT(*) FROM tab_observations"), "recovery reestablishes the initial state");
+    Console.WriteLine("PASS: snapshot deadline, one gap during silence, and recovery on the same connection");
+}
+
+static async Task CorruptDatabase()
+{
+    using var fixture = new Fixture();
+    var path = new Store(fixture.Store).WritableDatabase("browser").Path;
+    File.WriteAllText(path, "invalid database contents");
+    await using var port = await fixture.Connect(expectedOk: false);
+    Equal("invalid database contents", File.ReadAllText(path), "host does not modify a corrupt database");
+    Console.WriteLine("PASS: opening an invalid database returns a failure without modifying it");
+}
+
+static object? Value(SqliteConnection db, string sql)
+{
+    using var statement = db.CreateCommand();
+    statement.CommandText = sql;
+    var value = statement.ExecuteScalar();
+    return value is DBNull ? null : value;
+}
+static void Execute(SqliteConnection db, string sql)
+{
+    using var statement = db.CreateCommand();
+    statement.CommandText = sql;
+    statement.ExecuteNonQuery();
+}
+static void Equal(object? expected, object? actual, string reason)
+{
+    if (!Equals(expected, actual)) throw new Exception($"{reason}: expected {expected ?? "NULL"}, got {actual ?? "NULL"}");
+}
+
+sealed class Fixture : IDisposable
+{
+    private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("orisumi-browser-");
+    internal string Store => directory.FullName;
+    private readonly Guid profileId = Guid.NewGuid();
+    private readonly Guid queueId = Guid.NewGuid();
+    private readonly Guid browserSession = Guid.NewGuid();
+
+    internal async Task<Connection> Connect(TimeSpan? interval = null, bool expectedOk = true)
+    {
+        var port = await Connection.Start(Store, browserSession, interval ?? TimeSpan.FromMinutes(2));
+        await port.Exchange(new { type = "open", profileId, queueId, browserSession }, expectedOk);
+        return port;
+    }
+
+    internal SqliteConnection Database()
+    {
+        var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = new Store(Store).CurrentDatabase("browser"), Pooling = false, DefaultTimeout = 3,
+        }.ToString());
+        db.Open();
+        return db;
+    }
+    public void Dispose() => directory.Delete(recursive: true);
+}
+
+sealed class Connection(NamedPipeClientStream client, Task host, Guid browserSession) : IAsyncDisposable
+{
+    internal static async Task<Connection> Start(string store, Guid session, TimeSpan snapshotInterval)
+    {
+        var name = "orisumi-" + Guid.NewGuid().ToString("N")[..20];
+        var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var host = Task.Run(async () =>
+        {
+            await using (server)
+            {
+                await server.WaitForConnectionAsync();
+                await ChromeNativeHost.Run(store, server, server, snapshotInterval);
+            }
+        });
+        var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(5000);
+        return new(client, host, session);
+    }
+
+    internal async Task<JsonNode> Deliver(long sequence, string scope, string kind, JsonNode data, bool expectedOk = true,
+        bool inParts = false, long? observedAt = null)
+    {
+        var payload = new { type = "delivery", sequence, scope, kind, data, browserSession, observedAtUtcMs = observedAt ?? 1000 + sequence };
+        JsonNode reply;
+        if (inParts)
+        {
+            var text = JsonSerializer.Serialize(payload);
+            var middle = text.Length / 2;
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await Send(new { type = "part", body = text[..middle], more = true }, cancellation.Token);
+            reply = await Exchange(new { type = "part", body = text[middle..], more = false }, expectedOk);
+        }
+        else reply = await Exchange(payload, expectedOk);
+        if (expectedOk && reply["sequence"]?.GetValue<long>() != sequence)
+            throw new Exception("Native host must acknowledge the exact sequence");
+        return reply;
+    }
+
+    internal async Task<JsonNode> Exchange(object value, bool expectedOk = true)
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var token = cancellation.Token;
+        await Send(value, token);
+        var prefix = new byte[4];
+        await client.ReadExactlyAsync(prefix, token);
+        var count = BinaryPrimitives.ReadInt32LittleEndian(prefix);
+        if (count is <= 0 or > 1024 * 1024) throw new Exception("invalid Native Messaging reply size");
+        var bytes = new byte[count];
+        await client.ReadExactlyAsync(bytes, token);
+        var reply = JsonNode.Parse(bytes)!;
+        if (reply["ok"]?.GetValue<bool>() != expectedOk)
+            throw new Exception($"Unexpected Native Messaging acknowledgement: {reply}");
+        return reply;
+    }
+
+    private async Task Send(object value, CancellationToken token)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
+        var prefix = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(prefix, bytes.Length);
+        await client.WriteAsync(prefix, token);
+        await client.WriteAsync(bytes, token);
+        await client.FlushAsync(token);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await client.DisposeAsync();
+        await host.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+}

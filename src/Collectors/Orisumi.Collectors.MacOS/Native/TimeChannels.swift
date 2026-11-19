@@ -7,15 +7,15 @@ typealias SystemNotification = (@escaping () -> Void) -> Cancel
 final class TimeZoneChannel: CaptureChannel {
     private let read: () -> String
     private let watch: SystemNotification
-    private let database: ForegroundDatabase
+    private let events: ObservationEvents
     private let failed: (Error) -> Void
     private var cancel: Cancel?
     private var last: String?
 
-    init(read: @escaping () -> String, watch: @escaping SystemNotification, database: ForegroundDatabase, failed: @escaping (Error) -> Void) {
+    init(read: @escaping () -> String, watch: @escaping SystemNotification, events: ObservationEvents, failed: @escaping (Error) -> Void) {
         self.read = read
         self.watch = watch
-        self.database = database
+        self.events = events
         self.failed = failed
     }
 
@@ -43,7 +43,7 @@ final class TimeZoneChannel: CaptureChannel {
     }
 
     private func record(_ identifier: String) throws {
-        try database.appendTimeZone(identifier, at: Date())
+        try events.appendTimeZone(identifier, at: Date())
         last = identifier
     }
 }
@@ -52,14 +52,14 @@ final class TimeZoneChannel: CaptureChannel {
 final class ClockChannel: CaptureChannel {
     private let read: () -> (Date, Int64)
     private let watch: SystemNotification
-    private let database: ForegroundDatabase
+    private let events: ObservationEvents
     private let failed: (Error) -> Void
     private var cancel: Cancel?
 
-    init(read: @escaping () -> (Date, Int64), watch: @escaping SystemNotification, database: ForegroundDatabase, failed: @escaping (Error) -> Void) {
+    init(read: @escaping () -> (Date, Int64), watch: @escaping SystemNotification, events: ObservationEvents, failed: @escaping (Error) -> Void) {
         self.read = read
         self.watch = watch
-        self.database = database
+        self.events = events
         self.failed = failed
     }
 
@@ -85,6 +85,6 @@ final class ClockChannel: CaptureChannel {
 
     private func record(_ kind: String) throws {
         let (time, monotonicNS) = read()
-        try database.appendClock(kind, at: time, monotonicNS: monotonicNS)
+        try events.appendClock(kind, at: time, monotonicNS: monotonicNS)
     }
 }

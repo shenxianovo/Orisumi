@@ -5,60 +5,102 @@ using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Storage;
 
-// The only writer of one source in one store while it exists; a second one fails instead of waiting.
-// Each capture round is a capture_runs row: started with the host observation, completed in the round's
-// transaction together with its facts, or marked failed with the error after the facts are rolled back.
-internal sealed class CaptureWriter(string store, string source) : IDisposable
+// One run and one writer lock for the lifetime of a resident collector or browser profile connection.
+internal sealed class CaptureWriter : IDisposable
 {
-    private readonly FileStream writerLock = Lock(store, source);
+    private readonly string source;
+    private readonly FileStream writerLock;
+    private readonly SqliteConnection connection;
+    private readonly long runId;
+    private bool stopped;
 
-    // columns are the source's own run columns known at start; readOnlySources are attached by alias for the round.
-    internal T Run<T>(Func<SqliteCommand, long, T> capture, (string Column, object? Value)[]? columns = null,
-        (string Alias, string Path)[]? readOnlySources = null)
+    internal CaptureWriter(string store, string source, Action<SqliteCommand, long>? configure = null, string? lockIdentity = null)
     {
-        using var connection = CollectorDatabase.Open(store, source);
-        using var command = connection.CreateCommand();
-        long runId;
-        using (var start = connection.BeginTransaction())
-        {
-            command.Transaction = start;
-            columns ??= [];
-            object?[] values = [DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), HostObservation.Record(command, store), .. columns.Select(column => column.Value)];
-            var names = string.Concat(columns.Select(column => "," + column.Column));
-            var parameters = string.Join(',', Enumerable.Range(0, values.Length).Select(index => $"$p{index}"));
-            runId = (long)command.Scalar($"INSERT INTO capture_runs(started_at_utc_ms,host_observation_id{names}) VALUES({parameters}) RETURNING run_id", values)!;
-            start.Commit();
-        }
+        this.source = source;
+        writerLock = Lock(store, lockIdentity is null ? source : source + "." + lockIdentity);
         try
         {
+            connection = CollectorDatabase.Open(store, source);
+            try
+            {
+                using var command = connection.CreateCommand();
+                using var start = connection.BeginTransaction();
+                command.Transaction = start;
+                runId = (long)command.Scalar("""
+                    INSERT INTO capture_runs(started_at_utc_ms,host_observation_id)
+                    VALUES($p0,$p1) RETURNING run_id
+                    """, Now(), HostObservation.Record(command, store))!;
+                configure?.Invoke(command, runId);
+                start.Commit();
+            }
+            catch { connection.Dispose(); throw; }
+        }
+        catch { writerLock.Dispose(); throw; }
+    }
+
+    internal T Run<T>(Func<SqliteCommand, long, T> capture, (string Alias, string Path)[]? readOnlySources = null,
+        long? observedThrough = null, bool confirm = true, string? failureScope = null)
+    {
+        ObjectDisposedException.ThrowIf(stopped, this);
+        try
+        {
+            // Attachments and their temporary views belong only to this round.
+            using var scoped = readOnlySources is null ? null : new SqliteConnection(connection.ConnectionString);
+            scoped?.Open();
+            var database = scoped ?? connection;
+            using var command = database.CreateCommand();
             foreach (var (alias, path) in readOnlySources ?? [])
             {
                 if (!File.Exists(path)) throw new FileNotFoundException($"{source} source database not found: {path}");
-                command.Transaction = null;
                 command.Execute($"ATTACH DATABASE $p0 AS {alias}", new Uri(Path.GetFullPath(path)).AbsoluteUri + "?mode=ro");
             }
-            using var round = connection.BeginTransaction();
+            using var round = database.BeginTransaction();
             command.Transaction = round;
             var result = capture(command, runId);
-            command.Transaction = round;
-            command.Execute("UPDATE capture_runs SET stopped_at_utc_ms=$p0,stop_reason='completed' WHERE run_id=$p1",
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), runId);
+            if (confirm)
+                command.Execute("UPDATE capture_runs SET confirmed_until_utc_ms=$p0 WHERE run_id=$p1", observedThrough ?? Now(), runId);
             round.Commit();
             return result;
         }
         catch (Exception error)
         {
-            command.Transaction = null;
-            command.Execute("UPDATE capture_runs SET stopped_at_utc_ms=$p0,stop_reason='failed',error=$p1 WHERE run_id=$p2",
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), error.Message, runId);
-            // Source and storage failures surface as IOException so a resident loop can retry; other errors are bugs.
+            // The storage failure may also prevent writing its diagnostic.
+            try { RecordReadFailure(error, failureScope); }
+            catch (Exception) { }
+            // Source and storage failures surface as IOException so a resident loop can retry.
             if (error is SqliteException or InvalidDataException or UnauthorizedAccessException or DecoderFallbackException or JsonException)
                 throw new IOException($"could not capture {source}: {error.Message}", error);
             throw;
         }
     }
 
-    public void Dispose() => writerLock.Dispose();
+    internal void RecordReadFailure(Exception error, string? scope = null)
+    {
+        using var command = connection.CreateCommand();
+        command.Execute("INSERT INTO capture_read_failures(run_id,observed_at_utc_ms,error,scope) VALUES($p0,$p1,$p2,$p3)",
+            runId, Now(), error.Message, scope);
+    }
+
+    internal void Stop(Exception? error = null)
+    {
+        if (stopped) return;
+        stopped = true;
+        using var command = connection.CreateCommand();
+        command.Execute("UPDATE capture_runs SET stopped_at_utc_ms=$p0,stop_reason=$p1,error=$p2 WHERE run_id=$p3",
+            Now(), error is null ? "completed" : "failed", error?.Message, runId);
+    }
+
+    public void Dispose()
+    {
+        try { Stop(); }
+        finally
+        {
+            connection.Dispose();
+            writerLock.Dispose();
+        }
+    }
+
+    private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     private static FileStream Lock(string store, string source)
     {

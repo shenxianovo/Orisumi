@@ -1,17 +1,11 @@
-using System.Diagnostics;
 using System.Globalization;
-using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Orisumi.Platform;
 
 namespace Orisumi.Collectors.MacOS;
 
 public static class ActivityTimeline
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-    };
-
     public static async Task Write(string store, DateTimeOffset from, DateTimeOffset to, TextWriter output)
     {
         // The timeline of this host: the database macOS capture writes now.
@@ -31,6 +25,14 @@ public static class ActivityTimeline
                 UNION ALL
                 SELECT observed_at_utc_ms, run_id, run_sequence, 'session', event_kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL
                 FROM user_session_events
+                UNION ALL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'screen_lock', event_kind, NULL, NULL, NULL, NULL,
+                    CASE is_locked WHEN 1 THEN 'locked' WHEN 0 THEN 'unlocked' END, NULL, NULL
+                FROM screen_lock_events
+                UNION ALL
+                SELECT observed_at_utc_ms, run_id, run_sequence, 'display_sleep', event_kind, NULL, NULL, NULL, NULL,
+                    CASE is_asleep WHEN 1 THEN 'asleep' WHEN 0 THEN 'awake' END, NULL, NULL
+                FROM display_sleep_events
                 UNION ALL
                 SELECT observed_at_utc_ms, run_id, run_sequence, 'afk', event_kind, NULL, NULL, NULL, NULL, state, idle_ms, NULL
                 FROM afk_events
@@ -69,21 +71,31 @@ public static class ActivityTimeline
                 CASE WHEN run_sequence IS NOT NULL THEN 1 WHEN event_kind = 'started' THEN 0 ELSE 2 END,
                 run_sequence;
             """);
-        var json = await Query(database, sql);
-        if (string.IsNullOrWhiteSpace(json))
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = database, Mode = SqliteOpenMode.ReadOnly, Pooling = false, DefaultTimeout = 3,
+        }.ToString());
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        using var reader = await command.ExecuteReaderAsync();
+        if (!reader.HasRows)
         {
             output.WriteLine("No activity recorded in this time range.");
             return;
         }
 
-        var rows = JsonSerializer.Deserialize<TimelineRow[]>(json, JsonOptions)
-            ?? throw new InvalidDataException("SQLite did not return timeline rows");
-        foreach (var row in rows)
+        T? OptionalValue<T>(int column) where T : struct => reader.IsDBNull(column) ? null : reader.GetFieldValue<T>(column);
+        string? OptionalText(int column) => reader.IsDBNull(column) ? null : reader.GetString(column);
+        while (await reader.ReadAsync())
         {
+            var row = new TimelineRow(reader.GetInt64(0), reader.GetInt64(1), OptionalValue<long>(2),
+                reader.GetString(3), reader.GetString(4), OptionalValue<int>(5), OptionalText(6), OptionalText(7),
+                OptionalText(8), OptionalText(9), OptionalValue<long>(10), OptionalText(12), OptionalText(11));
             var observedAt = DateTimeOffset.FromUnixTimeMilliseconds(row.ObservedAtUtcMs);
             if (row.TimeZoneId is { } id && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var timeZone))
                 observedAt = TimeZoneInfo.ConvertTime(observedAt, timeZone);
-            var reference = row.RunSequence is long sequence ? $"{row.RunId}/{sequence}" : row.RunId;
+            var reference = row.RunSequence is long sequence ? $"{row.RunId}/{sequence}" : row.RunId.ToString(CultureInfo.InvariantCulture);
             var details = new List<string>();
             if (row.AppName is { Length: > 0 } appName)
                 details.Add(OneLine(appName));
@@ -110,28 +122,8 @@ public static class ActivityTimeline
     private static string OneLine(string value) =>
         string.Concat(value.Select(character => char.IsControl(character) || character is '\u2028' or '\u2029' ? ' ' : character));
 
-    private static async Task<string> Query(string database, string sql)
-    {
-        var start = new ProcessStartInfo("/usr/bin/sqlite3")
-        {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        foreach (var argument in new[] { "-batch", "-bail", "-readonly", "-init", "/dev/null", "-json", "-cmd", ".timeout 3000", database, sql })
-            start.ArgumentList.Add(argument);
-
-        using var process = Process.Start(start) ?? throw new IOException("could not start SQLite");
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0)
-            throw new IOException($"could not read activity database: {(await stderr).Trim()}");
-        return await stdout;
-    }
-
     private sealed record TimelineRow(
-        long ObservedAtUtcMs, string RunId, long? RunSequence, string Source, string EventKind,
+        long ObservedAtUtcMs, long RunId, long? RunSequence, string Source, string EventKind,
         int? Pid, string? BundleId, string? AppName, string? WindowTitle, string? State, long? IdleMs,
         string? TimeZoneId, string? Permission);
 }

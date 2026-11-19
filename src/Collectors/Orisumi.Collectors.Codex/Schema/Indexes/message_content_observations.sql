@@ -1,1 +1,0 @@
-CREATE INDEX message_content_by_message ON message_content_observations(thread_id,turn_id,message_id,observation_id);

@@ -1,54 +1,117 @@
-import type { TabEvent } from "./tabs.js";
-import type { Download } from "./downloads.js";
-import type { BookmarkObservation } from "./bookmarks.js";
-import type { HistoryPage, Visit } from "./history.js";
-import type { Coverage } from "./coverage.js";
+import { readHistory, type Range } from "./history.js";
+import { openOutbox, type Scope } from "./outbox.js";
 
-type Batch =
-  | { visits: Visit[] }
-  | { historyPages: HistoryPage[] }
-  | { tabEvents: TabEvent[] }
-  | { bookmarkObservation: BookmarkObservation }
-  | { coverage: Coverage[] }
-  | { downloads: Download[] };
+type Reply = { ok: boolean; sequence?: number; history?: Range; error?: string };
+const room = 1024 * 1024; // UTF-16 units. Even JSON-escaped chunks fit Chrome's 64 MiB input limit.
 
-const host = "com.orisumi.browser";
-const encoder = new TextEncoder();
-export const batchBytesAvailable = 8 * 1024 * 1024 - 128;
-export const jsonBytes = (value: unknown) => encoder.encode(JSON.stringify(value)).length;
-let profile: Promise<string> | undefined;
+export const report = (error: unknown) => console.error("Orisumi browser capture", error);
 
-async function readProfileId(): Promise<string> {
-  const { profileId } = await chrome.storage.local.get<{ profileId?: string }>("profileId");
-  if (profileId) return profileId;
-
-  const id = crypto.randomUUID();
-  await chrome.storage.local.set({ profileId: id });
-  return id;
+function initialize() {
+  return Promise.all([
+    openOutbox(),
+    chrome.storage.local.get<{ profileId?: string }>("profileId"),
+    chrome.storage.session.get<{ browserSession?: string }>("browserSession"),
+  ]).then(async ([outbox, { profileId }, { browserSession }]) => {
+    if (!profileId) await chrome.storage.local.set({ profileId: profileId = crypto.randomUUID() });
+    if (!browserSession) await chrome.storage.session.set({ browserSession: browserSession = crypto.randomUUID() });
+    return { outbox, browserSession, profileId, queueId: await outbox.queueId() };
+  });
 }
 
-async function send(request: Batch | { getDatabaseId: true }) {
-  profile ??= readProfileId().catch((error: unknown) => {
-    profile = undefined;
+export function nativeHost(onReady: () => void) {
+  let identity: ReturnType<typeof initialize> | undefined;
+  const loadIdentity = () => identity ??= initialize().catch(error => {
+    identity = undefined;
     throw error;
   });
-  const reply: { ok?: boolean; error?: string; inserted?: number; databaseId?: string } | undefined =
-    await chrome.runtime.sendNativeMessage(host, { profileId: await profile, ...request });
-  if (!reply?.ok) throw new Error(reply?.error ?? "The local collector did not confirm the request.");
-  return reply;
-}
-
-export async function sendBatch(batch: Batch): Promise<void> {
-  const { inserted } = await send(batch);
-  if (typeof inserted !== "number" || !Number.isSafeInteger(inserted) || inserted < 0) {
-    throw new Error("The local collector did not confirm the write.");
+  let wake = () => {};
+  let poll = true;
+  let readingHistory = false;
+  let retryDelay = 1000;
+  async function enqueue(scope: Scope, kind: string, data: unknown, observedAtUtcMs = Date.now()) {
+    const { outbox, browserSession } = await loadIdentity();
+    await outbox.add({ scope, kind, data, observedAtUtcMs, browserSession });
+    wake();
   }
-}
-
-export async function getDatabaseId(): Promise<string> {
-  const { databaseId } = await send({ getDatabaseId: true });
-  if (typeof databaseId !== "string" || !databaseId) {
-    throw new Error("The local collector did not identify the database.");
+  async function history(range: Range) {
+    readingHistory = true;
+    try { await enqueue("history", "range", await readHistory(range)); }
+    catch (error) { await enqueue("history", "read_failed", String(error)); }
+    finally { readingHistory = false; wake(); }
   }
-  return databaseId;
+  async function connect() {
+    const { outbox, browserSession, profileId, queueId } = await loadIdentity();
+    const port = chrome.runtime.connectNative("com.orisumi.browser");
+    let closed = false;
+    let changed = true;
+    let waiting: (() => void) | undefined;
+    let response: ((reply: Reply) => void) | undefined;
+    let disconnected: ((error: Error) => void) | undefined;
+    wake = () => { changed = true; waiting?.(); };
+    port.onMessage.addListener(reply => { if (!closed) response?.(reply); });
+    port.onDisconnect.addListener(() => {
+      const error = chrome.runtime.lastError?.message ?? "Native port disconnected";
+      closed = true;
+      disconnected?.(new Error(error));
+      wake();
+    });
+    async function request(send: () => void) {
+      if (closed) throw new Error("Native port disconnected");
+      const reply = await new Promise<Reply>((resolve, reject) => {
+        response = resolve;
+        disconnected = reject;
+        send();
+      }).finally(() => { response = undefined; disconnected = undefined; });
+      if (!reply.ok) throw new Error(reply.error ?? "Native host did not confirm the request");
+      return reply;
+    }
+    try {
+      await request(() => port.postMessage({ type: "open", browserSession, profileId, queueId }));
+      onReady();
+      poll = true;
+      while (!closed) {
+        changed = false;
+        const entry = await outbox.first();
+        if (entry) {
+          const delivery = { type: "delivery", ...entry };
+          const encoded = JSON.stringify(delivery);
+          const reply = await request(() => {
+            if (encoded.length <= room) {
+              port.postMessage(delivery);
+              return;
+            }
+            for (let start = 0; start < encoded.length;) {
+              let end = Math.min(start + room, encoded.length);
+              const last = encoded.charCodeAt(end - 1);
+              if (last >= 0xD800 && last <= 0xDBFF) end--;
+              port.postMessage({ type: "part", body: encoded.slice(start, end), more: end < encoded.length });
+              start = end;
+            }
+          });
+          if (reply.sequence !== entry.sequence) throw new Error("Native host confirmed a different sequence");
+          // The host confirms both committed facts and durably recorded rejections.
+          await outbox.remove(entry.sequence);
+          retryDelay = 1000;
+          if (reply.history && !readingHistory && !closed) void history(reply.history).catch(report);
+        } else if (poll && !readingHistory) {
+          poll = false;
+          const reply = await request(() => port.postMessage({ type: "history_poll" }));
+          if (reply.history && !closed) void history(reply.history).catch(report);
+        } else if (!changed && !closed) {
+          await new Promise<void>(resolve => { waiting = resolve; });
+          waiting = undefined;
+        }
+      }
+    } finally {
+      if (!closed) port.disconnect();
+      closed = true;
+    }
+  }
+  function start() {
+    void connect().catch(report).finally(() => {
+      setTimeout(start, retryDelay);
+      retryDelay = Math.min(2 * retryDelay, 30_000);
+    });
+  }
+  return { enqueue, start, pollHistory: () => { poll = true; wake(); } };
 }

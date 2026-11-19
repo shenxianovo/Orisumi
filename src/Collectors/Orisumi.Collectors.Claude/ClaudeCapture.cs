@@ -1,6 +1,4 @@
 using System.Threading.Channels;
-using System.Text;
-using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Storage;
 using Orisumi.Platform;
 
@@ -21,15 +19,15 @@ public static partial class ClaudeCollector
             var projects = Projects();
             if (!Directory.Exists(projects)) throw new DirectoryNotFoundException($"Claude Code projects directory not found: {projects}");
             var written = Import(command.Connection!, command.Transaction!, runId, projects, changedPaths, out var bytes, out var records);
-            command.Execute("UPDATE capture_runs SET bytes_read=$p0,records_read=$p1 WHERE run_id=$p2", bytes, records, runId);
-            return $"Claude Code: {written} source records captured in {new Store(store).CurrentDatabase(Source)}";
+            return $"Claude Code: {written} source records captured in {new Store(store).CurrentDatabase(Source)}, " +
+                $"{records} records parsed, {bytes} transcript bytes read";
         });
 
     public static async Task Watch(string store, CancellationToken cancellation)
     {
+        var projects = Projects();
         using var writer = new CaptureWriter(store, Source);
         var signals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
-        var projects = Projects();
         var home = Path.GetDirectoryName(projects)!;
         var gate = new object();
         var paths = new HashSet<string>(StringComparer.Ordinal);
@@ -48,9 +46,7 @@ public static partial class ClaudeCollector
             if (change.FullPath != projects && !change.FullPath.StartsWith(projects + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return;
             if (change.ChangeType == WatcherChangeTypes.Changed)
             {
-                // Only direct project JSONL files belong to the main-session source.
-                if (!change.FullPath.EndsWith(".jsonl", StringComparison.Ordinal) ||
-                    Path.GetDirectoryName(Path.GetDirectoryName(change.FullPath)) != projects) return;
+                if (!TranscriptReader.IsTranscript(projects, change.FullPath)) return;
                 lock (gate) paths.Add(change.FullPath);
             }
             else { lock (gate) scan = true; }
@@ -119,6 +115,7 @@ public static partial class ClaudeCollector
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception error) { writer.Stop(error); throw; }
         finally { watcher?.Dispose(); parentWatcher?.Dispose(); }
     }
 

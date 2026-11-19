@@ -28,7 +28,7 @@ struct WindowSource {
 final class WindowsChannel: CaptureChannel {
     private let source: WindowSource
     private let applications: ApplicationsChannel
-    private let database: ForegroundDatabase
+    private let events: ObservationEvents
     private let failed: (Error) -> Void
     private var permission = CapturePermissionState()
     private var listening = false
@@ -41,10 +41,10 @@ final class WindowsChannel: CaptureChannel {
     private var schedule = WindowObservationSchedule()
     private var lastSubscriptionAttempt: TimeInterval?
 
-    init(source: WindowSource, applications: ApplicationsChannel, database: ForegroundDatabase, failed: @escaping (Error) -> Void) {
+    init(source: WindowSource, applications: ApplicationsChannel, events: ObservationEvents, failed: @escaping (Error) -> Void) {
         self.source = source
         self.applications = applications
-        self.database = database
+        self.events = events
         self.failed = failed
         applications.onFrontmostChange { [weak self] app in
             guard let self, self.listening, self.permission.granted else { return }
@@ -101,7 +101,7 @@ final class WindowsChannel: CaptureChannel {
         let previous = permission.granted
         let granted = source.permitted()
         try permission.observe(granted) { event in
-            try database.appendPermission(.accessibility, kind: event, at: Date())
+            try events.appendPermission(.accessibility, kind: event, at: Date())
         }
         if !granted {
             if initial || previous { try suspend(reason: "permission_denied") }
@@ -152,8 +152,8 @@ final class WindowsChannel: CaptureChannel {
 
     private func suspend(reason: String) throws {
         detach()
-        try database.appendChannel("windows", available: false, reason: reason)
-        try database.appendChannel("window_title", available: false, reason: reason)
+        try events.appendChannel("windows", available: false, reason: reason)
+        try events.appendChannel("window_title", available: false, reason: reason)
     }
 
     private func sample() throws {
@@ -165,16 +165,16 @@ final class WindowsChannel: CaptureChannel {
         case let .value(window): focusedWindow = window
         case .none: focusedWindow = nil
         case .failed:
-            try database.appendChannel("windows", available: false, reason: "read_failed", at: observedAt)
-            try database.appendChannel("window_title", available: false, reason: "focus_unavailable", at: observedAt)
+            try events.appendChannel("windows", available: false, reason: "read_failed", at: observedAt)
+            try events.appendChannel("window_title", available: false, reason: "focus_unavailable", at: observedAt)
             // Record that the last known focus no longer holds; the next successful read sets a new initial value.
-            if hasSample { try database.appendWindow(.readFailed, at: observedAt, pid: pid, title: nil, hasWindow: nil) }
+            if hasSample { try events.appendWindow(.readFailed, at: observedAt, title: nil, hasWindow: nil) }
             hasSample = false
             pendingKind = .snapshot
             schedule.readSucceeded = false
             return
         }
-        try database.appendChannel("windows", available: true, reason: "sample_received", at: observedAt)
+        try events.appendChannel("windows", available: true, reason: "sample_received", at: observedAt)
 
         let windowChanged: Bool
         if let window, let focusedWindow {
@@ -196,17 +196,23 @@ final class WindowsChannel: CaptureChannel {
             case .failed: titleReadSucceeded = false
             }
         }
-        try database.appendChannel("window_title", available: titleReadSucceeded, reason: titleReadSucceeded ? "sample_received" : "read_failed", at: observedAt)
-        try database.appendMethod("window_focus", mode: schedule.focusNotification ? "notification" : "snapshot", at: observedAt)
+        try events.appendChannel("window_title", available: titleReadSucceeded, reason: titleReadSucceeded ? "sample_received" : "read_failed", at: observedAt)
+        try events.appendMethod("window_focus", mode: schedule.focusNotification ? "notification" : "snapshot", at: observedAt)
         if focusedWindow != nil {
-            try database.appendMethod("window_title", mode: schedule.titleNotification ? "notification" : "snapshot", at: observedAt)
+            try events.appendMethod("window_title", mode: schedule.titleNotification ? "notification" : "snapshot", at: observedAt)
         }
-        if !hasSample {
-            try database.appendWindow(pendingKind, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
-        } else if windowChanged {
-            try database.appendWindow(.focusChanged, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
+        if !hasSample || windowChanged {
+            let kind = hasSample ? .focusChanged : pendingKind
+            let instance: String?
+            if focusedWindow != nil {
+                guard let observed = try applications.frontmostInstance(pid: pid, at: observedAt) else { return }
+                instance = observed
+            } else {
+                instance = nil
+            }
+            try events.appendWindow(kind, at: observedAt, instance: instance, title: focusedTitle, hasWindow: focusedWindow != nil)
         } else if focusedTitle != title {
-            try database.appendWindow(.titleChanged, at: observedAt, pid: pid, title: focusedTitle, hasWindow: focusedWindow != nil)
+            try events.appendWindow(.titleChanged, at: observedAt, title: focusedTitle, hasWindow: true)
         }
         window = focusedWindow
         title = focusedTitle

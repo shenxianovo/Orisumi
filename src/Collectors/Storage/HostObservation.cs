@@ -4,7 +4,6 @@ using Orisumi.Platform;
 namespace Orisumi.Collectors.Storage;
 
 // The host a capture run starts on, read by the platform layer. A row is added only when a value changes;
-// ForegroundDatabase.swift applies the same rule to the values it receives.
 internal static class HostObservation
 {
     // Returns the observation the run refers to; call it in the transaction that inserts the run.

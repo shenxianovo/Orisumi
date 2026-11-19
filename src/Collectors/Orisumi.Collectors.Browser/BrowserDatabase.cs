@@ -1,281 +1,214 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Storage;
-using System.Text;
-using System.Text.Json;
 
 namespace Orisumi.Collectors.Browser;
 
-internal static class BrowserDatabase
+internal sealed class BrowserDatabase : IDisposable
 {
-    internal const string Source = "browser";
+    private const string Source = "browser";
+    private readonly CaptureWriter writer;
+    private readonly string profile;
+    private readonly string queue;
+    private readonly string browserSession;
 
-    internal static async Task<Reply> HandleMessage(string store, ReadOnlyMemory<byte> message)
+    internal BrowserDatabase(string store, Hello hello, long now)
     {
-        var batch = JsonSerializer.Deserialize<Batch>(message.Span, JsonSerializerOptions.Web);
-        if (batch is null || batch.ProfileId == Guid.Empty)
-            throw new InvalidDataException("invalid browser batch profile");
-
-        if (batch is { GetDatabaseId: true, Visits: null, HistoryPages: null, TabEvents: null, BookmarkObservation: null, Downloads: null, Coverage: null })
+        if (hello.ProfileId == Guid.Empty || hello.QueueId == Guid.Empty || hello.BrowserSession == Guid.Empty)
+            throw new InvalidDataException("invalid browser connection identity");
+        profile = hello.ProfileId.ToString();
+        queue = hello.QueueId.ToString();
+        browserSession = hello.BrowserSession.ToString();
+        writer = new CaptureWriter(store, Source, (command, run) =>
         {
-            // All extension cursors and baselines follow this file's lifetime.
-            var databaseId = (string)await Execute(store, "SELECT database_id FROM database_identity");
-            if (!Guid.TryParseExact(databaseId, "N", out _))
-                throw new InvalidDataException("SQLite did not return a database ID");
-            return new Reply(true, DatabaseId: databaseId);
-        }
-        if (batch.GetDatabaseId)
-            throw new InvalidDataException("database ID requests cannot contain data");
-
-        if (batch.Coverage is { } coverage)
-        {
-            if (batch.Visits is not null || batch.HistoryPages is not null || batch.TabEvents is not null ||
-                batch.BookmarkObservation is not null || batch.Downloads is not null)
-                throw new InvalidDataException("coverage observations cannot contain other data");
-            return new Reply(true, (long)await Execute(store, WriteCoverage(batch.ProfileId, coverage) + "SELECT changes();"));
-        }
-
-        if (batch.BookmarkObservation is { } observation)
-        {
-            if (batch.Visits is not null || batch.HistoryPages is not null || batch.TabEvents is not null || batch.Downloads is not null)
-                throw new InvalidDataException("bookmark observations cannot contain other data");
-            return new Reply(true, BookmarkDatabase.Capture(store, batch.ProfileId, observation));
-        }
-
-        // Hex encoding keeps the batch separate from the SQL syntax.
-        var payload = $"CAST(X'{Convert.ToHexString(JsonSerializer.SerializeToUtf8Bytes(batch, JsonSerializerOptions.Web))}' AS TEXT)";
-        var write = (batch.Visits, batch.HistoryPages, batch.TabEvents, batch.Downloads) switch
-        {
-            ({ } visits, null, null, null) => WriteVisits(batch.ProfileId, payload, visits),
-            (null, { } pages, null, null) => WriteHistoryPages(batch.ProfileId, payload, pages),
-            (null, null, { } events, null) => WriteTabEvents(batch.ProfileId, payload, events),
-            (null, null, null, { } downloads) => WriteDownloads(batch.ProfileId, downloads),
-            _ => throw new InvalidDataException("invalid browser batch"),
-        };
-        var count = batch.TabEvents is null ? "SELECT changes();" : "SELECT COUNT(*) FROM incoming_tab_events;";
-        var inserted = (long)await Execute(store, write + "\n" + count);
-        return new Reply(true, Inserted: inserted);
+            command.Execute("INSERT INTO browser_runs VALUES($p0,'chrome',$p1,$p2)", run, profile, browserSession);
+            command.Execute("INSERT OR IGNORE INTO _history_cursors VALUES($p0,$p1,$p1,$p1)", profile, now);
+        }, lockIdentity: profile);
     }
 
-    private static async Task<object> Execute(string store, string sql)
+    internal sealed record Hello(Guid ProfileId, Guid QueueId, Guid BrowserSession);
+    internal sealed record Delivery(long Sequence, long ObservedAtUtcMs, Guid BrowserSession,
+        string Scope, string Kind, JsonElement Data);
+    internal sealed record Reply(bool Ok = true, long? Sequence = null, HistoryDatabase.Range? History = null, string? Error = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Rejected = false);
+
+    internal Reply Receive(JsonElement payload, long now, out bool polledTabs)
     {
-        using var connection = CollectorDatabase.Open(store, Source);
-        using var transaction = connection.BeginTransaction();
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
+        polledTabs = false;
         try
         {
-            // Runs first seen in this batch refer to the host as $host.
-            command.Parameters.AddWithValue("$host", HostObservation.Record(command, store));
-            command.CommandText = sql;
-            var result = await command.ExecuteScalarAsync();
-            transaction.Commit();
-            return result!;
+            var entry = payload.Deserialize<Delivery>(JsonSerializerOptions.Web)!;
+            var reply = Receive(entry, now);
+            polledTabs = !reply.Rejected && entry is { Scope: "tabs", Kind: "snapshot" } &&
+                entry.BrowserSession.ToString() == browserSession;
+            return reply;
         }
-        catch (SqliteException error)
+        catch (Exception error) when (PermanentError(error) || error is IOException { InnerException: { } inner } && PermanentError(inner))
         {
-            throw new IOException($"could not save browser data: {error.Message}", error);
-        }
-    }
-
-    internal sealed record Reply(bool Ok, long? Inserted = null, string? DatabaseId = null);
-
-    private sealed record Batch(Guid ProfileId, Visit?[]? Visits, HistoryPage?[]? HistoryPages, TabEvent?[]? TabEvents,
-        BookmarkDatabase.Observation? BookmarkObservation, Download?[]? Downloads, bool GetDatabaseId, Coverage?[]? Coverage);
-
-    private sealed record Coverage(Guid EventId, string Scope, string Mode, long StartedAtUtcMs,
-        long? StoppedAtUtcMs, string Evidence, string? Detail, Guid? RunId);
-
-    private static string WriteCoverage(Guid profile, Coverage?[] entries)
-    {
-        var sql = new StringBuilder();
-        foreach (var value in entries)
-        {
-            if (value is null || value.EventId == Guid.Empty || string.IsNullOrWhiteSpace(value.Scope) ||
-                value.Mode is not ("notification" or "replay" or "snapshot") || value.StartedAtUtcMs < 0 ||
-                value.StoppedAtUtcMs < value.StartedAtUtcMs || string.IsNullOrWhiteSpace(value.Evidence))
-                throw new InvalidDataException("invalid capture coverage");
-            var json = JsonSql(value);
-            sql.AppendLine($"""
-                INSERT OR IGNORE INTO capture_channel_events
-                SELECT '{value.EventId:D}','chrome','{profile:D}',{json}->>'$.scope',{json}->>'$.mode',
-                  {value.StartedAtUtcMs},{json}->>'$.stoppedAtUtcMs',{json}->>'$.evidence',{json}->>'$.detail',{json}->>'$.runId';
-                """);
-        }
-        return sql.ToString();
-    }
-
-    private static string WriteVisits(Guid profileId, string payload, Visit?[] entries)
-    {
-        if (!entries.All(visit =>
-                visit is { VisitId.Length: > 0, Url.Length: > 0, VisitedAtUtcMs: > 0 }))
-            throw new InvalidDataException("invalid visits batch");
-
-        return $"""
-            INSERT INTO visits (browser, profile_id, visit_id, visited_at_utc_ms, url, transition, referring_visit_id, is_local)
-            SELECT 'chrome', '{profileId:D}', value ->> '$.visitId',
-                   value ->> '$.visitedAtUtcMs', value ->> '$.url', value ->> '$.transition',
-                   value ->> '$.referringVisitId', value ->> '$.isLocal'
-            FROM json_each({payload}, '$.visits')
-            WHERE true
-            ON CONFLICT (browser, profile_id, visit_id) DO UPDATE SET
-                transition = COALESCE(visits.transition, excluded.transition),
-                referring_visit_id = COALESCE(visits.referring_visit_id, excluded.referring_visit_id),
-                is_local = COALESCE(visits.is_local, excluded.is_local)
-            -- A visit does not change; later reads may only fill attributes that were unknown.
-            WHERE (visits.transition IS NULL AND excluded.transition IS NOT NULL)
-               OR (visits.referring_visit_id IS NULL AND excluded.referring_visit_id IS NOT NULL)
-               OR (visits.is_local IS NULL AND excluded.is_local IS NOT NULL);
-            """;
-    }
-
-    private sealed record Visit(string? VisitId, long VisitedAtUtcMs, string? Url, string? Transition,
-        string? ReferringVisitId, bool? IsLocal);
-
-    private static string WriteHistoryPages(Guid profileId, string payload, HistoryPage?[] entries)
-    {
-        if (!entries.All(page => page is { Url.Length: > 0, ObservedAtUtcMs: > 0 } && page.EventId != Guid.Empty &&
-                !string.IsNullOrWhiteSpace(page.Title)))
-            throw new InvalidDataException("invalid history pages batch");
-
-        return $"""
-            INSERT OR IGNORE INTO history_page_title_observations (browser, profile_id, event_id, url, title, observed_at_utc_ms)
-            SELECT 'chrome', '{profileId:D}', value ->> '$.eventId', value ->> '$.url', value ->> '$.title', value ->> '$.observedAtUtcMs'
-            FROM json_each({payload}, '$.historyPages')
-            WHERE value ->> '$.eventId' IS NOT NULL
-            OR value ->> '$.title' IS NOT (SELECT title FROM history_pages p
-                WHERE p.browser='chrome' AND p.profile_id='{profileId:D}' AND p.url=value ->> '$.url')
-              AND value ->> '$.observedAtUtcMs' >= (SELECT observed_at_utc_ms FROM history_pages p
-                WHERE p.browser='chrome' AND p.profile_id='{profileId:D}' AND p.url=value ->> '$.url')
-            OR NOT EXISTS (SELECT 1 FROM history_pages p WHERE p.browser='chrome' AND p.profile_id='{profileId:D}' AND p.url=value ->> '$.url');
-            """;
-    }
-
-    private sealed record HistoryPage(string? Url, string? Title, long ObservedAtUtcMs, Guid? EventId);
-
-    private static string WriteTabEvents(Guid profileId, string payload, TabEvent?[] entries)
-    {
-        if (!entries.All(entry => entry is { SessionSequence: > 0, RunStartedAtUtcMs: > 0, ObservedAtUtcMs: > 0 } &&
-                entry.EventId != Guid.Empty && entry.CaptureSessionId != Guid.Empty &&
-                (entry.Tabs?.All(tab => tab is { TabId: >= 0, Fields.ValueKind: JsonValueKind.Object }) ?? true)))
-            throw new InvalidDataException("invalid tab observation");
-
-        return $"""
-            CREATE TEMP TABLE incoming_tab_events (ordinal INTEGER PRIMARY KEY, event_id TEXT UNIQUE, value TEXT NOT NULL);
-            INSERT OR IGNORE INTO incoming_tab_events
-            SELECT j.key,j.value->>'$.eventId',j.value FROM json_each({payload}, '$.tabEvents') j
-            WHERE NOT EXISTS (SELECT 1 FROM tab_observations o WHERE o.event_id=j.value->>'$.eventId')
-            ORDER BY j.key;
-
-            INSERT OR IGNORE INTO capture_runs
-            SELECT DISTINCT value->>'$.captureSessionId','chrome','{profileId:D}','tabs',value->>'$.runStartedAtUtcMs',NULL,$host
-            FROM incoming_tab_events;
-            INSERT INTO tab_observations(event_id,run_id,run_sequence,observed_at_utc_ms,event_kind)
-            SELECT event_id,value->>'$.captureSessionId',value->>'$.sessionSequence',value->>'$.observedAtUtcMs',value->>'$.eventKind'
-            FROM incoming_tab_events ORDER BY ordinal;
-
-            CREATE TEMP VIEW incoming_tabs AS
-            SELECT observation_id,run_id,j.value->>'$.tabId' AS tab_id,j.value->'$.fields' AS fields
-            FROM incoming_tab_events JOIN tab_observations USING(event_id),json_each(incoming_tab_events.value,'$.tabs') j
-            WHERE json_type(incoming_tab_events.value,'$.tabs')='array';
-            CREATE TEMP VIEW incoming_windows AS
-            SELECT observation_id,run_id,j.value->>'$.windowId' AS window_id,j.value->>'$.isPresent' AS is_present
-            FROM incoming_tab_events JOIN tab_observations USING(event_id),json_each(incoming_tab_events.value,'$.windows') j
-            WHERE json_type(incoming_tab_events.value,'$.windows')='array';
-            CREATE TEMP VIEW incoming_focus AS
-            SELECT observation_id,run_id,value->>'$.focus.tabId' AS tab_id
-            FROM incoming_tab_events JOIN tab_observations USING(event_id) WHERE json_type(value,'$.focus')='object';
-
-            INSERT INTO tabs(run_id,tab_id)
-            SELECT run_id,tab_id FROM incoming_tabs UNION SELECT run_id,tab_id FROM incoming_focus WHERE tab_id IS NOT NULL
-            ON CONFLICT(run_id,tab_id) DO NOTHING;
-            INSERT INTO browser_windows(run_id,window_id)
-            SELECT run_id,window_id FROM incoming_windows
-            UNION SELECT run_id,fields->>'$.windowId' FROM incoming_tabs WHERE fields->>'$.windowId' IS NOT NULL
-            ON CONFLICT(run_id,window_id) DO NOTHING;
-            INSERT INTO window_presence_events
-            SELECT observation_id,window_key,is_present FROM incoming_windows JOIN browser_windows USING(run_id,window_id);
-            INSERT INTO tab_presence_events
-            SELECT observation_id,tab_key,fields->>'$.isPresent' FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
-            WHERE json_type(fields,'$.isPresent') IS NOT NULL;
-            INSERT INTO tab_window_observations
-            SELECT observation_id,tab_key,window_key IS NOT NULL,window_key
-            FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
-            LEFT JOIN browser_windows w ON w.run_id=incoming_tabs.run_id AND w.window_id=fields->>'$.windowId'
-            WHERE json_type(fields,'$.windowId') IS NOT NULL;
-            INSERT INTO tab_url_observations
-            SELECT observation_id,tab_key,fields->>'$.url' FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
-            WHERE json_type(fields,'$.url') IS NOT NULL;
-            INSERT INTO tab_title_observations
-            SELECT observation_id,tab_key,fields->>'$.title' FROM incoming_tabs JOIN tabs USING(run_id,tab_id)
-            WHERE json_type(fields,'$.title') IS NOT NULL;
-            INSERT INTO active_tab_focus_events
-            SELECT observation_id,tab_key IS NOT NULL,tab_key FROM incoming_focus LEFT JOIN tabs USING(run_id,tab_id);
-            """;
-    }
-
-    private static string JsonSql<T>(T value) => $"CAST(X'{Convert.ToHexString(JsonSerializer.SerializeToUtf8Bytes(value, JsonSerializerOptions.Web))}' AS TEXT)";
-
-    private sealed record TabEvent(Guid EventId, Guid CaptureSessionId, long RunStartedAtUtcMs, long SessionSequence,
-        long ObservedAtUtcMs, string? EventKind, WindowChange[]? Windows, TabChange[]? Tabs, FocusChange? Focus);
-    private sealed record WindowChange(int WindowId, bool IsPresent);
-    private sealed record TabChange(int TabId, JsonElement Fields);
-    private sealed record FocusChange(int? TabId);
-
-    private static string WriteDownloads(Guid profileId, Download?[] entries)
-    {
-        var sql = new StringBuilder();
-        foreach (var entry in entries)
-        {
-            if (entry is not { DownloadId: >= 0, RunSequence: > 0, RunStartedAtUtcMs: > 0, ObservedAtUtcMs: > 0 } ||
-                entry.EventId == Guid.Empty || entry.RunId == Guid.Empty || entry.Fields.ValueKind != JsonValueKind.Object)
-                throw new InvalidDataException("invalid download observation");
-            var json = JsonSql(entry.Fields);
-            sql.AppendLine($"""
-                INSERT OR IGNORE INTO capture_runs VALUES ('{entry.RunId:D}','chrome','{profileId:D}','downloads',{entry.RunStartedAtUtcMs},NULL,$host);
-                INSERT OR IGNORE INTO downloads(browser,profile_id,download_id) VALUES ('chrome','{profileId:D}',{entry.DownloadId});
-                UPDATE downloads SET url=COALESCE(url,{json}->>'$.url'),started_at_utc_ms=COALESCE(started_at_utc_ms,{json}->>'$.startedAtUtcMs')
-                WHERE browser='chrome' AND profile_id='{profileId:D}' AND download_id={entry.DownloadId}
-                  AND ((url IS NULL AND {json}->>'$.url' IS NOT NULL) OR (started_at_utc_ms IS NULL AND {json}->>'$.startedAtUtcMs' IS NOT NULL));
-                INSERT OR IGNORE INTO download_observations(event_id,run_id,run_sequence,observed_at_utc_ms,kind,download_key)
-                SELECT '{entry.EventId:D}','{entry.RunId:D}',{entry.RunSequence},{entry.ObservedAtUtcMs},{JsonSql(entry.Kind)}->>'$',download_key
-                FROM downloads WHERE browser='chrome' AND profile_id='{profileId:D}' AND download_id={entry.DownloadId};
-                """);
-            void AppendChanged(string aspect, (string Column, string Field)[] fields, Func<string[], string[]>? adjust = null)
+            if (payload.Field("sequence") is not { ValueKind: JsonValueKind.Number } number ||
+                !number.TryGetInt64(out var sequence) || sequence <= 0) throw;
+            var rejection = error is IOException ? error.InnerException! : error;
+            var scope = payload.Text("scope");
+            if (scope is not ("tabs" or "bookmarks" or "downloads" or "history")) scope = Source;
+            var observedAt = payload.Field("observedAtUtcMs");
+            var time = observedAt.ValueKind == JsonValueKind.Number && observedAt.TryGetInt64(out var timestamp) && timestamp > 0
+                ? timestamp : now;
+            return writer.Run((command, run) =>
             {
-                // Missing callback fields retain the previous value; explicit null clears it.
-                var table = $"download_{aspect}_observations";
-                var previous = $"FROM {table} f JOIN download_observations p USING(observation_id) " +
-                    "WHERE p.download_key=o.download_key AND p.observation_id<o.observation_id";
-                var expressions = fields.Select(field => $"""
-                    CASE WHEN json_type({json},'$.{field.Field}') IS NOT NULL THEN {json}->>'$.{field.Field}'
-                    ELSE (SELECT {field.Column} {previous} ORDER BY p.observation_id DESC LIMIT 1) END
-                    """).ToArray();
-                var values = string.Join(',', adjust?.Invoke(expressions) ?? expressions);
-                var supplied = string.Join(" OR ", fields.Select(field => $"json_type({json},'$.{field.Field}') IS NOT NULL"));
-                var columns = string.Join(',', fields.Select(field => field.Column));
-                sql.AppendLine($"""
-                    INSERT OR IGNORE INTO {table} SELECT observation_id,{values} FROM download_observations o
-                    WHERE event_id='{entry.EventId:D}' AND ({supplied})
-                      AND (NOT EXISTS (SELECT 1 {previous})
-                        OR (o.kind='snapshot' AND NOT EXISTS (SELECT 1 FROM download_observations p WHERE p.download_key=o.download_key AND p.run_id=o.run_id AND p.kind='snapshot' AND p.observation_id<o.observation_id))
-                        OR ({values}) IS NOT (SELECT {columns} {previous} ORDER BY p.observation_id DESC LIMIT 1));
-                    """);
-            }
-            AppendChanged("response", [("final_url", "finalUrl"), ("total_bytes", "totalBytes"), ("mime_type", "mimeType")]);
-            // An end time does not apply while the download is in progress, even if the callback kept the old one.
-            AppendChanged("state", [("state", "state"), ("ended_at_utc_ms", "endedAtUtcMs")],
-                values => [values[0], $"CASE WHEN ({values[0]})='in_progress' THEN NULL ELSE ({values[1]}) END"]);
-            AppendChanged("path", [("local_path", "filename")]);
-            sql.AppendLine($"""
-                DELETE FROM download_observations WHERE event_id='{entry.EventId:D}' AND kind='snapshot'
-                  AND NOT EXISTS (SELECT 1 FROM download_response_observations f WHERE f.observation_id=download_observations.observation_id)
-                  AND NOT EXISTS (SELECT 1 FROM download_state_observations f WHERE f.observation_id=download_observations.observation_id)
-                  AND NOT EXISTS (SELECT 1 FROM download_path_observations f WHERE f.observation_id=download_observations.observation_id);
-                """);
+                command.Execute("""
+                    INSERT INTO browser_rejected_deliveries(run_id,profile_id,queue_id,sequence,scope,observed_at_utc_ms,payload_json,error)
+                    VALUES($p0,$p1,$p2,$p3,$p4,$p5,$p6,$p7)
+                    ON CONFLICT(profile_id,queue_id,sequence) DO NOTHING
+                    """, run, profile, queue, sequence, scope, time, payload.GetRawText(), rejection.Message);
+                ConfirmDelivery(command, sequence);
+                return new Reply(Sequence: sequence, Rejected: true);
+            }, confirm: false);
         }
-        return sql.ToString();
     }
 
-    private sealed record Download(Guid EventId, Guid RunId, long RunStartedAtUtcMs, long RunSequence,
-        long ObservedAtUtcMs, string Kind, long DownloadId, JsonElement Fields);
+    private static bool PermanentError(Exception error) => error is InvalidDataException or JsonException or FormatException;
+
+    private Reply Receive(Delivery entry, long now)
+    {
+        if (entry.Sequence <= 0 || entry.ObservedAtUtcMs <= 0 || entry.BrowserSession == Guid.Empty ||
+            entry.Scope is not ("tabs" or "bookmarks" or "downloads" or "history") || string.IsNullOrEmpty(entry.Kind))
+            throw new InvalidDataException("invalid browser delivery");
+
+        var reply = writer.Run((command, run) =>
+        {
+            var change = new Observation(command, run, profile, queue, entry);
+            var last = (long?)command.Scalar("SELECT sequence FROM _browser_deliveries WHERE profile_id=$p0 AND queue_id=$p1", profile, queue);
+            if (entry.Sequence <= last && command.Scalar("""
+                SELECT 1 FROM browser_rejected_deliveries WHERE profile_id=$p0 AND queue_id=$p1 AND sequence=$p2
+                """, profile, queue, entry.Sequence) is not null)
+                return new Reply(Sequence: entry.Sequence, Rejected: true);
+            if (entry.Sequence > (last ?? 0))
+            {
+                if (entry.Kind == "read_failed")
+                {
+                    command.Execute("INSERT INTO capture_read_failures(run_id,observed_at_utc_ms,error) VALUES($p0,$p1,$p2)",
+                        run, entry.ObservedAtUtcMs, entry.Scope + ": " + (entry.Data.ValueKind == JsonValueKind.String
+                            ? entry.Data.GetString() : throw new InvalidDataException("invalid browser read failure")));
+                }
+                else
+                {
+                    switch (entry.Scope)
+                    {
+                        case "tabs": TabDatabase.Capture(change); break;
+                        case "bookmarks": BookmarkDatabase.Capture(change); break;
+                        case "downloads": DownloadDatabase.Capture(change); break;
+                        case "history": HistoryDatabase.Capture(change); break;
+                    }
+                }
+                ConfirmDelivery(command, entry.Sequence);
+            }
+            if (entry.Kind != "read_failed")
+                command.Execute("UPDATE capture_runs SET confirmed_until_utc_ms=$p0 WHERE run_id=$p1", now, run);
+            return new Reply(Sequence: entry.Sequence, History: entry is { Scope: "history", Kind: "range" }
+                ? HistoryDatabase.Next(command, profile, now) : null);
+        }, confirm: false);
+
+        return reply;
+    }
+
+    private void ConfirmDelivery(SqliteCommand command, long sequence) =>
+        command.Execute("""
+            INSERT INTO _browser_deliveries VALUES($p0,$p1,$p2)
+            ON CONFLICT(profile_id,queue_id) DO UPDATE SET sequence=MAX(sequence,excluded.sequence)
+            """, profile, queue, sequence);
+
+    internal Reply PollHistory(long now) =>
+        writer.Run((command, _) => new Reply(History: HistoryDatabase.Next(command, profile, now)), confirm: false);
+
+    internal void SnapshotTimeout(long started) => writer.Run((command, run) =>
+        command.Execute("""
+            INSERT INTO capture_channel_events(run_id,scope,mode,started_at_utc_ms,evidence)
+            VALUES($p0,'tabs','snapshot',$p1,'snapshot_timeout')
+            """, run, started), confirm: false);
+
+    internal void Stop(long now, Exception? error)
+    {
+        try
+        {
+            writer.Run((command, run) => command.Execute("""
+                UPDATE capture_channel_events SET stopped_at_utc_ms=MAX(started_at_utc_ms,$p0)
+                WHERE run_id=$p1 AND evidence='snapshot_timeout' AND stopped_at_utc_ms IS NULL
+                """, now, run), confirm: false);
+        }
+        finally { writer.Stop(error); }
+    }
+
+    public void Dispose() => writer.Dispose();
+
+    internal sealed class Observation(SqliteCommand command, long run, string profile, string queue, Delivery entry)
+    {
+        internal SqliteCommand Command => command;
+        internal long Run => run;
+        internal string Profile => profile;
+        internal string Session { get; } = entry.BrowserSession.ToString();
+        internal string EventId => queue + ":" + entry.Sequence;
+        internal long Sequence => entry.Sequence;
+        internal long Time => entry.ObservedAtUtcMs;
+        internal string Kind => entry.Kind;
+        internal JsonElement Data => entry.Data;
+        internal bool IsSnapshot => Kind == "snapshot";
+
+        // Scope progress is persisted separately from the last known values in the fact tables.
+        internal bool Snapshot(bool differs)
+        {
+            command.CommandText = """
+                SELECT run_id,observed_at_utc_ms,browser_session FROM _browser_snapshots
+                WHERE profile_id=$p0 AND scope=$p1
+                """;
+            command.Parameters.Clear();
+            command.Parameters.AddWithValue("$p0", profile);
+            command.Parameters.AddWithValue("$p1", entry.Scope);
+            (long Run, long Time, string Session)? previous = null;
+            using (var row = command.ExecuteReader())
+                if (row.Read()) previous = (row.GetInt64(0), row.GetInt64(1), row.GetString(2));
+
+            var reconciles = differs && previous is { } last && (entry.Scope != "tabs" || last.Session == Session);
+            var resumed = entry.Scope == "tabs" && command.Execute("""
+                UPDATE capture_channel_events SET stopped_at_utc_ms=MAX(started_at_utc_ms,$p0)
+                WHERE run_id=$p1 AND evidence='snapshot_timeout' AND stopped_at_utc_ms IS NULL
+                """, Time, run) > 0;
+            if (reconciles && !resumed)
+                Gap(entry.Scope, "snapshot", "reconciliation_changed", Math.Min(previous!.Value.Time, Time));
+            command.Execute("""
+                INSERT INTO _browser_snapshots VALUES($p0,$p1,$p2,$p3,$p4)
+                ON CONFLICT(profile_id,scope) DO UPDATE SET browser_session=excluded.browser_session,
+                    run_id=excluded.run_id, observed_at_utc_ms=excluded.observed_at_utc_ms
+                """, profile, entry.Scope, Session, run, Time);
+            return previous?.Run != run || previous?.Session != Session && entry.Scope == "tabs" || reconciles || resumed;
+        }
+
+        internal void Gap(string scope, string mode, string evidence, long from) =>
+            command.Execute("""
+                INSERT INTO capture_channel_events(run_id,scope,mode,started_at_utc_ms,stopped_at_utc_ms,evidence)
+                VALUES($p0,$p1,$p2,$p3,$p4,$p5)
+                """, run, scope, mode, from, Time, evidence);
+    }
+}
+
+internal static class ChromeValue
+{
+    internal static JsonElement Field(this JsonElement value, string name) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty(name, out var field) ? field : default;
+    internal static bool Has(this JsonElement value, string name) => value.Field(name).ValueKind != JsonValueKind.Undefined;
+    internal static string? Text(this JsonElement value, string name) => value.Field(name) is { ValueKind: JsonValueKind.String } field ? field.GetString() : null;
+    internal static int? Integer(this JsonElement value, string name) => value.Field(name) is { ValueKind: JsonValueKind.Number } field ? field.GetInt32() : null;
+    internal static long RequiredInteger(this JsonElement value, string name) =>
+        value.Field(name) is { ValueKind: JsonValueKind.Number } field
+            ? field.GetInt64() : throw new InvalidDataException($"missing Chrome {name}");
+
+    internal static JsonElement.ArrayEnumerator Elements(this JsonElement value) =>
+        value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : throw new InvalidDataException("expected Chrome array");
+
+    internal static bool? Flag(this JsonElement value, string name) => value.Field(name).ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        _ => null,
+    };
 }

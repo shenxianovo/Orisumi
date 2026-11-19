@@ -1,93 +1,67 @@
+using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Storage;
 using Orisumi.Platform;
-using Microsoft.Data.Sqlite;
 
 namespace Orisumi.Collectors.Codex;
 
 public static partial class CodexCollector
 {
     private const string Source = "codex";
-
-    private const string WriteThreads = """
-        CREATE TEMP VIEW selected_threads AS SELECT id AS thread_id, coalesce(nullif(name, ''), title) AS title, cwd,
-         coalesce(created_at_ms, created_at * 1000) AS created_at_utc_ms, archived FROM source_state.threads;
-        INSERT OR IGNORE INTO threads SELECT thread_id, created_at_utc_ms FROM selected_threads;
-        INSERT INTO thread_title_observations(thread_id,run_id,title)
-         SELECT s.thread_id,$run,s.title FROM selected_threads s
-         WHERE (NOT EXISTS (SELECT 1 FROM thread_title_observations o WHERE o.thread_id=s.thread_id)
-         OR s.title IS NOT (SELECT title FROM thread_title_observations o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1));
-        INSERT INTO thread_cwd_observations(thread_id,run_id,cwd)
-         SELECT s.thread_id,$run,s.cwd FROM selected_threads s
-         WHERE (NOT EXISTS (SELECT 1 FROM thread_cwd_observations o WHERE o.thread_id=s.thread_id)
-         OR s.cwd IS NOT (SELECT cwd FROM thread_cwd_observations o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1));
-        INSERT INTO thread_archive_observations(thread_id,run_id,archived)
-         SELECT s.thread_id,$run,s.archived FROM selected_threads s
-         WHERE (NOT EXISTS (SELECT 1 FROM thread_archive_observations o WHERE o.thread_id=s.thread_id)
-         OR s.archived IS NOT (SELECT archived FROM thread_archive_observations o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1));
-        """;
-
-    private const string WriteTurns = """
-        INSERT OR IGNORE INTO turns SELECT thread_id,turn_id,started_at * 1000 FROM source_history.thread_turns WHERE thread_id IN (SELECT thread_id FROM threads);
-        -- The start time does not change; a later read may only fill it in.
-        UPDATE turns SET started_at_utc_ms=(SELECT s.started_at * 1000 FROM source_history.thread_turns s WHERE s.thread_id=turns.thread_id AND s.turn_id=turns.turn_id)
-         WHERE started_at_utc_ms IS NULL
-         AND EXISTS (SELECT 1 FROM source_history.thread_turns s WHERE s.thread_id=turns.thread_id AND s.turn_id=turns.turn_id AND s.started_at IS NOT NULL);
-        INSERT INTO turn_status_observations(thread_id,turn_id,run_id,status,completed_at_utc_ms) SELECT s.thread_id,s.turn_id,$run,s.status,s.completed_at * 1000
-         FROM source_history.thread_turns s WHERE s.thread_id IN (SELECT thread_id FROM threads)
-         AND (NOT EXISTS (SELECT 1 FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id)
-         OR (s.status,s.completed_at * 1000) IS NOT (SELECT status,completed_at_utc_ms FROM turn_status_observations o WHERE o.thread_id=s.thread_id AND o.turn_id=s.turn_id ORDER BY observation_id DESC LIMIT 1));
-        """;
-
-    private const string WriteMessages = """
-        INSERT OR IGNORE INTO messages SELECT thread_id,turn_id,item_id, CASE item_type WHEN 'userMessage' THEN 'user' ELSE 'assistant' END,
-         created_at_ms,rollout_ordinal FROM source_history.thread_items WHERE thread_id IN (SELECT thread_id FROM threads)
-         AND item_type IN ('userMessage','agentMessage');
-        INSERT INTO message_content_observations(thread_id,turn_id,message_id,run_id,item_json)
-         SELECT s.thread_id,s.turn_id,s.item_id,$run,s.item_json FROM source_history.thread_items s
-         WHERE s.thread_id IN (SELECT thread_id FROM threads) AND s.item_type IN ('userMessage','agentMessage')
-         AND s.item_json IS NOT (SELECT item_json FROM message_content_observations o WHERE (o.thread_id,o.turn_id,o.message_id)=(s.thread_id,s.turn_id,s.item_id) ORDER BY observation_id DESC LIMIT 1);
-        """;
+    private static readonly string[] RolloutDirectories = ["sessions", "archived_sessions"];
 
     // One capture round, for tests; the resident Watch holds the writer for its lifetime.
     public static string Capture(string store)
     {
         using var writer = new CaptureWriter(store, Source);
-        return Capture(store, writer, "startup");
+        return Capture(store, writer, SourceHome(), reconcile: true);
     }
 
-    private static string Capture(string store, CaptureWriter writer, string trigger)
+    private static string Capture(string store, CaptureWriter writer, string codexHome, bool reconcile)
     {
-        var codexHome = SourceHome();
-        var (threadsChanged, turnsChanged, messagesChanged, usageChanged, unavailable, bytesRead) = writer.Run((command, runId) =>
+        var state = Path.Combine(codexHome, "state_5.sqlite");
+        var hasState = File.Exists(state);
+        var (events, usage, bytesRead) = writer.Run((command, runId) => new RolloutReader(command, runId, reconcile).Read(codexHome));
+        try
         {
-            var observedStart = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (command.Scalar("SELECT count(*) FROM source_state.threads WHERE history_mode <> 'paginated'") is not 0L)
-                throw new IOException("Codex threads include history outside the local paginated message database");
-            command.Parameters.Clear();
-            command.Parameters.AddWithValue("$run", runId);
-            var readCurrent = trigger != "usage_change";
-            int threadsChanged = 0, turnsChanged = 0, messagesChanged = 0;
-            if (readCurrent)
+            writer.Run((command, runId) =>
             {
-                command.CommandText = WriteThreads;
-                threadsChanged = command.ExecuteNonQuery();
-                command.CommandText = WriteTurns;
-                turnsChanged = command.ExecuteNonQuery();
-                command.CommandText = WriteMessages;
-                messagesChanged = command.ExecuteNonQuery();
-            }
-            command.CommandText = "SELECT id, rollout_path FROM source_state.threads WHERE id IN (SELECT thread_id FROM threads);";
-            var rollouts = new List<(string ThreadId, string Path)>();
-            using (var reader = command.ExecuteReader())
-                while (reader.Read()) rollouts.Add((reader.GetString(0), reader.GetString(1)));
-            if (readCurrent)
-                command.Execute("INSERT INTO database_observations VALUES($p0,$p1,$p2)", runId, observedStart, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            var (usageChanged, unavailable, bytesRead) = CodexUsage.Capture(command.Connection!, command.Transaction!, codexHome, rollouts, runId);
-            return (threadsChanged, turnsChanged, messagesChanged, usageChanged, unavailable, bytesRead);
-        }, [("trigger", trigger)],
-        [("source_state", Path.Combine(codexHome, "state_5.sqlite")), ("source_history", Path.Combine(codexHome, "thread_history_1.sqlite"))]);
-        return $"Codex: {threadsChanged} thread row(s), {turnsChanged} turn row(s), {messagesChanged} message row(s), " +
-            $"{usageChanged} usage row(s), {bytesRead} rollout bytes read in {new Store(store).CurrentDatabase(Source)}, {unavailable} rollouts unavailable";
+                CaptureCurrent(command, runId, hasState);
+                return 0;
+            }, hasState ? [("source_state", state)] : [], confirm: false, failureScope: "current_state");
+        }
+        catch (IOException) { } // The round records its own failure; rollout facts are already committed.
+        return $"Codex: {events} rollout events, {usage} usage events, {bytesRead} rollout bytes read in {new Store(store).CurrentDatabase(Source)}";
+    }
+
+    private static void CaptureCurrent(SqliteCommand command, long runId, bool hasState)
+    {
+        var started = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        command.Execute(hasState ? """
+            CREATE TEMP VIEW thread_snapshot AS
+            SELECT t.thread_id,CASE WHEN s.id IS NOT NULL THEN COALESCE(s.name,'') END AS name,s.archived,s.is_pinned
+            FROM threads t LEFT JOIN source_state.threads s ON s.id=t.thread_id;
+            """ : """
+            CREATE TEMP VIEW thread_snapshot AS
+            SELECT thread_id,NULL AS name,NULL AS archived,NULL AS is_pinned FROM threads;
+            """);
+        var observation = command.Scalar("""
+            INSERT INTO database_observations(run_id,started_at_utc_ms,stopped_at_utc_ms)
+            VALUES($p0,$p1,$p1) RETURNING observation_id
+            """, runId, started);
+        int Observe(string table, string column) => command.Execute($"""
+            INSERT INTO {table}(thread_id,database_observation_id,{column})
+            SELECT s.thread_id,$p0,s.{column} FROM thread_snapshot s
+            WHERE s.{column} IS NOT (
+                SELECT o.{column} FROM {table} o WHERE o.thread_id=s.thread_id ORDER BY observation_id DESC LIMIT 1
+            )
+            """, observation);
+        var changes = Observe("thread_name_observations", "name") +
+            Observe("thread_archive_observations", "archived") + Observe("thread_pin_observations", "is_pinned");
+        if (changes > 0)
+            command.Execute("UPDATE database_observations SET stopped_at_utc_ms=$p0 WHERE observation_id=$p1",
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), observation);
+        else
+            command.Execute("DELETE FROM database_observations WHERE observation_id=$p0", observation);
     }
 
     private static string SourceHome()

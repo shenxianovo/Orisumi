@@ -5,42 +5,57 @@ namespace Orisumi.Collectors.Codex;
 
 public static partial class CodexCollector
 {
-    public static async Task Watch(string store, CancellationToken cancellation)
+    public static Task Watch(string store, CancellationToken cancellation) =>
+        Watch(store, cancellation, TimeSpan.FromSeconds(60));
+
+    internal static async Task Watch(string store, CancellationToken cancellation, TimeSpan reconcileInterval)
     {
-        using var writer = new CaptureWriter(store, Source);
         var source = SourceHome();
-        var changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });
+        using var writer = new CaptureWriter(store, Source);
+        var changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
         FileSystemWatcher? watcher = null;
         var interrupted = 0;
-        var changedSources = 0;
-        var trigger = "startup";
-        int SourceKind(string path)
+
+        bool IsSource(string path)
         {
-            var name = Path.GetFileName(path);
-            if (Path.GetDirectoryName(path) == source && name is
-                "state_5.sqlite" or "state_5.sqlite-wal" or "state_5.sqlite-journal" or
-                "thread_history_1.sqlite" or "thread_history_1.sqlite-wal" or "thread_history_1.sqlite-journal") return 1;
             var relative = Path.GetRelativePath(source, path);
-            return name.EndsWith(".jsonl", StringComparison.Ordinal) || name.EndsWith(".jsonl.zst", StringComparison.Ordinal) ||
-                relative is "sessions" or "archived_sessions" ||
-                relative.StartsWith("sessions" + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
-                relative.StartsWith("archived_sessions" + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? 2 : 0;
+            if (relative is "state_5.sqlite" or "state_5.sqlite-wal" or "state_5.sqlite-journal") return true;
+            return RolloutDirectories.Any(directory => relative == directory ||
+                relative.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.Ordinal));
         }
-        void Signal(int kind)
+        void Changed(object sender, FileSystemEventArgs change)
         {
-            if (kind != 0)
-            {
-                Interlocked.Or(ref changedSources, kind);
-                changes.Writer.TryWrite(true);
-            }
+            if (IsSource(change.FullPath)) changes.Writer.TryWrite(true);
         }
-        void Changed(object sender, FileSystemEventArgs change) => Signal(SourceKind(change.FullPath));
+        void Interrupt()
+        {
+            Interlocked.Exchange(ref interrupted, 1);
+            changes.Writer.TryWrite(true);
+        }
+        // The parent watcher wakes the loop when CODEX_HOME is replaced, even if its old watcher is silent.
+        var parent = Path.GetDirectoryName(source);
+        using var parentWatcher = Directory.Exists(parent) ? new FileSystemWatcher(parent!, Path.GetFileName(source))
+        {
+            NotifyFilter = NotifyFilters.DirectoryName,
+        } : null;
+        if (parentWatcher is not null)
+        {
+            parentWatcher.Created += (_, _) => Interrupt();
+            parentWatcher.Deleted += (_, _) => Interrupt();
+            parentWatcher.Renamed += (_, _) => Interrupt();
+            parentWatcher.Error += (_, _) => Interrupt();
+            parentWatcher.EnableRaisingEvents = true;
+        }
+        var clock = TimeProvider.System;
+        var lastReconciled = clock.GetTimestamp();
+        var reconcile = true;
         try
         {
             while (!cancellation.IsCancellationRequested)
             {
-                if (watcher is null || !Directory.Exists(source) || Interlocked.Exchange(ref interrupted, 0) != 0)
+                if (Interlocked.Exchange(ref interrupted, 0) != 0 || watcher is null || !Directory.Exists(source))
                 {
+                    reconcile = true;
                     watcher?.Dispose(); watcher = null;
                     if (Directory.Exists(source))
                     {
@@ -50,37 +65,44 @@ public static partial class CodexCollector
                             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
                         };
                         watcher.Changed += Changed; watcher.Created += Changed; watcher.Deleted += Changed;
-                        watcher.Renamed += (_, change) => Signal(SourceKind(change.OldFullPath) | SourceKind(change.FullPath));
-                        watcher.Error += (_, _) => { Interlocked.Exchange(ref interrupted, 1); changes.Writer.TryWrite(true); };
+                        watcher.Renamed += (_, change) =>
+                        {
+                            if (IsSource(change.OldFullPath) || IsSource(change.FullPath)) changes.Writer.TryWrite(true);
+                        };
+                        watcher.Error += (_, _) => Interrupt();
                         watcher.EnableRaisingEvents = true;
                     }
                 }
                 var failed = false;
-                try { Console.WriteLine(Capture(store, writer, trigger)); }
+                var started = clock.GetTimestamp();
+                reconcile |= clock.GetElapsedTime(lastReconciled, started) >= reconcileInterval;
+                try
+                {
+                    Console.WriteLine(Capture(store, writer, source, reconcile));
+                    if (reconcile) lastReconciled = started;
+                    reconcile = false;
+                }
                 catch (IOException error)
                 {
                     failed = true;
                     Console.Error.WriteLine($"Codex capture failed: {error.Message}");
                 }
                 using var wake = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-                // Notifications wake normal imports. Reconciliation also discovers missed events
-                // and archived/replaced sources; failures retry without a busy loop.
-                wake.CancelAfter(TimeSpan.FromSeconds(failed ? 5 : 60));
+                // Notifications do not move the deadline for full prefix reconciliation.
+                var wait = failed ? TimeSpan.FromSeconds(5) : reconcileInterval - clock.GetElapsedTime(lastReconciled);
+                if (wait <= TimeSpan.Zero) continue;
+                wake.CancelAfter(wait);
                 try
                 {
                     await changes.Reader.ReadAsync(wake.Token);
                     await Task.Delay(150, cancellation);
                     while (changes.Reader.TryRead(out _)) { }
-                    var changed = Interlocked.Exchange(ref changedSources, 0);
-                    trigger = Volatile.Read(ref interrupted) != 0 ? "watcher_error" : (changed & 1) != 0 ? "change" : "usage_change";
                 }
-                catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
-                {
-                    trigger = failed ? "retry" : "reconcile";
-                }
+                catch (OperationCanceledException) when (!cancellation.IsCancellationRequested) { }
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (Exception error) { writer.Stop(error); throw; }
         finally { watcher?.Dispose(); }
     }
 }

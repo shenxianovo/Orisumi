@@ -57,8 +57,7 @@ enum MediaHardware {
             return value.map { $0.takeRetainedValue() as String }
         }
 
-        // Both APIs enqueue these property callbacks on the main queue. SQLite and the
-        // observer state stay on the same thread as the initial snapshot and session events.
+        // Both APIs deliver callbacks on the same main thread as snapshots and session events.
         func listen(_ id: UInt32, _ selector: UInt32, changed: @escaping () -> Void) -> MediaObjectSource.Cancel? {
             switch self {
             case .audio:
@@ -88,7 +87,6 @@ enum MediaHardware {
             channel == .microphone ? kAudioProcessPropertyIsRunningInput : kAudioProcessPropertyIsRunningOutput
         }
         func matchApplication(_ id: UInt32, _ pid: pid_t, _ bundle: String?) -> String? {
-            guard let instance = applications.observedInstance(pid: pid, bundleID: bundle) else { return nil }
             // The live PID must still map back to this HAL process object.
             var qualifier = pid
             var address = audioAddress(kAudioHardwarePropertyTranslatePIDToProcessObject)
@@ -96,7 +94,9 @@ enum MediaHardware {
             var size = UInt32(MemoryLayout.size(ofValue: object))
             let status = AudioObjectGetPropertyData(system, &address, UInt32(MemoryLayout.size(ofValue: qualifier)),
                                                     &qualifier, &size, &object)
-            return status == noErr && object == id && applications.observedInstance(pid: pid, bundleID: bundle) == instance ? instance : nil
+            guard status == noErr, object == id else { return nil }
+            return AudioResponsibility.application(for: pid, bundle: bundle, responsiblePID: AudioResponsibility.responsiblePID,
+                                                   observedInstance: applications.observedInstance(pid:bundleID:))
         }
         return MediaObjectSource(
             list: { hardware.objects(system, kAudioHardwarePropertyProcessObjectList) },
@@ -105,8 +105,7 @@ enum MediaHardware {
             identity: { id in
                 let pid = hardware.integer(id, kAudioProcessPropertyPID).map { pid_t(bitPattern: $0) }
                 let bundle = hardware.string(id, kAudioProcessPropertyBundleID)
-                let instance = pid.flatMap { $0 > 0 ? matchApplication(id, $0, bundle) : nil }
-                return .audio(pid: pid, bundleID: bundle, processInstanceID: instance)
+                return .audio(pid: pid, bundleID: bundle)
             },
             matchApplication: matchApplication,
             read: { id, channel in hardware.integer(id, selector(channel)).map { $0 != 0 } },

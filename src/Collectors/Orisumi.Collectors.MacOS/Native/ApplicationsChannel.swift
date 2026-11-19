@@ -35,16 +35,16 @@ final class ApplicationsChannel: CaptureChannel {
     }
 
     private let source: ApplicationsSource
-    private let database: ForegroundDatabase
+    private let events: ObservationEvents
     private let failed: (Error) -> Void
     private var frontmostChanged: [(RunningApplication?) -> Void] = []
     private var watches: [Cancel] = []
     private var applications: [AnyHashable: Application] = [:]
     private var generation = 0
 
-    init(source: ApplicationsSource, database: ForegroundDatabase, failed: @escaping (Error) -> Void) {
+    init(source: ApplicationsSource, events: ObservationEvents, failed: @escaping (Error) -> Void) {
         self.source = source
-        self.database = database
+        self.events = events
         self.failed = failed
     }
 
@@ -53,6 +53,11 @@ final class ApplicationsChannel: CaptureChannel {
     /// Called after each recorded foreground change while the channel listens.
     func onFrontmostChange(_ handler: @escaping (RunningApplication?) -> Void) {
         frontmostChanged.append(handler)
+    }
+
+    func frontmostInstance(pid: pid_t, at time: Date) throws -> String? {
+        guard let app = frontmost, app.pid == pid else { return nil }
+        return try observeForeground(app, at: time)
     }
 
     /// The process instance of a running application this channel has recorded, if it is still the same process.
@@ -67,8 +72,8 @@ final class ApplicationsChannel: CaptureChannel {
 
     func interrupt(reason: String) throws {
         stopListening()
-        database.interruptUnverifiedProcesses()
-        try database.appendChannel("applications", available: false, reason: reason)
+        events.interruptUnverifiedProcesses()
+        try events.appendChannel("applications", available: false, reason: reason)
     }
 
     func resume() throws {
@@ -83,25 +88,29 @@ final class ApplicationsChannel: CaptureChannel {
                 try self.record(running, at: observedAt, snapshot: false)
             }
         })
-        try record(source.running(), at: Date(), snapshot: true)
-        try database.appendChannel("applications", available: true, reason: "snapshot_received")
         watches.append(source.watchActivation { [weak self] app in
+            let observedAt = Date()
             guard let self else { return }
             deliverOnMain(self.failed) { [weak self] in
                 guard let self, self.generation == generation else { return }
-                try self.database.append(.activated, at: Date(), app: app.map(ForegroundApplication.init))
+                let instance = try self.observeForeground(app, at: observedAt)
+                try self.events.append(.activated, at: observedAt, instance: instance)
                 self.frontmostChanged.forEach { $0(app) }
             }
         })
-        try database.append(.snapshot, at: Date(), app: source.frontmost().map(ForegroundApplication.init))
+        try record(source.running(), at: Date(), snapshot: true)
+        try events.appendChannel("applications", available: true, reason: "snapshot_received")
+        let at = Date()
+        let instance = try observeForeground(frontmost, at: at)
+        try events.append(.snapshot, at: at, instance: instance)
     }
 
     // KVO has missed activation policy changes, so current values are compared every second.
     func reconcile() throws {
-        let observedAt = Date()
+        let at = Date()
+        _ = try observeForeground(frontmost, at: at)
         for entry in applications.values {
-            guard let instance = entry.instance else { continue }
-            try database.appendActivationPolicy(entry.app.isTerminated ? nil : entry.app.policy, instance: instance, at: observedAt)
+            try observePolicy(entry.app.isTerminated ? nil : entry.app.policy, of: entry, at: at)
         }
     }
 
@@ -116,33 +125,75 @@ final class ApplicationsChannel: CaptureChannel {
     }
 
     private func record(_ running: [RunningApplication], at observedAt: Date, snapshot: Bool) throws {
-        let current = Dictionary(running.filter { $0.pid > 0 }.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        for (key, entry) in applications where current[key] == nil || current[key]!.pid != entry.metadata.pid {
-            entry.policyWatch?()
-            try database.appendApplicationLifecycle(.disappeared, at: observedAt, app: entry.metadata, instance: entry.instance)
-            applications.removeValue(forKey: key)
+        let foreground = frontmost
+        var listed = running
+        if let foreground, !listed.contains(where: { $0.key == foreground.key }) { listed.append(foreground) }
+        let current = Dictionary(listed.filter { $0.pid > 0 }.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        for (key, entry) in applications {
+            if let app = current[key], matches(app, entry) { continue }
+            try retire(entry, at: observedAt)
         }
-        let generation = self.generation
-        for app in running where current[app.key] === app && applications[app.key] == nil {
-            let entry = Application(app)
-            applications[app.key] = entry
-            entry.policyWatch = app.watchPolicy { [weak self, weak entry] policy in
-                let observedAt = Date()
-                guard let self else { return }
-                deliverOnMain(self.failed) { [weak self, weak entry] in
-                    guard let self, let entry, self.generation == generation,
-                          self.applications[entry.app.key] === entry, let instance = entry.instance else { return }
-                    try self.database.appendActivationPolicy(policy, instance: instance, at: observedAt)
-                }
+        for app in listed where current[app.key] === app && applications[app.key] == nil {
+            let entry = try track(app, at: observedAt)
+            let policy = app.isTerminated ? nil : app.policy
+            if app.key == foreground?.key || policy == .regular || events.hasVerifiedProcess(entry.metadata) {
+                try qualify(entry, policy: policy, at: observedAt, snapshot: snapshot)
             }
-            entry.instance = try database.appendApplicationLifecycle(snapshot ? .snapshot : .appeared,
-                at: observedAt, app: entry.metadata, policy: app.isTerminated ? nil : app.policy)
         }
     }
-}
 
-extension ForegroundApplication {
-    init(_ app: RunningApplication) {
-        self.init(bundleID: app.bundleID, name: app.name, pid: app.pid)
+    private func matches(_ app: RunningApplication, _ entry: Application) -> Bool {
+        guard app.pid == entry.metadata.pid else { return false }
+        if let previous = entry.metadata.launchedAt, let current = app.launchedAt { return previous == current }
+        return true
+    }
+
+    private func retire(_ entry: Application, at time: Date) throws {
+        entry.policyWatch?()
+        if let instance = entry.instance {
+            try events.appendApplicationLifecycle(.disappeared, at: time, app: entry.metadata, instance: instance)
+        }
+        applications.removeValue(forKey: entry.app.key)
+    }
+
+    private func track(_ app: RunningApplication, at time: Date) throws -> Application {
+        if let existing = applications[app.key], matches(app, existing) { return existing }
+        if let previous = applications.values.first(where: { $0.metadata.pid == app.pid || $0.app.key == app.key }) {
+            try retire(previous, at: time)
+        }
+        let entry = Application(app)
+        applications[app.key] = entry
+        let generation = self.generation
+        entry.policyWatch = app.watchPolicy { [weak self, weak entry] policy in
+            let observedAt = Date()
+            guard let self else { return }
+            deliverOnMain(self.failed) { [weak self, weak entry] in
+                guard let self, let entry, self.generation == generation,
+                      self.applications[entry.app.key] === entry else { return }
+                try self.observePolicy(policy, of: entry, at: observedAt)
+            }
+        }
+        return entry
+    }
+
+    private func observeForeground(_ app: RunningApplication?, at time: Date) throws -> String? {
+        guard let app, app.pid > 0 else { return nil }
+        let entry = try track(app, at: time)
+        try qualify(entry, policy: app.isTerminated ? nil : app.policy, at: time)
+        return entry.instance
+    }
+
+    private func observePolicy(_ policy: ApplicationActivationPolicy?, of entry: Application, at time: Date) throws {
+        if let instance = entry.instance {
+            try events.appendActivationPolicy(policy, instance: instance, at: time)
+        } else if policy == .regular {
+            try qualify(entry, policy: policy, at: time)
+        }
+    }
+
+    private func qualify(_ entry: Application, policy: ApplicationActivationPolicy?, at time: Date, snapshot: Bool = false) throws {
+        guard entry.instance == nil else { return }
+        entry.instance = try events.appendApplicationLifecycle(snapshot ? .snapshot : .appeared,
+            at: time, app: entry.metadata, policy: policy)
     }
 }

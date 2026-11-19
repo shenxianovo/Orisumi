@@ -11,12 +11,12 @@ struct KeyboardPress {
 
 struct KeyboardPressAccumulator {
     private struct PendingPress {
-        let runSequence: Int64
+        let token: Int64
         let pressedAt: Date
         let modifiersAtPress: Int64
 
         func finish(keyCode: Int64, releasedAt: Date?) -> InputObservation {
-            InputObservation(runSequence: runSequence, observedAt: pressedAt,
+            InputObservation(token: token, observedAt: pressedAt,
                              event: .keyboardPress(KeyboardPress(keyCode: keyCode, modifiersAtPress: modifiersAtPress,
                                                                  releasedAt: releasedAt)))
         }
@@ -37,7 +37,7 @@ struct KeyboardPressAccumulator {
     private var held: [Int64: PendingPress] = [:]
 
     mutating func consume(_ type: CGEventType, keyCode: Int64, flags: CGEventFlags, isRepeat: Bool,
-                          at time: Date, reserveSequence: () -> Int64) -> InputObservation? {
+                          at time: Date, reserve: () throws -> Int64) rethrows -> InputObservation? {
         guard keyCode >= 0 else { return nil }
         let isDown: Bool
         switch type {
@@ -57,7 +57,7 @@ struct KeyboardPressAccumulator {
         guard isDown else {
             return held.removeValue(forKey: keyCode)?.finish(keyCode: keyCode, releasedAt: time)
         }
-        let press = PendingPress(runSequence: reserveSequence(), pressedAt: time,
+        let press = PendingPress(token: try reserve(), pressedAt: time,
                                  modifiersAtPress: Int64(flags.intersection(Self.shortcutModifiers).rawValue))
         return held.updateValue(press, forKey: keyCode)?.finish(keyCode: keyCode, releasedAt: nil)
     }

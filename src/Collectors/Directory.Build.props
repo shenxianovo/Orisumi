@@ -12,19 +12,11 @@
     <ProjectReference Include="$(MSBuildThisFileDirectory)../Orisumi.Platform/Orisumi.Platform.csproj" />
   </ItemGroup>
 
-  <!-- C# collectors: the schema is embedded and opened through the shared Storage code.
-       A collector that writes its database from another toolchain sets NativeSchema=true.
-       Storage/Schema holds the tables every source database has. -->
-  <ItemGroup Condition="'$(NativeSchema)' != 'true'">
+  <!-- Storage/Schema holds the tables every source database has. -->
+  <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <EmbeddedResource Include="Schema/*/*.sql;$(MSBuildThisFileDirectory)Storage/Schema/*/*.sql"
                       LogicalName="$(AssemblyName).Schema.$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(Identity)')))).%(Filename)%(Extension)" />
     <Compile Include="$(MSBuildThisFileDirectory)Storage/*.cs" LinkBase="Storage" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(NativeSchema)' == 'true'">
-    <Content Include="$(MSBuildThisFileDirectory)Storage/Schema/**/*.sql"
-             Link="$(MSBuildProjectName)/Schema/%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -1,8 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <!-- The Swift helper writes macos.sqlite and loads the schema copied beside it. -->
-    <NativeSchema>true</NativeSchema>
-  </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
     <MacOSForegroundSource Include="Native/*.swift" />
@@ -12,7 +8,7 @@
           Inputs="@(MacOSForegroundSource);$(MSBuildProjectFullPath)"
           Outputs="$(IntermediateOutputPath)orisumi-macos-foreground">
     <MakeDir Directories="$(IntermediateOutputPath)" />
-    <Exec Command="xcrun swiftc @(MacOSForegroundSource->'&quot;%(FullPath)&quot;', ' ') -lsqlite3 -o &quot;$(IntermediateOutputPath)orisumi-macos-foreground&quot;" />
+    <Exec Command="xcrun swiftc @(MacOSForegroundSource->'&quot;%(FullPath)&quot;', ' ') -o &quot;$(IntermediateOutputPath)orisumi-macos-foreground&quot;" />
     <ItemGroup>
       <FileWrites Include="$(IntermediateOutputPath)orisumi-macos-foreground" />
     </ItemGroup>
@@ -27,10 +23,4 @@
                CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
-  <ItemGroup>
-    <Content Include="Schema/**/*"
-             Link="Orisumi.Collectors.MacOS/Schema/%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest"
-             CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>

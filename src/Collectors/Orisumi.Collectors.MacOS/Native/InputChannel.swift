@@ -7,7 +7,7 @@ enum InputEvent {
 }
 
 struct InputObservation {
-    let runSequence: Int64
+    let token: Int64
     let observedAt: Date
     let event: InputEvent
 }
@@ -51,7 +51,7 @@ struct InputSource {
 // AFK follows the listener when it runs and samples the system idle time otherwise.
 final class InputChannel: CaptureChannel {
     private let source: InputSource
-    private let database: ForegroundDatabase
+    private let events: ObservationEvents
     private let failed: (Error) -> Void
     private let captureInput: Bool
     private var permission = CapturePermissionState()
@@ -64,10 +64,10 @@ final class InputChannel: CaptureChannel {
     private var listening = false
     private var reportedTapFailure = false
 
-    init(source: InputSource, captureInput: Bool, afkThresholdMS: Int64, database: ForegroundDatabase, failed: @escaping (Error) -> Void) {
+    init(source: InputSource, captureInput: Bool, afkThresholdMS: Int64, events: ObservationEvents, failed: @escaping (Error) -> Void) {
         self.source = source
         self.captureInput = captureInput
-        self.database = database
+        self.events = events
         self.failed = failed
         idle = ActivityIdleTracker(threshold: TimeInterval(afkThresholdMS) / 1000)
     }
@@ -81,11 +81,11 @@ final class InputChannel: CaptureChannel {
     func interrupt(reason: String) throws {
         listening = false
         resetIdle()
-        try database.appendChannel("afk", available: false, reason: reason)
+        try events.appendChannel("afk", available: false, reason: reason)
         if tap != nil {
             pending.append(contentsOf: keyboard.interrupt())
             _ = tap?.setEnabled(false)
-            try database.appendChannel("input", available: false, reason: reason)
+            try events.appendChannel("input", available: false, reason: reason)
         }
     }
 
@@ -93,7 +93,7 @@ final class InputChannel: CaptureChannel {
         listening = true
         if let tap {
             if tap.setEnabled(true) {
-                try database.appendChannel("input", available: true, reason: "listener_resumed")
+                try events.appendChannel("input", available: true, reason: "listener_resumed")
             } else {
                 try stopListener(reason: "tap_unavailable")
             }
@@ -116,7 +116,7 @@ final class InputChannel: CaptureChannel {
 
     func flush() throws {
         guard !pending.isEmpty else { return }
-        try database.appendInputBatch(pending)
+        try events.appendInputBatch(pending)
         pending.removeAll(keepingCapacity: true)
     }
 
@@ -124,7 +124,7 @@ final class InputChannel: CaptureChannel {
         guard captureInput else { return }
         let granted = source.permitted()
         try permission.observe(granted) { event in
-            try database.appendPermission(.inputMonitoring, kind: event, at: Date())
+            try events.appendPermission(.inputMonitoring, kind: event, at: Date())
         }
         guard granted else {
             try stopListener(reason: "listener_stopped")
@@ -132,7 +132,7 @@ final class InputChannel: CaptureChannel {
         }
         guard listening, tap == nil else { return }
         guard let tap = source.listen({ [weak self] signal in self?.receive(signal) }) else {
-            try database.appendChannel("input", available: false, reason: "tap_unavailable")
+            try events.appendChannel("input", available: false, reason: "tap_unavailable")
             if !reportedTapFailure {
                 fputs("orisumi: input listener unavailable; will retry\n", stderr)
                 reportedTapFailure = true
@@ -146,7 +146,7 @@ final class InputChannel: CaptureChannel {
         }
         flushTimer = timer
         RunLoop.main.add(timer, forMode: .common)
-        try database.appendChannel("input", available: true, reason: "listener_started")
+        try events.appendChannel("input", available: true, reason: "listener_started")
         reportedTapFailure = false
         try sampleAFK()
     }
@@ -157,7 +157,7 @@ final class InputChannel: CaptureChannel {
         closeTap()
         try flush()
         if wasListening { resetIdle() }
-        try database.appendChannel("input", available: false, reason: reason)
+        try events.appendChannel("input", available: false, reason: reason)
     }
 
     private func closeTap() {
@@ -174,12 +174,12 @@ final class InputChannel: CaptureChannel {
         case .interrupted:
             fputs("orisumi: the input event tap was interrupted; some input events may be missing\n", stderr)
             do {
-                try database.appendChannel("input", available: false, reason: "tap_interrupted")
+                try events.appendChannel("input", available: false, reason: "tap_interrupted")
                 pending.append(contentsOf: keyboard.interrupt())
                 resetIdle()
                 try sampleAFK()
                 if tap.setEnabled(true) {
-                    try database.appendChannel("input", available: true, reason: "tap_reenabled")
+                    try events.appendChannel("input", available: true, reason: "tap_reenabled")
                 } else {
                     try stopListener(reason: "tap_unavailable")
                 }
@@ -190,14 +190,18 @@ final class InputChannel: CaptureChannel {
             return
         case let .key(type, keyCode, flags, isRepeat):
             activity()
-            if let press = keyboard.consume(type, keyCode: keyCode, flags: flags, isRepeat: isRepeat, at: observedAt,
-                                            reserveSequence: database.reserveInputSequence) {
-                enqueue(press)
-            }
+            do {
+                if let press = try keyboard.consume(type, keyCode: keyCode, flags: flags, isRepeat: isRepeat, at: observedAt,
+                                                    reserve: { try events.reserveInput(at: observedAt) }) {
+                    enqueue(press)
+                }
+            } catch { failed(error) }
         case let .mouse(kind, x, y, button):
             activity()
-            enqueue(InputObservation(runSequence: database.reserveInputSequence(), observedAt: observedAt,
-                                     event: .mouse(kind: kind, xPoints: x, yPoints: y, button: button)))
+            do {
+                enqueue(InputObservation(token: try events.reserveInput(at: observedAt), observedAt: observedAt,
+                                         event: .mouse(kind: kind, xPoints: x, yPoints: y, button: button)))
+            } catch { failed(error) }
         case .activity:
             activity()
         }
@@ -223,18 +227,18 @@ final class InputChannel: CaptureChannel {
         guard listening else { return }
         guard let seconds = source.idleSeconds(), seconds.isFinite, seconds >= 0, seconds < Double(Int64.max) / 1000 else {
             resetIdle()
-            try database.appendChannel("afk", available: false, reason: "read_failed")
+            try events.appendChannel("afk", available: false, reason: "read_failed")
             return
         }
-        try database.appendChannel("afk", available: true, reason: "sample_received")
-        try database.appendMethod("afk", mode: tap == nil ? "snapshot" : "notification")
+        try events.appendChannel("afk", available: true, reason: "sample_received")
+        try events.appendMethod("afk", mode: tap == nil ? "snapshot" : "notification")
         try recordIdle(idle.observe(idle: seconds, at: ProcessInfo.processInfo.systemUptime))
         scheduleIdle()
     }
 
     private func recordIdle(_ change: (AFKEventKind, AFKState, Int64)?) throws {
         if let (kind, state, idleMS) = change {
-            try database.appendAFK(kind, at: Date(), state: state, idleMS: idleMS)
+            try events.appendAFK(kind, at: Date(), state: state, idleMS: idleMS)
         }
     }
 

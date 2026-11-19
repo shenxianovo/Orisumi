@@ -1,0 +1,22 @@
+CREATE TABLE rollout_events (
+    event_id INTEGER PRIMARY KEY,
+    run_id INTEGER NOT NULL REFERENCES capture_runs(run_id),
+    thread_id TEXT NOT NULL REFERENCES threads(thread_id),
+    turn_id TEXT,
+    kind TEXT NOT NULL CHECK(kind IN ('item_completed','web_search_call','turn_started','turn_completed','turn_aborted','turn_context')),
+    item_id TEXT,
+    item_type TEXT,
+    call_id TEXT,
+    recorded_at_utc_ms INTEGER,
+    started_at_utc_ms INTEGER,
+    completed_at_utc_ms INTEGER,
+    rollout_id INTEGER NOT NULL REFERENCES rollouts(rollout_id),
+    source_file_event_id INTEGER NOT NULL REFERENCES source_file_events(event_id),
+    source_line INTEGER NOT NULL,
+    rollout_ordinal INTEGER,
+    record_hash BLOB NOT NULL CHECK(typeof(record_hash)='blob' AND length(record_hash)=32),
+    hash_occurrence INTEGER NOT NULL,
+    _read_version_id INTEGER NOT NULL REFERENCES source_file_events(event_id),
+    FOREIGN KEY(thread_id, turn_id) REFERENCES turns(thread_id, turn_id),
+    UNIQUE(rollout_id, record_hash, hash_occurrence)
+);

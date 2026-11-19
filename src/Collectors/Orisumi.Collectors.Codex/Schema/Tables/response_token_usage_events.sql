@@ -1,0 +1,21 @@
+CREATE TABLE response_token_usage_events (
+    event_id INTEGER PRIMARY KEY,
+    run_id INTEGER NOT NULL REFERENCES capture_runs(run_id),
+    thread_id TEXT NOT NULL REFERENCES threads(thread_id),
+    turn_id TEXT,
+    response_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind='token_usage_record'),
+    recorded_at_utc_ms INTEGER,
+    rollout_id INTEGER NOT NULL REFERENCES rollouts(rollout_id),
+    source_file_event_id INTEGER NOT NULL REFERENCES source_file_events(event_id),
+    source_line INTEGER NOT NULL,
+    rollout_ordinal INTEGER,
+    total_input_tokens INTEGER,
+    cache_read_input_tokens INTEGER,
+    cache_write_input_tokens INTEGER,
+    total_output_tokens INTEGER,
+    reasoning_output_tokens INTEGER,
+    total_tokens INTEGER,
+    FOREIGN KEY(thread_id, turn_id) REFERENCES turns(thread_id, turn_id),
+    UNIQUE(thread_id, response_id)
+);
