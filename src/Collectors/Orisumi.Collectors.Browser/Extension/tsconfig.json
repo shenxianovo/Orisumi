@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "noEmitOnError": true,
     "rootDir": "src",
-    "outDir": "../ChromeExtension"
+    "outDir": "bin/extension"
   },
   "include": ["src/**/*.ts"]
 }

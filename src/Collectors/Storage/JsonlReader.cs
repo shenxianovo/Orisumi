@@ -25,15 +25,18 @@ internal sealed class JsonlReader : IDisposable
     private readonly long modified;
     private readonly Func<Stream, Stream>? decodeArchive;
     private readonly bool trackCommittedPrefix;
+    private readonly CancellationToken stop;
     internal string Path { get; }
     internal string Identity { get; }
     internal long Length => length;
 
-    internal JsonlReader(string path, Func<Stream, Stream>? decodeArchive = null, bool trackCommittedPrefix = false)
+    internal JsonlReader(string path, Func<Stream, Stream>? decodeArchive = null, bool trackCommittedPrefix = false,
+        CancellationToken stop = default)
     {
         Path = path;
         this.decodeArchive = decodeArchive;
         this.trackCommittedPrefix = trackCommittedPrefix;
+        this.stop = stop;
         stream = Open(path);
         try
         {
@@ -87,7 +90,11 @@ internal sealed class JsonlReader : IDisposable
             using var decoded = decodeArchive(stream);
             using var reader = new StreamReader(decoded, Utf8);
             // Archives are immutable versions, so their final line can end at EOF.
-            while (reader.ReadLine() is { } line) observe(++lineNumber, line);
+            while (reader.ReadLine() is { } line)
+            {
+                stop.ThrowIfCancellationRequested();
+                observe(++lineNumber, line);
+            }
             if (stream.Length != length || File.GetLastWriteTimeUtc(stream.SafeFileHandle).Ticks != modified)
                 throw new IOException($"{Path} changed while being decoded");
             return (new(Identity, Path, length, lineNumber, length, modified, "", ""), stream.Position);
@@ -106,8 +113,9 @@ internal sealed class JsonlReader : IDisposable
                 committed.Append(prefix);
             }
         }
-        foreach (var (line, end) in Lines(stream, offset, length, committed))
+        foreach (var (line, end) in Lines(stream, offset, length, committed, stop))
         {
+            stop.ThrowIfCancellationRequested();
             observe(++lineNumber, line);
             offset = end;
         }
@@ -126,6 +134,7 @@ internal sealed class JsonlReader : IDisposable
         var remaining = offset - offset % CheckpointBytes;
         while (remaining > 0)
         {
+            stop.ThrowIfCancellationRequested();
             var count = (int)Math.Min(buffer.Length, remaining);
             stream.ReadExactly(buffer.AsSpan(0, count));
             hash.Append(buffer.AsSpan(0, count));
@@ -192,7 +201,7 @@ internal sealed class JsonlReader : IDisposable
 
     // Complete lines between start and length. An unterminated last line is left for the next read.
     private static IEnumerable<(string Text, long End)> Lines(FileStream stream, long start, long length,
-        PrefixHash? committedPrefix)
+        PrefixHash? committedPrefix, CancellationToken stop)
     {
         stream.Position = start;
         var buffer = new byte[64 * 1024];
@@ -200,6 +209,7 @@ internal sealed class JsonlReader : IDisposable
         var position = start;
         while (position < length)
         {
+            stop.ThrowIfCancellationRequested();
             var count = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, length - position));
             if (count == 0) throw new IOException($"{stream.Name} was truncated while being read");
             var begin = 0;

@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace Orisumi.Collectors.Storage;
 
 // Linked into each collector: resources belong to that collector's assembly.
-// An existing database is used as is; the structure is not versioned, and capture.mdx says how a changed schema is handled.
+// An existing database is used as is; the structure is not versioned, and capture/index.mdx says how a changed schema is handled.
 internal static class SqliteSchema
 {
     private static readonly System.Reflection.Assembly Assembly = typeof(SqliteSchema).Assembly;

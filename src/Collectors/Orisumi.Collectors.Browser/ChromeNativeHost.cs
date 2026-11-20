@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Text;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Orisumi.Platform;
 
@@ -8,52 +8,43 @@ namespace Orisumi.Collectors.Browser;
 
 public static class ChromeNativeHost
 {
-    private const string Name = "com.orisumi.browser";
     private const int MaxIncomingBytes = 64 * 1024 * 1024;
     private const int MaxReplyBytes = 1024 * 1024;
     private static readonly TimeSpan SnapshotInterval = TimeSpan.FromMinutes(2);
 
-    public static string Register(string store, string extensionId, string executable)
+    public static string Register(string store, string extensionId)
     {
-        if (extensionId.Length != 32 || extensionId.Any(character => character is < 'a' or > 'p'))
-            throw new ArgumentException("expected a 32-character Chrome extension ID");
+        var instance = Instance.Open(store);
+        var command = RuntimeFeature.IsDynamicCodeSupported
+            ? new[] { RunProcess.Dotnet, Path.Combine(AppContext.BaseDirectory, "orisumi-browser.dll") }
+            : [Path.Combine(AppContext.BaseDirectory, "orisumi-browser")];
+        return ChromeExtension.Register(instance, extensionId,
+            [.. command, "--store", instance.Store.Root, "native-host", "--registered"], SystemLocations.Current);
+    }
 
+    public static async Task Run(string store, bool registered, CancellationToken cancellation)
+    {
         var location = new Store(store);
-        var launcher = Path.Combine(location.State, "chrome-native-host");
-        Directory.CreateDirectory(location.State);
-        // Chrome does not inherit the shell's .NET environment.
-        var dotnet = Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..", "dotnet"));
-        var command = File.Exists(dotnet)
-            ? $"{ShellQuote(dotnet)} {ShellQuote(Path.ChangeExtension(executable, ".dll"))}"
-            : ShellQuote(executable);
-        File.WriteAllText(launcher, $"#!/bin/sh\nexec {command} --store {ShellQuote(location.Root)} browser native-host\n");
-        File.SetUnixFileMode(launcher, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-
-        var manifestDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts");
-        Directory.CreateDirectory(manifestDirectory);
-        var manifest = Path.Combine(manifestDirectory, Name + ".json");
-        File.WriteAllText(manifest, JsonSerializer.Serialize(new
+        string pidFile;
+        using (Store.WaitLock(location.LockFile("chrome-registration")))
         {
-            name = Name,
-            description = "Orisumi browser collector",
-            path = launcher,
-            type = "stdio",
-            allowed_origins = new[] { $"chrome-extension://{extensionId}/" },
-        }));
-        return manifest;
+            if (registered && !File.Exists(location.ChromeLauncher)) return;
+            pidFile = Path.Combine(location.ChromeProcesses, $"{Environment.ProcessId}.pid");
+            ProcessIdentity.Of(Environment.ProcessId)!.Write(pidFile);
+        }
+        try
+        {
+            using var input = Console.OpenStandardInput();
+            using var output = Console.OpenStandardOutput();
+            await Run(store, input, output, SnapshotInterval, cancellation);
+        }
+        finally { File.Delete(pidFile); }
     }
 
-    public static async Task Run(string store)
+    internal static async Task Run(string store, Stream input, Stream output, TimeSpan snapshotInterval,
+        CancellationToken stop = default)
     {
-        using var input = Console.OpenStandardInput();
-        using var output = Console.OpenStandardOutput();
-        await Run(store, input, output, SnapshotInterval);
-    }
-
-    internal static async Task Run(string store, Stream input, Stream output, TimeSpan snapshotInterval)
-    {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(stop);
         var token = cancellation.Token;
         var header = new byte[sizeof(int)];
         var clock = TimeProvider.System;
@@ -71,7 +62,7 @@ public static class ChromeNativeHost
         }
         async Task Write(BrowserDatabase.Reply reply)
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(reply, JsonSerializerOptions.Web);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(reply, BrowserJson.Default.Reply);
             if (bytes.Length > MaxReplyBytes) throw new InvalidDataException("native reply exceeds Chrome's message limit");
             var prefix = new byte[sizeof(int)];
             BinaryPrimitives.WriteInt32LittleEndian(prefix, bytes.Length);
@@ -89,12 +80,12 @@ public static class ChromeNativeHost
         Exception? failure = null;
         try
         {
-            var first = await Read();
+            var first = await Read().WaitAsync(token);
             if (first is null) return;
             using (var hello = JsonDocument.Parse(first))
             {
                 if (hello.RootElement.Text("type") != "open") throw new InvalidDataException("expected browser connection identity");
-                database = new BrowserDatabase(store, hello.RootElement.Deserialize<BrowserDatabase.Hello>(JsonSerializerOptions.Web)!, Now());
+                database = new BrowserDatabase(store, hello.RootElement.Deserialize(BrowserJson.Default.Hello)!, Now());
             }
             await Write(new());
             var lastSnapshot = Now();
@@ -165,6 +156,7 @@ public static class ChromeNativeHost
                 read = Read();
             }
         }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         catch (Exception error)
         {
             failure = error;
@@ -180,6 +172,4 @@ public static class ChromeNativeHost
             }
         }
     }
-
-    private static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
 }

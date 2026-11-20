@@ -7,10 +7,11 @@ using Spectre.Console;
 
 try
 {
-    if (await SourceLauncher.TryRun(args) is int exitCode)
-        return exitCode;
+    var root = Commands.Create();
+    if (await CollectorPrograms.TryForward(root, args) is int collectorExitCode)
+        return collectorExitCode;
 
-    return await Commands.Create().Parse(args).InvokeAsync(new InvocationConfiguration
+    return await root.Parse(args).InvokeAsync(new InvocationConfiguration
     {
         EnableDefaultExceptionHandler = false,
         ProcessTerminationTimeout = TimeSpan.FromSeconds(10),

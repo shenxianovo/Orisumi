@@ -78,7 +78,7 @@ public static partial class CodexCollector
                 reconcile |= clock.GetElapsedTime(lastReconciled, started) >= reconcileInterval;
                 try
                 {
-                    Console.WriteLine(Capture(store, writer, source, reconcile));
+                    Console.WriteLine(Capture(store, writer, source, reconcile, cancellation));
                     if (reconcile) lastReconciled = started;
                     reconcile = false;
                 }

@@ -1,7 +1,7 @@
 using System.Globalization;
 using Spectre.Console;
 
-namespace Orisumi.Cli.Dev.Loc;
+namespace Orisumi.Dev.Loc;
 
 internal static class Terminal
 {

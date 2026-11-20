@@ -13,12 +13,13 @@ public static partial class ClaudeCollector
         return Capture(store, writer, null);
     }
 
-    private static string Capture(string store, CaptureWriter writer, IReadOnlyCollection<string>? changedPaths) =>
+    private static string Capture(string store, CaptureWriter writer, IReadOnlyCollection<string>? changedPaths,
+        CancellationToken stop = default) =>
         writer.Run((command, runId) =>
         {
             var projects = Projects();
             if (!Directory.Exists(projects)) throw new DirectoryNotFoundException($"Claude Code projects directory not found: {projects}");
-            var written = Import(command.Connection!, command.Transaction!, runId, projects, changedPaths, out var bytes, out var records);
+            var written = Import(command.Connection!, command.Transaction!, runId, projects, changedPaths, stop, out var bytes, out var records);
             return $"Claude Code: {written} source records captured in {new Store(store).CurrentDatabase(Source)}, " +
                 $"{records} records parsed, {bytes} transcript bytes read";
         });
@@ -29,7 +30,7 @@ public static partial class ClaudeCollector
         using var writer = new CaptureWriter(store, Source);
         var signals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
         var home = Path.GetDirectoryName(projects)!;
-        var gate = new object();
+        var gate = new Lock();
         var paths = new HashSet<string>(StringComparer.Ordinal);
         var scan = true;
         var rebind = true;
@@ -104,7 +105,7 @@ public static partial class ClaudeCollector
                 try
                 {
                     if (bind) Bind();
-                    Console.WriteLine(Capture(store, writer, changed));
+                    Console.WriteLine(Capture(store, writer, changed, cancellation));
                 }
                 catch (IOException error)
                 {

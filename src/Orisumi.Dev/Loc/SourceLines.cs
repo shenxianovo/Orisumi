@@ -1,4 +1,4 @@
-namespace Orisumi.Cli.Dev.Loc;
+namespace Orisumi.Dev.Loc;
 
 internal static class SourceLanguages
 {

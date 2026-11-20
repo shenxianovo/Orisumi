@@ -4,6 +4,7 @@
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,8 +16,12 @@ using Orisumi.Platform;
 
 [assembly: SupportedOSPlatform("macos")]
 
+if (args.Length > 1) throw new ArgumentException("Provide at most one native host executable.");
+if (args.Length == 1) Connection.Executable = Path.GetFullPath(args[0]);
+
 WriterFailure();
 WriterConnection();
+WriterCancellation();
 await RejectedDelivery();
 await TabFocus();
 await Tabs();
@@ -57,6 +62,32 @@ static void WriterConnection()
     Equal(0L, writer.Run((command, _) => command.Scalar("SELECT COUNT(*) FROM sqlite_temp_schema WHERE name='round_marker'")),
         "attachment rounds have their own connection");
     Console.WriteLine("PASS: ordinary rounds reuse the resident connection and attachment rounds are isolated");
+}
+
+static void WriterCancellation()
+{
+    using var fixture = new Fixture();
+    using (var writer = new CaptureWriter(fixture.Store, "browser"))
+    using (var stop = new CancellationTokenSource())
+    {
+        try
+        {
+            writer.Run<int>((command, run) =>
+            {
+                command.Execute("CREATE TABLE cancelled_work(value)");
+                stop.Cancel();
+                stop.Token.ThrowIfCancellationRequested();
+                return 0;
+            });
+            throw new Exception("The cancelled round returned success");
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+    }
+    using var db = fixture.Database();
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM sqlite_schema WHERE name='cancelled_work'"), "cancelled work rolls back");
+    Equal(0L, Value(db, "SELECT COUNT(*) FROM capture_read_failures"), "shutdown is not a read failure");
+    Equal("completed", Value(db, "SELECT stop_reason FROM capture_runs"), "shutdown closes the run");
+    Console.WriteLine("PASS: cancellation rolls back the round and closes the run as completed without a read failure");
 }
 
 static async Task RejectedDelivery()
@@ -388,9 +419,17 @@ sealed class Fixture : IDisposable
 
     internal async Task<Connection> Connect(TimeSpan? interval = null, bool expectedOk = true)
     {
-        var port = await Connection.Start(Store, browserSession, interval ?? TimeSpan.FromMinutes(2));
-        await port.Exchange(new { type = "open", profileId, queueId, browserSession }, expectedOk);
-        return port;
+        var port = await Connection.Start(Store, browserSession, interval);
+        try
+        {
+            await port.Exchange(new { type = "open", profileId, queueId, browserSession }, expectedOk);
+            return port;
+        }
+        catch
+        {
+            await port.DisposeAsync();
+            throw;
+        }
     }
 
     internal SqliteConnection Database()
@@ -405,10 +444,24 @@ sealed class Fixture : IDisposable
     public void Dispose() => directory.Delete(recursive: true);
 }
 
-sealed class Connection(NamedPipeClientStream client, Task host, Guid browserSession) : IAsyncDisposable
+sealed class Connection(Stream input, Stream output, Task host, Guid browserSession, Process? process = null) : IAsyncDisposable
 {
-    internal static async Task<Connection> Start(string store, Guid session, TimeSpan snapshotInterval)
+    internal static string? Executable { get; set; }
+
+    internal static async Task<Connection> Start(string store, Guid session, TimeSpan? snapshotInterval)
     {
+        // The executable uses the production timeout; the short watchdog scenario still uses a test clock interval.
+        if (Executable is not null && snapshotInterval is null)
+        {
+            var start = new ProcessStartInfo(Executable)
+            {
+                UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            foreach (var argument in new[] { "--store", store, "native-host" })
+                start.ArgumentList.Add(argument);
+            var child = Process.Start(start)!;
+            return new(child.StandardInput.BaseStream, child.StandardOutput.BaseStream, Finish(child), session, child);
+        }
         var name = "orisumi-" + Guid.NewGuid().ToString("N")[..20];
         var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         var host = Task.Run(async () =>
@@ -416,12 +469,12 @@ sealed class Connection(NamedPipeClientStream client, Task host, Guid browserSes
             await using (server)
             {
                 await server.WaitForConnectionAsync();
-                await ChromeNativeHost.Run(store, server, server, snapshotInterval);
+                await ChromeNativeHost.Run(store, server, server, snapshotInterval ?? TimeSpan.FromMinutes(2));
             }
         });
         var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(5000);
-        return new(client, host, session);
+        return new(client, client, host, session);
     }
 
     internal async Task<JsonNode> Deliver(long sequence, string scope, string kind, JsonNode data, bool expectedOk = true,
@@ -449,11 +502,11 @@ sealed class Connection(NamedPipeClientStream client, Task host, Guid browserSes
         var token = cancellation.Token;
         await Send(value, token);
         var prefix = new byte[4];
-        await client.ReadExactlyAsync(prefix, token);
+        await output.ReadExactlyAsync(prefix, token);
         var count = BinaryPrimitives.ReadInt32LittleEndian(prefix);
         if (count is <= 0 or > 1024 * 1024) throw new Exception("invalid Native Messaging reply size");
         var bytes = new byte[count];
-        await client.ReadExactlyAsync(bytes, token);
+        await output.ReadExactlyAsync(bytes, token);
         var reply = JsonNode.Parse(bytes)!;
         if (reply["ok"]?.GetValue<bool>() != expectedOk)
             throw new Exception($"Unexpected Native Messaging acknowledgement: {reply}");
@@ -465,14 +518,34 @@ sealed class Connection(NamedPipeClientStream client, Task host, Guid browserSes
         var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
         var prefix = new byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(prefix, bytes.Length);
-        await client.WriteAsync(prefix, token);
-        await client.WriteAsync(bytes, token);
-        await client.FlushAsync(token);
+        await input.WriteAsync(prefix, token);
+        await input.WriteAsync(bytes, token);
+        await input.FlushAsync(token);
     }
 
     public async ValueTask DisposeAsync()
     {
-        await client.DisposeAsync();
-        await host.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            await input.DisposeAsync();
+            await host.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            if (process is not null)
+            {
+                if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+                process.Dispose();
+            }
+        }
+    }
+
+    private static async Task Finish(Process child)
+    {
+        var diagnostics = child.StandardError.ReadToEndAsync();
+        await child.WaitForExitAsync();
+        var error = await diagnostics;
+        if (error.Length != 0) Console.Error.Write(error);
+        if (child.ExitCode != 0) throw new IOException($"Native host exited with {child.ExitCode}");
     }
 }

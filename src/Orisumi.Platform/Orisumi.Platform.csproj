@@ -4,4 +4,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="orisumi" />
+    <InternalsVisibleTo Include="orisumi-browser" />
+    <InternalsVisibleTo Include="orisumi-dev" />
+    <InternalsVisibleTo Include="InstanceChecks" />
+    <InternalsVisibleTo Include="CaptureStartupChecks" />
+    <InternalsVisibleTo Include="ExportChecks" />
+  </ItemGroup>
 </Project>

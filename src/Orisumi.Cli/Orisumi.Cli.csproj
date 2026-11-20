@@ -2,25 +2,29 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
-    <AssemblyName>Orisumi</AssemblyName>
-    <PackAsTool>true</PackAsTool>
-    <ToolCommandName>orisumi</ToolCommandName>
-    <PackageId>Orisumi.Cli</PackageId>
-    <Version>0.1.1</Version>
-    <Description>Run Orisumi commands from the current source checkout.</Description>
+    <AssemblyName>orisumi</AssemblyName>
+    <Version>0.1.0</Version>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot Condition="'$(_IsPublishing)' == 'true'">true</PublishAot>
+    <StripSymbols Condition="'$(PublishAot)' == 'true'">false</StripSymbols>
+    <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../Collectors/*/*.csproj" />
+    <ProjectReference Include="../Orisumi.Platform/Orisumi.Platform.csproj" />
+    <Compile Include="../CommandLine/TimestampOption.cs" Link="TimestampOption.cs" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="System.CommandLine" Version="3.0.0" />
+    <InternalsVisibleTo Include="InstanceChecks" />
     <InternalsVisibleTo Include="CaptureStartupChecks" />
     <InternalsVisibleTo Include="CaptureCoverageChecks" />
+    <InternalsVisibleTo Include="ExportChecks" />
     <InternalsVisibleTo Include="SchemaChecks" />
   </ItemGroup>
 </Project>

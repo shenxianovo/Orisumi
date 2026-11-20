@@ -38,7 +38,7 @@ internal sealed class BrowserDatabase : IDisposable
         polledTabs = false;
         try
         {
-            var entry = payload.Deserialize<Delivery>(JsonSerializerOptions.Web)!;
+            var entry = payload.Deserialize(BrowserJson.Default.Delivery)!;
             var reply = Receive(entry, now);
             polledTabs = !reply.Rejected && entry is { Scope: "tabs", Kind: "snapshot" } &&
                 entry.BrowserSession.ToString() == browserSession;

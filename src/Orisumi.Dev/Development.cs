@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Spectre.Console;
 
-namespace Orisumi.Cli.Dev;
+namespace Orisumi.Dev;
 
 internal static class Development
 {
@@ -9,10 +9,7 @@ internal static class Development
     {
         token.ThrowIfCancellationRequested();
         AnsiConsole.Write(new Text($"{executable} {string.Join(' ', arguments)}{Environment.NewLine}", new Style(Color.Blue)));
-        var start = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false };
-        foreach (var argument in arguments)
-            start.ArgumentList.Add(argument);
-
+        var start = new ProcessStartInfo(executable, arguments) { WorkingDirectory = directory, UseShellExecute = false };
         using var process = Process.Start(start) ?? throw new IOException($"无法启动 {executable}。");
         try
         {

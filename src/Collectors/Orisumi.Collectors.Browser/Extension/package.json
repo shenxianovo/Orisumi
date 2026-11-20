@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('../ChromeExtension', {recursive:true, force:true})\" && tsc && node -e \"require('node:fs').copyFileSync('manifest.json', '../ChromeExtension/manifest.json')\"",
-    "test": "npm run build && node --test"
+    "build": "tsc",
+    "test": "npm run build -- --outDir bin/test-extension && node --test"
   },
   "devDependencies": {
     "@types/chrome": "0.3.7",

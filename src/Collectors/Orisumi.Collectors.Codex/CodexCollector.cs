@@ -16,11 +16,12 @@ public static partial class CodexCollector
         return Capture(store, writer, SourceHome(), reconcile: true);
     }
 
-    private static string Capture(string store, CaptureWriter writer, string codexHome, bool reconcile)
+    private static string Capture(string store, CaptureWriter writer, string codexHome, bool reconcile, CancellationToken stop = default)
     {
         var state = Path.Combine(codexHome, "state_5.sqlite");
         var hasState = File.Exists(state);
-        var (events, usage, bytesRead) = writer.Run((command, runId) => new RolloutReader(command, runId, reconcile).Read(codexHome));
+        var (events, usage, bytesRead) = writer.Run((command, runId) => new RolloutReader(command, runId, reconcile, stop).Read(codexHome));
+        stop.ThrowIfCancellationRequested();
         try
         {
             writer.Run((command, runId) =>

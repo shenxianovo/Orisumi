@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Platform;
@@ -6,21 +7,41 @@ namespace Orisumi.Cli.Capture;
 
 internal static class CaptureCoverage
 {
-    internal static void Write(string store, DateTimeOffset from, DateTimeOffset to, TextWriter output)
+    internal static void Write(string store, DateTimeOffset from, DateTimeOffset to, IEnumerable<string> installed, TextWriter output)
     {
         if (from >= to) throw new ArgumentException("--from 必须早于 --to。");
-        var sources = new List<object>();
-        // Every database of a source, including earlier ones; each keeps its own evidence.
-        foreach (var source in CaptureSources.All.Select(source => source.Name))
+        using var bytes = new MemoryStream();
+        using var json = new Utf8JsonWriter(bytes, new JsonWriterOptions { Indented = true });
+        json.WriteStartObject();
+        json.WriteString("from", from);
+        json.WriteString("to", to);
+        json.WriteStartArray("sources");
+        var location = new Store(store);
+        foreach (var source in location.Sources().Union(installed).Order(StringComparer.Ordinal))
         {
-            var paths = new Store(store).Databases(source);
-            if (paths.Count == 0) sources.Add(new { source, database = (string?)null, status = "no_database", evidence = Array.Empty<object>() });
-            foreach (var path in paths) sources.Add(Query(source, path, from, to));
+            var paths = location.Databases(source);
+            if (paths.Count == 0) WriteSource(source, null);
+            foreach (var path in paths) WriteSource(source, path);
         }
-        output.WriteLine(JsonSerializer.Serialize(new { from, to, sources }, new JsonSerializerOptions { WriteIndented = true }));
+        json.WriteEndArray();
+        json.WriteEndObject();
+        json.Flush();
+        output.WriteLine(Encoding.UTF8.GetString(bytes.GetBuffer(), 0, (int)bytes.Length));
+
+        void WriteSource(string source, string? path)
+        {
+            json.WriteStartObject();
+            json.WriteString("source", source);
+            json.WriteString("database", Path.GetFileNameWithoutExtension(path));
+            json.WriteString("status", path is null ? "no_database" : "queried");
+            json.WriteStartArray("evidence");
+            if (path is not null) Query(json, path, from, to);
+            json.WriteEndArray();
+            json.WriteEndObject();
+        }
     }
 
-    private static object Query(string source, string path, DateTimeOffset from, DateTimeOffset to)
+    private static void Query(Utf8JsonWriter json, string path, DateTimeOffset from, DateTimeOffset to)
     {
         using var database = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -39,15 +60,24 @@ internal static class CaptureCoverage
         command.Parameters.AddWithValue("$from", CeilingMilliseconds(from));
         command.Parameters.AddWithValue("$to", CeilingMilliseconds(to));
         using var reader = command.ExecuteReader();
-        var rows = new List<Dictionary<string, object?>>();
         while (reader.Read())
         {
-            var row = new Dictionary<string, object?>();
+            json.WriteStartObject();
             for (var i = 0; i < reader.FieldCount; i++)
-                row.Add(reader.GetName(i), reader.IsDBNull(i) ? null : reader.GetValue(i));
-            rows.Add(row);
+            {
+                json.WritePropertyName(reader.GetName(i));
+                switch (reader.GetValue(i))
+                {
+                    case DBNull: json.WriteNullValue(); break;
+                    case long integer: json.WriteNumberValue(integer); break;
+                    case double real: json.WriteNumberValue(real); break;
+                    case byte[] blob: json.WriteBase64StringValue(blob); break;
+                    case string value: json.WriteStringValue(value); break;
+                    default: throw new InvalidDataException($"未知的 SQLite 值类型：{reader.GetName(i)}");
+                }
+            }
+            json.WriteEndObject();
         }
-        return new { source, database = (string?)Path.GetFileNameWithoutExtension(path), status = "queried", evidence = rows };
     }
 
     private static long CeilingMilliseconds(DateTimeOffset value)

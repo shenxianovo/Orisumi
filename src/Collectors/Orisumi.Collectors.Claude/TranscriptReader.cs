@@ -5,7 +5,8 @@ using Orisumi.Collectors.Storage;
 namespace Orisumi.Collectors.Claude;
 
 // Tracks Claude's project files and their source IDs across moves and replacements.
-internal sealed class TranscriptReader(SqliteConnection connection, SqliteTransaction transaction, long runId)
+internal sealed class TranscriptReader(SqliteConnection connection, SqliteTransaction transaction, long runId,
+    CancellationToken stop)
 {
     internal long BytesRead { get; private set; }
     internal long RecordsRead { get; private set; }
@@ -31,8 +32,9 @@ internal sealed class TranscriptReader(SqliteConnection connection, SqliteTransa
         var identities = files.Select(file => file.Identity).ToHashSet(StringComparer.Ordinal);
         foreach (var file in files)
         {
+            stop.ThrowIfCancellationRequested();
             var path = file.Path;
-            using var reader = new JsonlReader(path);
+            using var reader = new JsonlReader(path, stop: stop);
             var identity = reader.Identity;
             if (identity != file.Identity) throw new IOException($"Claude transcript was replaced during enumeration: {path}");
             var previous = cursors.FirstOrDefault(cursor => cursor.File.Identity == identity)

@@ -24,6 +24,15 @@ export function nativeHost(onReady: () => void) {
     identity = undefined;
     throw error;
   });
+  let host: string | undefined;
+  async function loadHost() {
+    const config = await fetch(chrome.runtime.getURL("config.json"));
+    if (!config.ok) throw new Error("Missing Orisumi extension configuration");
+    const { nativeHost } = await config.json();
+    if (typeof nativeHost !== "string" || !/^com\.orisumi\.[a-z0-9_]+\.browser$/.test(nativeHost))
+      throw new Error("Invalid Orisumi native host name");
+    return nativeHost;
+  }
   let wake = () => {};
   let poll = true;
   let readingHistory = false;
@@ -41,7 +50,7 @@ export function nativeHost(onReady: () => void) {
   }
   async function connect() {
     const { outbox, browserSession, profileId, queueId } = await loadIdentity();
-    const port = chrome.runtime.connectNative("com.orisumi.browser");
+    const port = chrome.runtime.connectNative(host ??= await loadHost());
     let closed = false;
     let changed = true;
     let waiting: (() => void) | undefined;

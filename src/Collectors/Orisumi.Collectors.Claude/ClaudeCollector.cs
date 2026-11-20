@@ -18,12 +18,12 @@ public static partial class ClaudeCollector
     };
 
     private static int Import(SqliteConnection connection, SqliteTransaction transaction, long runId,
-        string projects, IReadOnlyCollection<string>? changedPaths, out long bytesRead, out long recordsRead)
+        string projects, IReadOnlyCollection<string>? changedPaths, CancellationToken stop, out long bytesRead, out long recordsRead)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         var recordsWritten = 0;
-        var reader = new TranscriptReader(connection, transaction, runId);
+        var reader = new TranscriptReader(connection, transaction, runId, stop);
         reader.Read(projects, changedPaths, (sourceId, path, lineNumber, line, row, nextOccurrence) =>
         {
             var record = ReadRecord(row, TranscriptReader.AgentSource(projects, path));

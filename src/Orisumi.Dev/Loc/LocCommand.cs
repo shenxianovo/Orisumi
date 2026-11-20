@@ -3,7 +3,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using Spectre.Console;
 
-namespace Orisumi.Cli.Dev.Loc;
+namespace Orisumi.Dev.Loc;
 
 internal sealed record LocRoleRow(string Role, int Files, int Lines);
 

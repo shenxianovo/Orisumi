@@ -4,7 +4,7 @@ using System.Text;
 namespace Orisumi.Platform;
 
 // Host identifiers as the platform reports them; unreadable values are null. Which device they belong to is
-// read out later (devices.mdx). Native helpers receive these values instead of reading them again.
+// read out later (overview/devices.mdx). Native helpers receive these values instead of reading them again.
 public sealed record HostIdentity(string Platform, string? HardwareUuid, string? HostName, string? Model,
     string? OsVersion, string? OsBuild, string? BootId, long UserId, string UserName)
 {

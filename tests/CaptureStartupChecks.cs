@@ -6,15 +6,19 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Xml.Linq;
+using System.Runtime.Versioning;
 using Orisumi.Cli;
+using Orisumi.Platform;
 using Orisumi.Cli.Capture;
+
+[assembly: SupportedOSPlatform("macos")]
 
 if (!OperatingSystem.IsMacOS())
 {
     Console.WriteLine("Skipped: capture startup requires macOS.");
     return;
 }
-var dotnet = SourceLauncher.Dotnet;
+var dotnet = RunProcess.Dotnet;
 var assembly = Assembly.GetExecutingAssembly().Location;
 if (args is ["--child", var readyFile, var text])
 {
@@ -55,16 +59,21 @@ static void Check(bool condition, string message)
 async Task ConfigurationChecks()
 {
     var store = Path.Combine(temp.FullName, "store & spaces ' 引号");
-    foreach (var source in CaptureSources.All)
+    var programs = await CollectorPrograms.Read(store, CancellationToken.None, Path.GetFullPath("src/Orisumi.Cli/bin/Debug/net11.0"));
+    var residents = programs.Where(program => program.Description.Start!.Mode == "resident").ToArray();
+    Check(residents.Select(program => program.Description.Name).SequenceEqual(["claude", "codex"]), "resident collector descriptions");
+    foreach (var program in residents)
     {
-        if (source is not { Name: var name, Agent: { } command }) continue;
-        var config = CaptureStartup.LaunchAgent(name, dotnet, assembly, temp.FullName, store, command);
+        var (name, _, start) = program.Description;
+        var command = start!.Arguments;
+        var config = CaptureStartup.LaunchAgent($"dev.orisumi.test_codex.{name}", program.Command(store, command), new Store(store), name);
         var path = Path.Combine(temp.FullName, name + ".plist");
         config.Save(path);
         await Run("/usr/bin/plutil", ["-lint", path]);
         var elements = XDocument.Load(path).Root!.Element("dict")!.Elements().ToArray();
         var fields = Enumerable.Range(0, elements.Length / 2).ToDictionary(i => elements[i * 2].Value, i => elements[i * 2 + 1]);
-        Check(fields["ProgramArguments"].Elements().Select(item => item.Value).SequenceEqual([dotnet, assembly, "--store", store, .. command]), "argv boundaries survive XML encoding");
+        Check(fields["Label"].Value == $"dev.orisumi.test_codex.{name}", "resident uses its instance LaunchAgent label");
+        Check(fields["ProgramArguments"].Elements().Select(item => item.Value).SequenceEqual([dotnet, program.Path, "--store", store, .. command]), "argv boundaries survive XML encoding");
         Check(fields["StandardErrorPath"].Value == Path.Combine(store, "logs", name + ".err.log"), "per-source log path");
         Check(fields["RunAtLoad"].Name == "true", "capture starts immediately");
         Check(fields["KeepAlive"].Name == "true" && fields["ThrottleInterval"].Value == "10" && !fields.ContainsKey("StartInterval"), "collectors remain running between source changes");
@@ -95,15 +104,15 @@ async Task BackgroundChecks()
         Check(File.ReadAllText(ready) == pid.ToString(), "child has its own process group");
         Check(File.ReadAllText(stdout) == "previous log\n" + text + "\n", "logs append and arguments are literal");
         Check(File.ReadAllText(stderr) == "child stderr\n", "stderr goes directly to its file");
-        await Run("/bin/kill", ["-HUP", pid.ToString()]);
+        child.Signal(PosixSignal.SIGHUP);
         await Task.Delay(100);
         Check(!child.HasExited, "terminal hangup must not stop the collector");
-        var pidFile = Path.Combine(temp.FullName, "foreground.pid");
+        var pidFile = Path.Combine(temp.FullName, "macos.pid");
         // A reused PID (here: this test process) has another start time and is left alone.
         File.WriteAllText(pidFile, $"{Environment.ProcessId} 1");
-        await CaptureStartup.StopForeground(pidFile, CancellationToken.None);
-        CaptureStartup.WritePidFile(pidFile, pid);
-        await CaptureStartup.StopForeground(pidFile, CancellationToken.None);
+        await ProcessIdentity.Read(pidFile)!.Wait(CancellationToken.None, terminate: true);
+        ProcessIdentity.Of(pid)!.Write(pidFile);
+        await ProcessIdentity.Read(pidFile)!.Wait(CancellationToken.None, terminate: true);
         Check(child.HasExited && File.ReadAllText(stdout).EndsWith("stopped\n"), "matching collector stops gracefully");
     }
     finally
@@ -118,21 +127,10 @@ async Task BackgroundChecks()
 
 static async Task<string> Run(string executable, string[] arguments)
 {
-    var start = new ProcessStartInfo(executable) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-    foreach (var argument in arguments) start.ArgumentList.Add(argument);
-    using var process = Process.Start(start)!;
-    var output = process.StandardOutput.ReadToEndAsync();
-    var error = process.StandardError.ReadToEndAsync();
-    try
-    {
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
-        Check(process.ExitCode == 0, await error);
-        return await output;
-    }
-    finally
-    {
-        if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
-    }
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+    var result = await Process.RunAndCaptureTextAsync(executable, arguments, timeout.Token);
+    Check(result.ExitStatus is { ExitCode: 0, Canceled: false }, result.StandardError);
+    return result.StandardOutput;
 }
 
 static class Native

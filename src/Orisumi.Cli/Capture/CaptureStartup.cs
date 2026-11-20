@@ -2,136 +2,174 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Xml.Linq;
-using Orisumi.Collectors.Browser;
 using Orisumi.Platform;
 
 namespace Orisumi.Cli.Capture;
 
 internal static class CaptureStartup
 {
-    internal static async Task Start(string store, string? extensionId, TextWriter output, CancellationToken cancellation)
+    internal static async Task Start(Instance instance, SystemLocations locations, TextWriter output, CancellationToken token,
+        string? baseDirectory = null)
     {
-        var root = Repository.Require();
-        var location = new Store(store);
-        store = location.Root;
-        var assembly = typeof(CaptureStartup).Assembly.Location;
-        var dotnet = SourceLauncher.Dotnet;
-        var logs = location.Logs;
-        var agents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/LaunchAgents");
-        Directory.CreateDirectory(logs);
-        Directory.CreateDirectory(location.State);
-        Directory.CreateDirectory(agents);
-        // Serialize startup across stores too: the LaunchAgent labels belong to this user.
-        using var startupLock = new FileStream(Path.Combine(agents, "dev.orisumi.capture.lock"),
-            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        if (extensionId is not null)
-            output.WriteLine(ChromeNativeHost.Register(store, extensionId, Path.Combine(AppContext.BaseDirectory, "Orisumi")));
-
-        string[] foreground = [dotnet, assembly, "--store", store, "foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"];
-        var pidFile = Path.Combine(location.State, "foreground.pid");
-        await StopForeground(pidFile, cancellation);
-        cancellation.ThrowIfCancellationRequested();
-        // Keep the caller's permission context. Native spawn redirects directly to files,
-        // so logging and the collector survive after this short-lived command exits.
-        var pid = DetachedProcess.Start(foreground, Path.Combine(logs, "foreground.out.log"), Path.Combine(logs, "foreground.err.log"));
-        await Task.Delay(500, CancellationToken.None);
-        if (DetachedProcess.HasExited(pid)) throw new IOException($"前台采集启动失败，请查看 {Path.Combine(logs, "foreground.err.log")}。");
-        WritePidFile(pidFile, pid);
-        output.WriteLine($"Started foreground collector: pid {pid}");
-
-        var domain = $"gui/{getuid()}";
-        foreach (var source in CaptureSources.All)
+        var store = instance.Store;
+        using var guard = Store.WaitLock(store.LockFile("app"));
+        var programs = await CollectorPrograms.Read(store.Root, token, baseDirectory);
+        var browser = programs.SingleOrDefault(program => program.Description.Name == "browser");
+        string? extension = null;
+        if (browser is not null)
         {
-            if (source is not { Name: var name, Agent: { } arguments }) continue;
-            cancellation.ThrowIfCancellationRequested();
-            var label = $"dev.orisumi.capture.{name}";
-            // A missing service is normal on first installation. Bootstrap reports real failures.
-            await Run("/bin/launchctl", ["bootout", $"{domain}/{label}"], cancellation, allowFailure: true);
-            // bootout can return before launchd has removed the service; bootstrap then fails with an I/O error.
-            var removal = Stopwatch.StartNew();
-            while (await Run("/bin/launchctl", ["print", $"{domain}/{label}"], cancellation, allowFailure: true) == 0)
+            var checkout = CollectorPrograms.Checkout(baseDirectory ?? AppContext.BaseDirectory);
+            extension = DirectoryPaths.Resolve(checkout is null ? Path.Combine(Path.GetDirectoryName(browser.Path)!, "extension")
+                : Path.Combine(checkout, ".local", "extension"));
+            ChromeExtension.CheckConfiguration(extension, instance);
+        }
+        await StopCapture(instance, locations, token);
+
+        Directory.CreateDirectory(store.Logs);
+        Directory.CreateDirectory(locations.Agents);
+        try
+        {
+            foreach (var program in programs)
             {
-                if (removal.Elapsed > TimeSpan.FromSeconds(10)) throw new IOException($"{label} 未能在 10 秒内停止。");
-                await Task.Delay(100, cancellation);
+                token.ThrowIfCancellationRequested();
+                var name = program.Description.Name;
+                var start = program.Description.Start!;
+                var command = program.Command(store.Root, start.Arguments);
+                if (start.Mode == "resident")
+                {
+                    var label = instance.AgentLabel(name);
+                    var path = Path.Combine(locations.Agents, label + ".plist");
+                    LaunchAgent(label, command, store, name).Save(path);
+                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    await Launchctl(locations, token, "bootstrap", Domain, path);
+                    output.WriteLine($"Started {label}");
+                }
+                else if (start.Mode == "terminal")
+                {
+                    var error = Path.Combine(store.Logs, name + ".err.log");
+                    var pid = DetachedProcess.Start(command, Path.Combine(store.Logs, name + ".out.log"), error);
+                    var identity = ProcessIdentity.Of(pid);
+                    identity?.Write(store.ProcessFile(name));
+                    await Task.Delay(500, CancellationToken.None);
+                    if (DetachedProcess.HasExited(pid) || identity is null) throw new IOException($"{name} 采集启动失败，请查看 {error}。");
+                    output.WriteLine($"Started {name} collector: pid {pid}");
+                }
             }
-            var path = Path.Combine(agents, label + ".plist");
-            LaunchAgent(name, dotnet, assembly, root, store, arguments).Save(path);
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            await Run("/bin/launchctl", ["enable", $"{domain}/{label}"], cancellation);
-            await Run("/bin/launchctl", ["bootstrap", domain, path], cancellation);
-            output.WriteLine($"Started {label}");
+            if (browser is not null)
+            {
+                var id = ChromeExtension.Id(extension!);
+                ChromeExtension.Register(instance, id, browser.Command(store.Root, ["native-host", "--registered"]), locations);
+                output.WriteLine($"Load unpacked Chrome extension: {extension}");
+                output.WriteLine($"Expected Chrome extension ID: {id}");
+            }
+        }
+        catch
+        {
+            try { await StopCapture(instance, locations, CancellationToken.None); }
+            catch (IOException error) { await output.WriteLineAsync($"Capture cleanup: {error.Message}"); }
+            throw;
         }
     }
 
-    internal static XDocument LaunchAgent(string name, string dotnet, string assembly, string root, string store, string[] arguments)
+    internal static async Task Stop(Instance instance, SystemLocations locations, TextWriter output, CancellationToken token)
+    {
+        using var guard = Store.WaitLock(instance.Store.LockFile("app"));
+        await StopCapture(instance, locations, token);
+        output.WriteLine($"Stopped capture for {instance.Name}");
+    }
+
+    private static async Task StopCapture(Instance instance, SystemLocations locations, CancellationToken token)
+    {
+        var store = instance.Store;
+        string[] browsers = [];
+        using (Store.WaitLock(store.LockFile("chrome-registration")))
+        {
+            if (Directory.Exists(locations.ChromeManifests)) File.Delete(ChromeExtension.Manifest(instance, locations));
+            File.Delete(store.ChromeLauncher);
+            if (Directory.Exists(store.ChromeProcesses)) browsers = Directory.GetFiles(store.ChromeProcesses, "*.pid");
+        }
+        var terminal = Directory.GetFiles(store.State, "*.pid");
+        var agents = Directory.Exists(locations.Agents)
+            ? Directory.GetFiles(locations.Agents, instance.AgentLabel("*") + ".plist") : [];
+
+        await Task.WhenAll(agents.Select(StopAgent).Concat(browsers.Concat(terminal).Select(StopProcess)));
+
+        async Task StopAgent(string plist)
+        {
+            var service = $"{Domain}/{Path.GetFileNameWithoutExtension(plist)}";
+            var before = await LaunchctlResult(locations, token, "print", service);
+            if (before.Code is not (0 or 113)) throw LaunchError("print", service, before.Error);
+            if (before.Code == 0)
+            {
+                var pidLine = before.Output.Split('\n').Select(line => line.Trim())
+                    .FirstOrDefault(line => line.StartsWith("pid = ", StringComparison.Ordinal));
+                var identity = pidLine is not null && int.TryParse(pidLine.AsSpan(6), CultureInfo.InvariantCulture, out var pid)
+                    ? ProcessIdentity.Of(pid) : null;
+                var bootout = await LaunchctlResult(locations, token, "bootout", service);
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                deadline.CancelAfter(TimeSpan.FromSeconds(30));
+                try
+                {
+                    while (true)
+                    {
+                        var current = await LaunchctlResult(locations, deadline.Token, "print", service);
+                        if (current.Code == 113) break; // The service is absent from this launchd domain.
+                        if (current.Code != 0) throw LaunchError("print", service, current.Error);
+                        if (bootout.Code != 0) throw LaunchError("bootout", service, bootout.Error);
+                        await Task.Delay(100, deadline.Token);
+                    }
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                {
+                    throw new IOException($"{service} 未能在 30 秒内停止。");
+                }
+                if (identity is not null) await identity.Wait(token);
+            }
+            File.Delete(plist);
+        }
+
+        async Task StopProcess(string pidFile)
+        {
+            if (ProcessIdentity.Read(pidFile) is { } identity) await identity.Wait(token, terminate: true);
+            File.Delete(pidFile);
+        }
+    }
+
+    internal static XDocument LaunchAgent(string label, string[] command, Store store, string name)
     {
         var dictionary = new XElement("dict",
-            new XElement("key", "Label"), new XElement("string", $"dev.orisumi.capture.{name}"),
+            new XElement("key", "Label"), new XElement("string", label),
             new XElement("key", "ProgramArguments"), new XElement("array",
-                new[] { dotnet, assembly, "--store", store }.Concat(arguments).Select(value => new XElement("string", value))),
-            new XElement("key", "WorkingDirectory"), new XElement("string", root),
+                command.Select(value => new XElement("string", value))),
+            new XElement("key", "WorkingDirectory"), new XElement("string", store.Root),
             new XElement("key", "RunAtLoad"), new XElement("true"),
-            new XElement("key", "StandardOutPath"), new XElement("string", Path.Combine(new Store(store).Logs, name + ".out.log")),
-            new XElement("key", "StandardErrorPath"), new XElement("string", Path.Combine(new Store(store).Logs, name + ".err.log")));
-        dictionary.Add(new XElement("key", "KeepAlive"), new XElement("true"),
-            new XElement("key", "ThrottleInterval"), new XElement("integer", 10));
+            new XElement("key", "StandardOutPath"), new XElement("string", Path.Combine(store.Logs, name + ".out.log")),
+            new XElement("key", "StandardErrorPath"), new XElement("string", Path.Combine(store.Logs, name + ".err.log")),
+            new XElement("key", "KeepAlive"), new XElement("true"),
+            new XElement("key", "ThrottleInterval"), new XElement("integer", 10),
+            new XElement("key", "ExitTimeOut"), new XElement("integer", 30));
         return new XDocument(new XDeclaration("1.0", "UTF-8", null),
             new XDocumentType("plist", "-//Apple//DTD PLIST 1.0//EN", "http://www.apple.com/DTDs/PropertyList-1.0.dtd", null),
             new XElement("plist", new XAttribute("version", "1.0"), dictionary));
     }
 
-    // PID and start time together identify the process; a reused PID has a different start time.
-    internal static void WritePidFile(string pidFile, int pid)
+    private static IOException LaunchError(string action, string service, string error) =>
+        new($"launchctl {action} {service}: {error.Trim()}");
+
+    private static string Domain => $"gui/{getuid()}";
+
+    private static async Task Launchctl(SystemLocations locations, CancellationToken token, params string[] arguments)
     {
-        using var process = Process.GetProcessById(pid);
-        File.WriteAllText(pidFile, string.Create(CultureInfo.InvariantCulture, $"{pid} {process.StartTime.ToUniversalTime().Ticks}"));
+        var result = await LaunchctlResult(locations, token, arguments);
+        if (result.Code != 0) throw new IOException($"launchctl {string.Join(' ', arguments)}: {result.Error.Trim()}");
     }
 
-    internal static async Task StopForeground(string pidFile, CancellationToken cancellation)
+    private static async Task<(int Code, string Output, string Error)> LaunchctlResult(SystemLocations locations,
+        CancellationToken cancellation, params string[] arguments)
     {
-        if (!File.Exists(pidFile) || File.ReadAllText(pidFile).Split(' ') is not [var pidText, var startText] ||
-            !int.TryParse(pidText, CultureInfo.InvariantCulture, out var pid) ||
-            !long.TryParse(startText, CultureInfo.InvariantCulture, out var started)) return;
-        Process process;
-        try { process = Process.GetProcessById(pid); }
-        catch (ArgumentException) { return; }
-        using (process)
-        {
-            try { if (process.StartTime.ToUniversalTime().Ticks != started) return; }
-            catch (InvalidOperationException) { return; } // exited meanwhile
-
-            await Run("/bin/kill", ["-TERM", pid.ToString(CultureInfo.InvariantCulture)], cancellation, allowFailure: true);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            try { await process.WaitForExitAsync(timeout.Token); }
-            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
-            {
-                throw new IOException("上一次前台采集尚未退出，未启动重复采集器。");
-            }
-        }
-    }
-
-    private static async Task<int> Run(string executable, string[] arguments, CancellationToken cancellation, bool allowFailure = false)
-    {
-        var start = new ProcessStartInfo(executable)
-        {
-            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-        };
-        foreach (var argument in arguments) start.ArgumentList.Add(argument);
-        using var process = Process.Start(start) ?? throw new IOException($"无法启动 {executable}。");
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        try { await process.WaitForExitAsync(cancellation); }
-        catch
-        {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(CancellationToken.None);
-            throw;
-        }
-        await stdout;
-        var error = await stderr;
-        if (process.ExitCode != 0 && !allowFailure) throw new IOException($"{Path.GetFileName(executable)}: {error.Trim()}");
-        return process.ExitCode;
+        var result = await Process.RunAndCaptureTextAsync(locations.Launchctl, arguments, cancellation);
+        if (result.ExitStatus.Canceled) throw new OperationCanceledException(cancellation);
+        return (result.ExitStatus.ExitCode, result.StandardOutput, result.StandardError);
     }
 
     [DllImport("/usr/lib/libSystem.B.dylib")]

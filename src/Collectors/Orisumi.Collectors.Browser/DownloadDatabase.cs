@@ -140,5 +140,5 @@ internal static class DownloadDatabase
     private static long? Time(string? value) => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
         DateTimeStyles.RoundtripKind, out var parsed) ? parsed.ToUnixTimeMilliseconds() : null;
 
-    private static readonly JsonElement JsonNull = JsonSerializer.SerializeToElement<object?>(null);
+    private static readonly JsonElement JsonNull = JsonElement.Parse("null");
 }

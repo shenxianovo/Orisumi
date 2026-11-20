@@ -1,7 +1,8 @@
-namespace Orisumi.Cli;
+namespace Orisumi.Dev;
 
 internal static class Repository
 {
+    internal const string DevProject = "src/Orisumi.Dev/Orisumi.Dev.csproj";
     internal const string CliProject = "src/Orisumi.Cli/Orisumi.Cli.csproj";
 
     internal static string? Find(string start)
@@ -9,7 +10,7 @@ internal static class Repository
         for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
         {
             if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")) &&
-                File.Exists(Path.Combine(directory.FullName, CliProject)))
+                File.Exists(Path.Combine(directory.FullName, DevProject)))
                 return directory.FullName;
             // A nested, unrelated checkout owns its own commands.
             if (Path.Exists(Path.Combine(directory.FullName, ".git")))
@@ -19,5 +20,5 @@ internal static class Repository
     }
 
     internal static string Require() => Find(Environment.CurrentDirectory) ??
-        throw new DirectoryNotFoundException("请在 Orisumi 仓库或其子目录中运行 orisumi。");
+        throw new DirectoryNotFoundException("请在 Orisumi 仓库或其子目录中运行 orisumi-dev。");
 }

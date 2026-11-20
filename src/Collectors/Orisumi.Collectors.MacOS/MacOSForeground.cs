@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Text.Json;
+using Orisumi.Collectors.Hosting;
 using Orisumi.Collectors.Storage;
 
 namespace Orisumi.Collectors.MacOS;
@@ -43,11 +43,8 @@ public static class MacOSForeground
             signal.Cancel = true;
             interrupted.TrySetResult();
         };
-        using var termination = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
-        {
-            signal.Cancel = true;
-            interrupted.TrySetResult();
-        });
+        using var lifetime = new CaptureLifetime();
+        using var termination = lifetime.Token.Register(() => interrupted.TrySetResult());
         Console.CancelKeyPress += onInterrupt;
         try
         {

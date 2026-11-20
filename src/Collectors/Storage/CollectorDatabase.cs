@@ -3,7 +3,7 @@ using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Storage;
 
-// Opens the database the source writes in the store (storage.mdx); the connection rules live in capture.mdx.
+// Opens the database the source writes in the store (overview/storage.mdx); the connection rules live in capture/index.mdx.
 internal static class CollectorDatabase
 {
     internal static SqliteConnection Open(string store, string source)

@@ -6,6 +6,7 @@ CREATE TABLE capture_runs (
     error TEXT,
     confirmed_until_utc_ms INTEGER,
     host_observation_id INTEGER NOT NULL REFERENCES host_observations(observation_id),
+    collector_version TEXT,
     CHECK((stopped_at_utc_ms IS NULL) = (stop_reason IS NULL)),
     CHECK((stop_reason IS 'failed') = (error IS NOT NULL))
 );

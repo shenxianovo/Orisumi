@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Orisumi.Collectors.Hosting;
 using Orisumi.Platform;
 
 namespace Orisumi.Collectors.Storage;
@@ -27,9 +28,9 @@ internal sealed class CaptureWriter : IDisposable
                 using var start = connection.BeginTransaction();
                 command.Transaction = start;
                 runId = (long)command.Scalar("""
-                    INSERT INTO capture_runs(started_at_utc_ms,host_observation_id)
-                    VALUES($p0,$p1) RETURNING run_id
-                    """, Now(), HostObservation.Record(command, store))!;
+                    INSERT INTO capture_runs(started_at_utc_ms,host_observation_id,collector_version)
+                    VALUES($p0,$p1,$p2) RETURNING run_id
+                    """, Now(), HostObservation.Record(command, store), CollectorCommand.Version)!;
                 configure?.Invoke(command, runId);
                 start.Commit();
             }
@@ -62,7 +63,7 @@ internal sealed class CaptureWriter : IDisposable
             round.Commit();
             return result;
         }
-        catch (Exception error)
+        catch (Exception error) when (error is not OperationCanceledException)
         {
             // The storage failure may also prevent writing its diagnostic.
             try { RecordReadFailure(error, failureScope); }

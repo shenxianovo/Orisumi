@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.MacOS;
 using Orisumi.Platform;
@@ -238,7 +239,7 @@ try
             Check(ready && child != null, "receiver and observer recorded the initial round");
             if (label == "receiver-crash") receiver.Kill();
             else if (label == "observer-crash") child!.Kill();
-            else await Command("/bin/kill", ["-TERM", receiver.Id.ToString()]);
+            else receiver.Signal(PosixSignal.SIGTERM);
             await receiver.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             await child!.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             using var result = Open(isolatedStore);

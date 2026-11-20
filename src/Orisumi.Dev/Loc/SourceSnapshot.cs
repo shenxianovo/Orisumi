@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Xml.Linq;
 
-namespace Orisumi.Cli.Dev.Loc;
+namespace Orisumi.Dev.Loc;
 
 internal enum SourceRole { Production, Test, Tooling, Build, Documentation, Generated, Unclassified }
 
@@ -54,7 +54,7 @@ internal sealed record SourceSnapshot(IReadOnlyList<SourceFileMetric> Files)
         : owner is { IsTest: true } || SourceLanguages.IsTest(path) ? SourceRole.Test
         : path.StartsWith("scripts/", StringComparison.Ordinal)
             || path.StartsWith("tools/", StringComparison.Ordinal)
-            || path.StartsWith("src/Orisumi.Cli/Dev/", StringComparison.Ordinal) ? SourceRole.Tooling
+            || path.StartsWith("src/Orisumi.Dev/", StringComparison.Ordinal) ? SourceRole.Tooling
         : owner is null ? SourceRole.Unclassified : SourceRole.Production;
 
     private sealed record Project(string Name, string Manifest, bool IsTest, string[] References)
@@ -86,29 +86,13 @@ internal sealed record SourceSnapshot(IReadOnlyList<SourceFileMetric> Files)
 
     private static async Task<string[]> GitFiles(string root, CancellationToken token)
     {
-        var start = new ProcessStartInfo("git")
+        var git = await Process.RunAndCaptureTextAsync(new ProcessStartInfo("git",
+            ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
         {
-            WorkingDirectory = root,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        foreach (var argument in new[] { "ls-files", "--cached", "--others", "--exclude-standard", "-z" })
-            start.ArgumentList.Add(argument);
-        using var process = Process.Start(start) ?? throw new IOException("无法读取 Git 文件清单。");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        try { await process.WaitForExitAsync(token); }
-        catch (OperationCanceledException)
-        {
-            if (!process.HasExited) process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync(CancellationToken.None);
-            await Task.WhenAll(output, error);
-            throw;
-        }
-        var paths = await output;
-        var diagnostic = await error;
-        if (process.ExitCode != 0) throw new IOException(diagnostic.Trim());
-        return paths.Split('\0', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true,
+        }, token);
+        if (git.ExitStatus.Canceled) throw new OperationCanceledException(token);
+        if (git.ExitStatus.ExitCode != 0) throw new IOException(git.StandardError.Trim());
+        return git.StandardOutput.Split('\0', StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     }
 }

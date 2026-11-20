@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import test from "node:test";
 import { IDBFactory } from "fake-indexeddb";
-import { openOutbox } from "../../ChromeExtension/outbox.js";
+import { openOutbox } from "../bin/test-extension/outbox.js";
 
 function event() {
   const listeners = [];
@@ -60,8 +60,12 @@ async function harness(t) {
     history: { onVisitRemoved: event(), search: async () => [], getVisits: async () => [] },
   };
   const harness = { ...base, ports: [], retries, controls: { hold: () => false, history: undefined, acceptOpen: true } };
+  t.mock.method(globalThis, "fetch", async url => {
+    assert.equal(url, "chrome-extension://fixture/config.json");
+    return new Response(JSON.stringify({ nativeHost: "com.orisumi.dev_fixture.browser" }));
+  });
   const connectNative = host => {
-    assert.equal(host, "com.orisumi.browser");
+    assert.equal(host, "com.orisumi.dev_fixture.browser");
     let active = true;
     let body = "";
     const port = { raw: [], messages: [], onMessage: event(), onDisconnect: event(),
@@ -91,8 +95,8 @@ async function harness(t) {
     harness.ports.push(port);
     return port;
   };
-  globalThis.chrome = { ...base, runtime: { connectNative, onInstalled: event(), onStartup: event() } };
-  harness.worker = () => import(`../../ChromeExtension/worker.js?worker=${++workerNumber}`);
+  globalThis.chrome = { ...base, runtime: { getURL: path => `chrome-extension://fixture/${path}`, connectNative, onInstalled: event(), onStartup: event() } };
+  harness.worker = () => import(`../bin/test-extension/worker.js?worker=${++workerNumber}`);
   harness.ready = async () => {
     await harness.worker();
     const port = await eventually(() => {
@@ -223,7 +227,7 @@ test("incognito data is filtered before entering the queue, including focus and 
   ]);
   const transported = JSON.stringify(deliveries(port).map(message => message.data));
   assert.doesNotMatch(transported, /private|\b(44|55|99)\b/);
-  const manifest = JSON.parse(await readFile(new URL("../../ChromeExtension/manifest.json", import.meta.url)));
+  const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   assert.equal(manifest.incognito, "not_allowed");
 });
 

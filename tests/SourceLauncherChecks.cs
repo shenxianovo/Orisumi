@@ -1,21 +1,76 @@
 #:property PublishAot=false
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
-if (args.Length != 1)
-    throw new ArgumentException("Provide the installed orisumi executable path.");
+if (args.Length != 2)
+    throw new ArgumentException("Provide the installed orisumi-dev launcher and the host output directory.");
 var tool = Path.GetFullPath(args[0]);
+var hostBuild = Path.GetFullPath(args[1]);
 var temp = Directory.CreateTempSubdirectory("orisumi-launcher-check-");
 try
 {
     var root = Path.Combine(temp.FullName, "checkout with spaces");
     var project = Path.Combine(root, "src", "Orisumi.Cli");
+    var dev = Path.Combine(root, "src", "Orisumi.Dev");
+    Directory.CreateDirectory(dev);
     var nested = Path.Combine(root, "nested", "working directory");
     Directory.CreateDirectory(project);
     Directory.CreateDirectory(nested);
-    await File.WriteAllTextAsync(Path.Combine(root, "Orisumi.slnx"), "<Solution />");
+    await File.WriteAllTextAsync(Path.Combine(root, "Orisumi.slnx"), """
+        <Solution>
+          <Project Path="src/Orisumi.Dev/Orisumi.Dev.csproj" />
+          <Project Path="src/Collectors/Orisumi.Collectors.Fixture/Orisumi.Collectors.Fixture.csproj" />
+        </Solution>
+        """);
+    var collector = Directory.CreateDirectory(Path.Combine(root, "src/Collectors/Orisumi.Collectors.Fixture")).FullName;
+    await File.WriteAllTextAsync(Path.Combine(collector, "Orisumi.Collectors.Fixture.csproj"), """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net11.0</TargetFramework>
+            <ImplicitUsings>enable</ImplicitUsings>
+            <AssemblyName>orisumi-fixture</AssemblyName>
+          </PropertyGroup>
+        </Project>
+        """);
+    var collectorSource = Path.Combine(collector, "Program.cs");
+    const string fixture = """"
+        using System.Text.Json;
+        using System.Runtime.InteropServices;
+        if (args is ["describe"])
+        {
+            Console.WriteLine("""{"name":"forwarded","version":"0.1.0+fixture","start":{"mode":"chrome","arguments":[]}}""");
+            return 0;
+        }
+        if (args.Length < 3 || args[0] != "--store") return 2;
+        switch (args[2])
+        {
+            case "binary":
+                await Console.OpenStandardInput().CopyToAsync(Console.OpenStandardOutput());
+                Console.Error.WriteLine("fixture stderr");
+                return 23;
+            case "wait":
+                var stopped = new TaskCompletionSource();
+                using (PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
+                {
+                    signal.Cancel = true;
+                    stopped.TrySetResult();
+                }))
+                {
+                    Console.WriteLine("READY");
+                    await stopped.Task;
+                    Console.WriteLine("STOPPED");
+                }
+                return 37;
+            default:
+                Console.Write(JsonSerializer.Serialize(args));
+                return 0;
+        }
+        """";
+    await File.WriteAllTextAsync(collectorSource, fixture);
     await File.WriteAllTextAsync(Path.Combine(root, ".git"), "gitdir: /nonexistent-test-worktree-metadata");
-    await File.WriteAllTextAsync(Path.Combine(project, "Orisumi.Cli.csproj"), """
+    await File.WriteAllTextAsync(Path.Combine(dev, "Orisumi.Dev.csproj"), """
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
             <OutputType>Exe</OutputType>
@@ -50,7 +105,7 @@ try
         Console.Write(JsonSerializer.Serialize(new { version = "VERSION", args, cwd = Environment.CurrentDirectory }));
         return args is ["exit"] ? 23 : 0;
         """;
-    var source = Path.Combine(project, "Program.cs");
+    var source = Path.Combine(dev, "Program.cs");
     await File.WriteAllTextAsync(source, program.Replace("VERSION", "v1"));
     string[] arguments = ["--unknown-option", "包含 空格", "quote\"value", "[literal]", "line\nbreak"];
     var first = await Run(tool, nested, arguments);
@@ -62,14 +117,16 @@ try
         Check(result.RootElement.GetProperty("cwd").GetString()!.EndsWith(Path.Combine("nested", "working directory"), StringComparison.Ordinal), "working directory changed");
     }
     Check(first.Error.Contains("fixture build diagnostic"), "build diagnostic did not go to stderr");
+    Check(File.Exists(Path.Combine(collector, "bin/Debug/net11.0/orisumi-fixture.dll")), "source launcher builds collectors in the solution");
     Console.WriteLine("PASS: nested checkout, spaces, Git directory-file marker, args, cwd, stderr");
 
     await File.WriteAllTextAsync(source, program.Replace("VERSION", "v2"));
     var second = await Run(tool, nested, []);
     Check(second.Code == 0 && second.Output.Contains("v2"), second.Error);
-    await File.AppendAllTextAsync(source, "\ninvalid C# source");
+    await File.AppendAllTextAsync(collectorSource, "\ninvalid C# source");
     var broken = await Run(tool, nested, []);
     Check(broken.Code != 0 && broken.Output.Length == 0 && broken.Error.Contains("CS"), $"build failure: code={broken.Code}, stdout={broken.Output}, stderr={broken.Error}");
+    await File.WriteAllTextAsync(collectorSource, fixture);
     await File.WriteAllTextAsync(source, program.Replace("VERSION", "v3"));
     var recovered = await Run(tool, nested, ["exit"]);
     Check(recovered.Code == 23 && recovered.Output.Contains("v3"), "child exit code or recovered source lost");
@@ -104,8 +161,7 @@ try
         try
         {
             Check(await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(60)) == "READY", "child never started");
-            var stopped = await Run("/bin/kill", nested, ["-TERM", process.Id.ToString()]);
-            Check(stopped.Code == 0, stopped.Error);
+            Check(process.Signal(PosixSignal.SIGTERM), "SIGTERM was not delivered");
             var remaining = process.StandardOutput.ReadToEndAsync();
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
             Check(process.ExitCode == 130 && (await remaining).Contains("STOPPED") &&
@@ -118,10 +174,74 @@ try
     }
     if (!OperatingSystem.IsWindows())
         Console.WriteLine("PASS: termination reaches source process and waits for it to flush");
+
+    var relativeOutput = Path.Combine("fixture-output", "custom-config", "custom-framework");
+    var hostOutput = Path.Combine(project, relativeOutput);
+    CopyOutput(hostBuild, hostOutput);
+    CopyOutput(Path.Combine(collector, "bin/Debug/net11.0"), Path.Combine(collector, relativeOutput));
+    var host = Path.Combine(hostOutput, "orisumi");
+    var store = Path.Combine(temp.FullName, "custom store ' 引号");
+    var forwarded = await Run(host, nested, ["--store", store, "forwarded", "args", .. arguments]);
+    Check(forwarded.Code == 0, forwarded.Error);
+    Check(JsonSerializer.Deserialize<string[]>(forwarded.Output)!.SequenceEqual(["--store", store, "args", .. arguments]),
+        "store and collector arguments changed");
+    var unknown = await Run(host, nested, ["--store", store, "not-a-collector"]);
+    Check(unknown.Code != 0 && unknown.Error.Contains("not-a-collector"), "unknown collector should reach the host parser");
+    Console.WriteLine("PASS: discovery follows the host's relative output and describe name, and forwards literal arguments and store");
+
+    using (var process = Start(host, nested, ["--store", store, "forwarded", "binary"]))
+    {
+        var errors = process.StandardError.ReadToEndAsync();
+        using var output = new MemoryStream();
+        var copy = process.StandardOutput.BaseStream.CopyToAsync(output);
+        try
+        {
+            await process.StandardInput.BaseStream.WriteAsync(binary);
+            process.StandardInput.Close();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            await copy;
+            Check(process.ExitCode == 23 && output.ToArray().SequenceEqual(binary) && (await errors).Trim() == "fixture stderr",
+                "host changed binary stdin/stdout, stderr or the collector exit code");
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+        }
+    }
+    Console.WriteLine("PASS: host preserves collector stdin, stdout, stderr and exit code");
+
+    using (var process = Start(host, nested, ["--store", store, "forwarded", "wait"]))
+    {
+        var errors = process.StandardError.ReadToEndAsync();
+        try
+        {
+            Check(await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)) == "READY",
+                "collector was not ready");
+            Check(process.Signal(PosixSignal.SIGTERM), "SIGTERM was not delivered");
+            var remaining = process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+            Check(process.ExitCode == 37 && (await remaining).Trim() == "STOPPED", await errors);
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+        }
+    }
+    Console.WriteLine("PASS: host relays SIGTERM and returns the collector's shutdown status");
+
 }
 finally
 {
     temp.Delete(recursive: true);
+}
+
+static void CopyOutput(string from, string to)
+{
+    Directory.CreateDirectory(to);
+    foreach (var file in Directory.EnumerateFiles(from))
+        File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
+    foreach (var directory in Directory.EnumerateDirectories(from))
+        CopyOutput(directory, Path.Combine(to, Path.GetFileName(directory)));
 }
 
 static void Check(bool value, string message)

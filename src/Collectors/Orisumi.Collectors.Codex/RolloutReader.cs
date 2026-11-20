@@ -10,7 +10,7 @@ namespace Orisumi.Collectors.Codex;
 
 public static partial class CodexCollector
 {
-    private sealed class RolloutReader(SqliteCommand command, long runId, bool reconcile)
+    private sealed class RolloutReader(SqliteCommand command, long runId, bool reconcile, CancellationToken stop)
     {
         private int events;
         private int usage;
@@ -30,6 +30,7 @@ public static partial class CodexCollector
                 foreach (var path in Directory.EnumerateFiles(root, "rollout-*.jsonl*", options)
                     .Where(IsRollout).OrderBy(IsCompressed).ThenBy(path => path, StringComparer.Ordinal))
                 {
+                    stop.ThrowIfCancellationRequested();
                     // A move or compression keeps the rollout name. Distinct rollouts can share a thread ID.
                     var name = Path.GetFileName(path);
                     var rolloutId = IsCompressed(path) ? name[..^".jsonl.zst".Length] : name[..^".jsonl".Length];
@@ -55,7 +56,7 @@ public static partial class CodexCollector
         private void ReadFile(string name, string path, Cursor? previous)
         {
             var archive = IsCompressed(path);
-            using var reader = new JsonlReader(path, archive ? DecodeArchive : null, trackCommittedPrefix: !archive);
+            using var reader = new JsonlReader(path, archive ? DecodeArchive : null, trackCommittedPrefix: !archive, stop: stop);
             var plan = reader.Plan(previous?.File, reconcile, previous is not null && IsCompressed(previous.File.Path));
             var reason = plan.Resets ? plan.Change.ToString().ToLowerInvariant()
                 : !previous!.Present ? "resumed"

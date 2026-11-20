@@ -1,17 +1,23 @@
-#:project ../src/Orisumi.Cli/Orisumi.Cli.csproj
+#:project ../src/Collectors/Orisumi.Collectors.Claude/Orisumi.Collectors.Claude.csproj
+#:project ../src/Collectors/Orisumi.Collectors.Codex/Orisumi.Collectors.Codex.csproj
 #:property PublishAot=false
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
 using Orisumi.Platform;
 
+[assembly: SupportedOSPlatform("macos")]
+
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
-var cli = Path.Combine(root, "src/Orisumi.Cli/bin/Debug/net11.0/Orisumi");
+var claude = Path.Combine(root, "src/Collectors/Orisumi.Collectors.Claude/bin/Debug/net11.0/orisumi-claude");
 CodexChecks();
 await ClaudeChecks();
 await ResidentRunChecks();
@@ -306,10 +312,10 @@ async Task ResidentRunChecks()
     File.WriteAllText(Path.Combine(directory.FullName, "session.jsonl"), """
         {"type":"user","sessionId":"019b7a61-bc00-7111-8111-111111111111","uuid":"019b7a61-bc00-7111-8111-222222222222","parentUuid":null,"message":{"role":"user","content":"hi"}}
         """ + "\n");
-    var arguments = new[] { "--store", fixture.Store, "claude", "capture" };
+    var arguments = new[] { "--store", fixture.Store, "capture" };
     for (var run = 1; run <= 2; run++)
     {
-        using var process = Start(cli, arguments, fixture);
+        using var process = Start(claude, arguments, fixture);
         process.StandardInput.Close();
         var error = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -320,8 +326,10 @@ async Task ResidentRunChecks()
                 throw new Exception(status ?? await error.WaitAsync(timeout.Token));
             using var db = Open(fixture.Database("claude"));
             Rows(db, "SELECT run_id,confirmed_until_utc_ms IS NOT NULL FROM capture_runs WHERE run_id=(SELECT MAX(run_id) FROM capture_runs) AND stopped_at_utc_ms IS NULL", [run, 1]);
+            Rows(db, "SELECT collector_version FROM capture_runs WHERE run_id=(SELECT MAX(run_id) FROM capture_runs)",
+                [typeof(ClaudeCollector).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion]);
             if (run == 1) process.Kill();
-            else await Run("/bin/kill", ["-TERM", process.Id.ToString(CultureInfo.InvariantCulture)]);
+            else process.Signal(PosixSignal.SIGTERM);
             await process.WaitForExitAsync(timeout.Token);
             if (run == 2) Check(process.ExitCode == 0, await error);
             Rows(db, "SELECT run_id,evidence,stopped_at_utc_ms IS NOT NULL,confirmed_until_utc_ms IS NOT NULL FROM capture_coverage WHERE scope='project_logs' ORDER BY run_id",
@@ -333,16 +341,15 @@ async Task ResidentRunChecks()
             if (!process.HasExited) { process.Kill(); await process.WaitForExitAsync(); }
         }
     }
-    Console.WriteLine("PASS: resident run remains unconfirmed after a kill and closes on SIGTERM");
+    Console.WriteLine("PASS: resident run records its collector version, remains unconfirmed after a kill and closes on SIGTERM");
 }
 
 static Process Start(string executable, string[] arguments, Fixture? fixture = null)
 {
-    var start = new ProcessStartInfo(executable)
+    var start = new ProcessStartInfo(executable, arguments)
     {
         UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
     };
-    foreach (var argument in arguments) start.ArgumentList.Add(argument);
     if (fixture is not null)
     {
         // Point the source readers at fixtures in the child only; never import personal data.
@@ -350,28 +357,6 @@ static Process Start(string executable, string[] arguments, Fixture? fixture = n
         start.Environment["CLAUDE_CONFIG_DIR"] = fixture.Root;
     }
     return Process.Start(start) ?? throw new Exception($"Cannot start {executable}");
-}
-
-static async Task<byte[]> Run(string executable, string[] arguments, byte[]? input = null)
-{
-    using var process = Start(executable, arguments);
-    using var stdout = new MemoryStream();
-    var copy = process.StandardOutput.BaseStream.CopyToAsync(stdout);
-    var error = process.StandardError.ReadToEndAsync();
-    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-    try
-    {
-        if (input is not null) await process.StandardInput.BaseStream.WriteAsync(input, timeout.Token);
-        process.StandardInput.Close();
-        await process.WaitForExitAsync(timeout.Token);
-        await copy;
-        Check(process.ExitCode == 0, await error);
-        return stdout.ToArray();
-    }
-    finally
-    {
-        if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
-    }
 }
 
 sealed class Fixture : IDisposable

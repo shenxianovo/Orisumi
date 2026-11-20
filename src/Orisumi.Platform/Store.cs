@@ -1,23 +1,32 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Orisumi.Platform;
 
-// A store's directories and the database each source writes; storage.mdx describes the layout and rules.
+// A store's directories and the database each source writes; overview/storage.mdx describes the layout and rules.
 // No other code composes paths inside a store.
-public sealed class Store(string root)
+public sealed partial class Store(string root)
 {
     public string Root { get; } = Path.GetFullPath(root);
     public string State => Path.Combine(Root, "state");
     public string Logs => Path.Combine(Root, "logs");
 
-    public static string DefaultRoot()
-    {
-        if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Only the macOS store location is implemented.");
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Orisumi");
-    }
+    public string App => Path.Combine(Root, "app");
+    public string Host => Path.Combine(App, "host");
+    public string Collectors => Path.Combine(App, "collectors");
+    public string Collector(string name) => Path.Combine(Collectors, name);
+    public string ChromeLauncher => Path.Combine(State, "chrome-native-host");
+    public string ProcessFile(string name) => Path.Combine(State, name + ".pid");
+    public string ChromeProcesses => Path.Combine(State, "chrome-pids");
 
-    public string Observations(string source) => Path.Combine(Root, "observations", source);
+    private string ObservationsRoot => Path.Combine(Root, "observations");
+
+    public string Observations(string source) => Path.Combine(ObservationsRoot, source);
+
+    public IEnumerable<string> Sources() => Directory.Exists(ObservationsRoot)
+        ? Directory.EnumerateDirectories(ObservationsRoot).Select(Path.GetFileName).OfType<string>()
+        : [];
 
     public string LockFile(string name) => Path.Combine(State, "locks", name + ".lock");
 
@@ -51,7 +60,7 @@ public sealed class Store(string root)
                    UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite })) { }
         var pointerPath = PointerFile(source);
         Directory.CreateDirectory(Path.GetDirectoryName(pointerPath)!);
-        File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, hardware), JsonSerializerOptions.Web));
+        File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, hardware), PointerJson.Default.Pointer));
         File.Move(pointerPath + ".tmp", pointerPath, overwrite: true);
         return (path, databaseId);
     }
@@ -64,14 +73,14 @@ public sealed class Store(string root)
     {
         try
         {
-            var pointer = JsonSerializer.Deserialize<Pointer>(File.ReadAllText(PointerFile(source)), JsonSerializerOptions.Web);
+            var pointer = JsonSerializer.Deserialize(File.ReadAllText(PointerFile(source)), PointerJson.Default.Pointer);
             return pointer is { DatabaseId: { Length: 32 } id } && Guid.TryParseExact(id, "N", out _) ? pointer : null;
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException or JsonException) { return null; }
     }
 
     // Short critical sections from concurrent processes, such as one Chrome native host per message, wait for each other.
-    private static FileStream WaitLock(string path)
+    internal static FileStream WaitLock(string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         for (var waited = Stopwatch.StartNew(); ; Thread.Sleep(20))
@@ -82,4 +91,8 @@ public sealed class Store(string root)
     }
 
     private sealed record Pointer(string DatabaseId, string? HardwareUuid);
+
+    [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+    [JsonSerializable(typeof(Pointer))]
+    private sealed partial class PointerJson : JsonSerializerContext;
 }
