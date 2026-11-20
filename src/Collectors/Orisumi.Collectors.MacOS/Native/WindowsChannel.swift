@@ -3,7 +3,7 @@ import Foundation
 enum WindowRead<Value> {
     case value(Value)
     case none
-    case failed
+    case failed(Int32)
 }
 
 // The accessibility view of one application; an AXUIElement with an AXObserver in production.
@@ -37,6 +37,7 @@ final class WindowsChannel: CaptureChannel {
     private var window: AnyObject?
     private var title: String?
     private var hasSample = false
+    private var lastEmittedFocusKnown = false
     private var pendingKind: WindowEventKind = .snapshot
     private var schedule = WindowObservationSchedule()
     private var lastSubscriptionAttempt: TimeInterval?
@@ -164,11 +165,15 @@ final class WindowsChannel: CaptureChannel {
         switch application.focusedWindow() {
         case let .value(window): focusedWindow = window
         case .none: focusedWindow = nil
-        case .failed:
-            try events.appendChannel("windows", available: false, reason: "read_failed", at: observedAt)
+        case let .failed(status):
+            try events.appendChannel("windows", available: false, reason: "read_failed",
+                                     readFailureDetail: "ax=\(status) pid=\(pid)", at: observedAt)
             try events.appendChannel("window_title", available: false, reason: "focus_unavailable", at: observedAt)
             // Record that the last known focus no longer holds; the next successful read sets a new initial value.
-            if hasSample { try events.appendWindow(.readFailed, at: observedAt, title: nil, hasWindow: nil) }
+            if lastEmittedFocusKnown {
+                try events.appendWindow(.readFailed, at: observedAt, title: nil, hasWindow: nil)
+                lastEmittedFocusKnown = false
+            }
             hasSample = false
             pendingKind = .snapshot
             schedule.readSucceeded = false
@@ -211,6 +216,7 @@ final class WindowsChannel: CaptureChannel {
                 instance = nil
             }
             try events.appendWindow(kind, at: observedAt, instance: instance, title: focusedTitle, hasWindow: focusedWindow != nil)
+            lastEmittedFocusKnown = true
         } else if focusedTitle != title {
             try events.appendWindow(.titleChanged, at: observedAt, title: focusedTitle, hasWindow: true)
         }

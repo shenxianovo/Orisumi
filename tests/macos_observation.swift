@@ -1,4 +1,6 @@
 import Foundation
+import CoreAudio
+import CoreMediaIO
 import CoreGraphics
 
 func check(_ value: Bool, _ message: String) {
@@ -81,14 +83,20 @@ if CommandLine.arguments.contains("applications") {
 }
 var listChanged: (() -> Void)?
 var listeners: [MediaChannel: () -> Void] = [:]
-var audioIDs: [UInt32] = [42]
-var input: Bool? = false
-var output = false
+var audioIDs: [UInt32]? = [42]
+var input: Result<Bool, MediaPropertyReadFailure> = .success(false)
+var output: Result<Bool, MediaPropertyReadFailure> = .success(false)
+let inputFailure: Result<Bool, MediaPropertyReadFailure> = .failure(.init(
+    selector: kAudioProcessPropertyIsRunningInput, status: kAudioHardwareBadObjectError))
+let outputFailure: Result<Bool, MediaPropertyReadFailure> = .failure(.init(
+    selector: kAudioProcessPropertyIsRunningOutput, status: -50))
+var audioListReads = 0
 var inputListenerAvailable = true
 var linkedApplication: String?
 let audio = MediaObjectSource(
     list: {
         check(listChanged != nil, "the list is watched before the snapshot")
+        audioListReads += 1
         return audioIDs
     },
     watchList: { callback in
@@ -119,17 +127,23 @@ try audioObserver.reconcile()
 linkedApplication = try events.appendApplicationLifecycle(.appeared, at: Date(),
     app: ObservedApplication(bundleID: "com.google.Chrome", name: "Chrome", pid: 1235, launchedAt: Date()), policy: .regular)
 try audioObserver.reconcile()
-output = true
+output = .success(true)
 listeners[.audioOutput]?()
 listeners[.audioOutput]?()
-input = true
+input = .success(true)
 listeners[.microphone]?()
-input = nil
+input = inputFailure
 listeners[.microphone]?()
 listeners[.microphone]?()
-input = false
+input = .success(false)
 listeners[.microphone]?()
-output = false
+audioIDs = nil
+output = outputFailure
+let beforeUnreadableList = audioListReads
+listeners[.audioOutput]?()
+check(audioListReads == beforeUnreadableList + 1, "a failed property read checks the list once")
+audioIDs = [42]
+output = .success(false)
 listeners[.audioOutput]?()
 let stale = listeners[.audioOutput]
 try audioObserver.interrupt(reason: "session_paused")
@@ -144,10 +158,14 @@ listChanged?()
 stale?()
 audioIDs = [42]
 listChanged?()
-output = true
-listeners[.audioOutput]?()
 audioIDs = []
+input = inputFailure
+let beforeVanishedClient = audioListReads
+listeners[.microphone]?()
+check(audioListReads == beforeVanishedClient + 1 && listeners[.microphone] == nil,
+      "a vanished client is removed before the list notification")
 listChanged?()
+input = .success(false)
 audioObserver.stop()
 
 check(AudioResponsibility.resolve(1234, using: nil) == 1234, "missing symbol falls back to the client PID")
@@ -158,7 +176,7 @@ check(AudioResponsibility.application(for: 1234, bundle: "com.apple.Terminal", r
 
 // An output-only run tracks clients in memory until a responsible application is observed.
 audioIDs = [42]
-output = true
+output = .success(true)
 let outputOnly = MediaObjectObserver(source: audio, channels: [.audioOutput], kind: .audioProcess,
                                     events: events, failed: { fatalError("\($0)") })
 try outputOnly.start()
@@ -177,7 +195,7 @@ outputOnly.stop()
 
 var cameraIDs: [UInt32]?
 var camerasChanged: (() -> Void)?
-var runningChanged: (() -> Void)?
+var cameraListeners: [UInt32: () -> Void] = [:]
 var cameraRunning = false
 let camera = MediaObjectSource(
     list: { cameraIDs },
@@ -188,10 +206,16 @@ let camera = MediaObjectSource(
     watchRestart: nil,
     identity: { _ in .camera(uid: "fixture-camera", name: "Camera") },
     matchApplication: nil,
-    read: { _, _ in cameraRunning },
-    watch: { _, _, callback in
-        runningChanged = callback
-        return { runningChanged = nil }
+    read: { id, _ in
+        if id == 19 {
+            cameraIDs = [18]
+            return .failure(.init(selector: UInt32(kCMIODevicePropertyDeviceIsRunningSomewhere), status: -50))
+        }
+        return .success(cameraRunning)
+    },
+    watch: { id, _, callback in
+        cameraListeners[id] = callback
+        return { cameraListeners.removeValue(forKey: id) }
     })
 let cameraObserver = MediaObjectObserver(source: camera, channels: [.camera], kind: .cameraDevice,
                                         events: events, failed: { fatalError("\($0)") })
@@ -201,13 +225,14 @@ try cameraObserver.reconcile()
 cameraIDs = [17]
 camerasChanged?()
 cameraRunning = true
-runningChanged?()
+cameraListeners[17]?()
 cameraRunning = false
-runningChanged?()
+cameraListeners[17]?()
 cameraIDs = []
 camerasChanged?()
-cameraIDs = [18]
+cameraIDs = [18, 19]
 camerasChanged?()
+check(cameraListeners[18] != nil && cameraListeners[19] == nil, "a camera that vanishes during its first read is discarded")
 cameraObserver.stop()
 try events.flush(stopped: true)
 fputs("PASS: native event scheduling and recovery\n", stderr)

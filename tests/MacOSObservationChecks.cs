@@ -86,8 +86,12 @@ try
         "regular intervals end on change, gap, unknown, or disappearance");
     Check(Values("SELECT COALESCE(is_running,'unknown') FROM audio_input_observations ORDER BY run_sequence")
         == "0,1,unknown,0,0,0,0", "input has its own sparse observations and a new baseline after listener recovery");
-    Check(Values("SELECT is_running FROM audio_output_observations ORDER BY run_sequence")
-        == "0,1,0,1,0", "output only starts after a responsible application is known");
+    Check(Values("SELECT COALESCE(is_running,'unknown') FROM audio_output_observations ORDER BY run_sequence")
+        == "0,1,unknown,0,1,0", "output starts after attribution and goes unknown when the confirming list cannot be read");
+    Check(Values("""
+        SELECT error FROM capture_read_failures WHERE error LIKE '%could not read object%' ORDER BY event_id
+        """) == "microphone: could not read object 42 selector=piri status=!obj,audio_output: could not read object 42 selector=piro status=-50",
+        "only unconfirmed disappearances log property failures, with selectors and native statuses");
     Check(Values("SELECT event_kind FROM audio_process_presence_events ORDER BY run_sequence")
         == "snapshot,snapshot,disappeared,appeared,disappeared,appeared,disappeared", "HAL lifetimes are distinct and unmatched output-only clients stay absent");
     Check(Number("""
@@ -185,11 +189,29 @@ try
             """) == "regular,accessory,accessory", "policy history continues after promotion and gap");
         Check(NumberOn(db, "SELECT COUNT(*) FROM window_title_observations WHERE title='Loading…'") == 1,
             "loading window titles are retained");
+        Check(ValuesOn(db, """
+            SELECT event_kind || ':' || COALESCE(has_window,'?') || ':' || COALESCE(pid,'?')
+            FROM window_history ORDER BY run_sequence
+            """) == "snapshot:1:900001,snapshot:1:900001,read_failed:?:?,snapshot:1:900002,title_changed:1:900002,focus_changed:0:?,focus_changed:1:900005,title_changed:1:900005",
+            "a failed switch clears the old focus before a fresh snapshot, and no window stays a known state");
+        Check(NumberOn(db, """
+            SELECT COUNT(*) FROM focused_window_events w JOIN capture_read_failures f USING(run_id,observed_at_utc_ms)
+            WHERE w.event_kind='read_failed' AND w.has_window IS NULL AND w.focus_id IS NULL
+              AND f.error='windows: read_failed ax=-25205 pid=900002'
+            """) == 1, "the unknown focus and its diagnostic share an observation time");
+        Check(NumberOn(db, "SELECT COUNT(*) FROM window_focus_instances") == 4
+            && NumberOn(db, "SELECT COUNT(*) FROM pragma_foreign_key_check") == 0,
+            "known focus snapshots and changes alone have valid focus identities");
         Check(ValuesOn(db, "SELECT event_kind || ':' || COALESCE(is_locked,'?') FROM screen_lock_events ORDER BY run_sequence")
             == "snapshot:?,transition:1,transition:0,snapshot:1", "screen lock uses current session values at start and resume");
         Check(ValuesOn(db, "SELECT event_kind || ':' || COALESCE(is_asleep,'?') FROM display_sleep_events ORDER BY run_sequence")
             == "snapshot:0,transition:1,transition:0,snapshot:?", "display sleep and wake with independently read initial state");
     }
+    using var channelsTimeline = new StringWriter();
+    await ActivityTimeline.Write(channelsStore, DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1), channelsTimeline);
+    Check(channelsTimeline.ToString().Contains("  focused_window  read_failed  [")
+        && channelsTimeline.ToString().Contains("  focused_window  snapshot  pid=900002, Draft  ["),
+        "the timeline represents the unknown focus and the recovered snapshot");
 
     // Compile the real entry point with denied permissions without changing TCC.
     var permissions = Path.Combine(temp.FullName, "Permissions.swift");

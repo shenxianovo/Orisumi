@@ -85,14 +85,14 @@ private final class AccessibilityApplication: WindowApplication {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &value)
         if result == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() { return .value(value) }
-        return result == .noValue ? .none : .failed
+        return result == .noValue ? .none : .failed(result.rawValue)
     }
 
     func title(of window: AnyObject) -> WindowRead<String?> {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(window as! AXUIElement, kAXTitleAttribute as CFString, &value)
         if result == .success { return .value(value as? String) }
-        return result == .noValue || result == .attributeUnsupported ? .none : .failed
+        return result == .noValue || result == .attributeUnsupported ? .none : .failed(result.rawValue)
     }
 
     func isSameWindow(_ first: AnyObject, _ second: AnyObject) -> Bool { CFEqual(first, second) }

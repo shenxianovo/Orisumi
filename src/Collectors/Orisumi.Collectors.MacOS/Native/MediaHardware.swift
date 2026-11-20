@@ -20,7 +20,8 @@ enum MediaHardware {
             return status == noErr ? size : nil
         }
 
-        func read(_ id: UInt32, _ selector: UInt32, size: UInt32, into buffer: UnsafeMutableRawPointer) -> UInt32? {
+        func read(_ id: UInt32, _ selector: UInt32, size: UInt32, into buffer: UnsafeMutableRawPointer)
+            -> (used: UInt32, status: OSStatus) {
             var used = size
             let status: OSStatus
             switch self {
@@ -31,29 +32,33 @@ enum MediaHardware {
                 var address = cameraAddress(selector)
                 status = CMIOObjectGetPropertyData(id, &address, 0, nil, size, &used, buffer)
             }
-            return status == noErr ? used : nil
+            return (used, status)
         }
 
         func objects(_ id: UInt32, _ selector: UInt32) -> [UInt32]? {
             guard let size = size(id, selector) else { return nil }
             guard size > 0 else { return [] }
             let stride = UInt32(MemoryLayout<UInt32>.stride)
+            guard size.isMultiple(of: stride) else { return nil }
             var ids = [UInt32](repeating: 0, count: Int(size / stride))
-            guard let used = ids.withUnsafeMutableBytes({ read(id, selector, size: size, into: $0.baseAddress!) })
-            else { return nil }
+            let (used, status) = ids.withUnsafeMutableBytes { read(id, selector, size: size, into: $0.baseAddress!) }
+            guard status == noErr, used <= size, used.isMultiple(of: stride) else { return nil }
             return Array(ids.prefix(Int(used / stride)))
         }
 
-        func integer(_ id: UInt32, _ selector: UInt32) -> UInt32? {
+        func integer(_ id: UInt32, _ selector: UInt32) -> Result<UInt32, MediaPropertyReadFailure> {
             var value: UInt32 = 0
             let size = UInt32(MemoryLayout.size(ofValue: value))
-            return read(id, selector, size: size, into: &value) == size ? value : nil
+            let (used, status) = read(id, selector, size: size, into: &value)
+            guard status == noErr, used == size else { return .failure(.init(selector: selector, status: status)) }
+            return .success(value)
         }
 
         func string(_ id: UInt32, _ selector: UInt32) -> String? {
             var value: Unmanaged<CFString>?
             let size = UInt32(MemoryLayout.size(ofValue: value))
-            guard read(id, selector, size: size, into: &value) == size else { return nil }
+            let (used, status) = read(id, selector, size: size, into: &value)
+            guard status == noErr, used == size else { return nil }
             return value.map { $0.takeRetainedValue() as String }
         }
 
@@ -103,7 +108,7 @@ enum MediaHardware {
             watchList: { hardware.listen(system, kAudioHardwarePropertyProcessObjectList, changed: $0) },
             watchRestart: { hardware.listen(system, kAudioHardwarePropertyServiceRestarted, changed: $0) },
             identity: { id in
-                let pid = hardware.integer(id, kAudioProcessPropertyPID).map { pid_t(bitPattern: $0) }
+                let pid = try? hardware.integer(id, kAudioProcessPropertyPID).map { pid_t(bitPattern: $0) }.get()
                 let bundle = hardware.string(id, kAudioProcessPropertyBundleID)
                 return .audio(pid: pid, bundleID: bundle)
             },

@@ -158,9 +158,11 @@ final class ObservationEvents {
         try emit("afk", at: time, ["kind": kind.rawValue, "state": state.rawValue, "idle": idleMS])
     }
 
-    func appendChannel(_ channel: String, available: Bool, reason: String, at time: Date = Date()) throws {
+    func appendChannel(_ channel: String, available: Bool, reason: String, readFailureDetail: String? = nil,
+                       at time: Date = Date()) throws {
         if reason == "read_failed", channels[channel]?.reason != reason {
-            try appendReadFailure("\(channel): \(reason)", at: time)
+            let detail = readFailureDetail.map { " \($0)" } ?? ""
+            try appendReadFailure("\(channel): \(reason)\(detail)", at: time)
         }
         defer { channels[channel] = (available, reason) }
         guard channels[channel]?.available != available else { return }

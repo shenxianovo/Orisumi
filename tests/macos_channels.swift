@@ -64,13 +64,17 @@ final class FakeWindowApplication: WindowApplication {
     final class Window {}
     var window: Window? = Window()
     var title: String? = "Draft"
+    var focusError: Int32?
     let changed: () -> Void
 
     init(changed: @escaping () -> Void) { self.changed = changed }
     func watchFocus() -> Bool { true }
     func watchTitle(of window: AnyObject) -> Bool { true }
     func unwatchTitle(of window: AnyObject) {}
-    func focusedWindow() -> WindowRead<AnyObject> { window.map { .value($0) } ?? .none }
+    func focusedWindow() -> WindowRead<AnyObject> {
+        if let focusError { return .failed(focusError) }
+        return window.map { .value($0) } ?? .none
+    }
     func title(of window: AnyObject) -> WindowRead<String?> { .value(title) }
     func isSameWindow(_ first: AnyObject, _ second: AnyObject) -> Bool { first === second }
 }
@@ -78,6 +82,7 @@ final class FakeWindowApplication: WindowApplication {
 var windows: [pid_t: FakeWindowApplication] = [:]
 let windowSource = WindowSource(permitted: { true }, open: { pid, changed in
     let application = FakeWindowApplication(changed: changed)
+    application.focusError = pid == 900002 ? -25205 : nil
     windows[pid] = application
     return application
 })
@@ -97,7 +102,7 @@ var cameras: [UInt32] = [7]
 let cameraSource = MediaObjectSource(
     list: { cameras }, watchList: { _ in {} }, watchRestart: nil,
     identity: { _ in .camera(uid: "fixture-camera", name: "Camera") }, matchApplication: nil,
-    read: { _, _ in false }, watch: { _, _, _ in {} })
+    read: { _, _ in .success(false) }, watch: { _, _, _ in {} })
 
 var zone = "Asia/Shanghai"
 var monotonic: Int64 = 1_000_000
@@ -135,13 +140,29 @@ for (channel, facts, names) in channels {
 }
 
 // Foreground changes reach the windows channel through the applications channel.
+let previousFocusRows = rows("window")
 frontmost = running[1]
 activated?(running[1])
 check(matching("workspace") { $0["kind"] as? String == "activated" }.count == 1, "activation is recorded")
-check(matching("window") { $0["kind"] as? String == "focus_changed" }.count == 1, "activation moves the focused window")
+let failedFocus = matching("window").dropFirst(previousFocusRows)
+check(failedFocus.count == 1 && failedFocus.first?["kind"] as? String == "read_failed"
+      && failedFocus.first?["hasWindow"] is NSNull, "a failed switch makes the previous app's focus unknown")
+let browserWindow = windows[900002]!
+browserWindow.changed()
+check(rows("window") == previousFocusRows + 1, "repeated failure leaves focus unknown")
+check(matching("read_failure") { $0["error"] as? String == "windows: read_failed ax=-25205 pid=900002" }.count == 1,
+      "the focus read failure identifies the AX error and target PID")
+browserWindow.focusError = nil
+browserWindow.changed()
+let recoveredFocus = matching("window").last
+check(recoveredFocus?["kind"] as? String == "snapshot" && recoveredFocus?["hasWindow"] as? Bool == true,
+      "focus recovery starts a new snapshot")
 windows[900002]!.title = "Inbox"
 windows[900002]!.changed()
 check(matching("window") { $0["title"] as? String == "Inbox" }.count == 1, "a title notification records the change")
+browserWindow.window = nil
+browserWindow.changed()
+check(matching("window").last?["hasWindow"] as? Bool == false, "no focused window is a known state")
 
 // An accessory is admitted on its first regular policy or foreground observation, then tracked
 // through policy demotion and a verified session gap. Its successor starts with a clean policy.
