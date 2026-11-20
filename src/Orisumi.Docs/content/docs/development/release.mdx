@@ -42,5 +42,6 @@ orisumi-dev deploy [组件…]
 - 首次安装后，在系统设置 › 隐私与安全性的「辅助功能」和「输入监控」里加入 `<实例目录>/app/host/Orisumi.app` 并打开。授权跟 bundle ID 和证书走，重装和升级宿主都保留。缺权限时 macOS 采集只停用对应通道。
 - 开发实例没有 Orisumi.app，LaunchAgent 直接运行采集器，macOS 采集拿不到这两项权限；开发时在终端里运行 `orisumi-dev macos foreground`，用终端的权限。
 - 浏览器扩展连本实例的接收端端口，`capture start` 打印扩展路径和预期 ID。
+- `capture status [--json]` 给每个采集器一个健康状态：`stopped`（装了但没加载）、`attention`（有问题代码：`not_installed`、`not_running`、`run_failed`，或运行中却超过 5 分钟没确认的 `stale`）或 `ok`。读取失败只计数，不影响健康：AX 超时这类短暂失败每小时都有。`--json` 另含最近 5 次运行和最近 10 条读取失败，GUI 读的就是它。
 
 Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`。接收端因此按扩展所在路径算出 ID 来注册，不用手填。在 Chrome 中加载扩展仍需手动，`capture start` 会打印路径和预期 ID。扩展装在实例目录里的固定路径，重新部署后 Chrome 只需重载。

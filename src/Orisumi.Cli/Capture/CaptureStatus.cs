@@ -9,6 +9,12 @@ namespace Orisumi.Cli.Capture;
 
 internal static partial class CaptureStatus
 {
+    private const string Ok = "ok";
+    private const string Attention = "attention";
+    private const string Stopped = "stopped";
+    private const int RecentRunLimit = 5;
+    private const int RecentFailureLimit = 10;
+
     internal static async Task Write(Instance instance, SystemLocations locations, bool json, TextWriter output,
         CancellationToken token, string? baseDirectory = null)
     {
@@ -20,21 +26,41 @@ internal static partial class CaptureStatus
         var names = versions.Keys.Union(Launchd.AgentPlists(instance, locations)
             .Select(path => Path.GetFileNameWithoutExtension(path)[prefix.Length..]), StringComparer.Ordinal)
             .Union(store.Sources(), StringComparer.Ordinal).Order(StringComparer.Ordinal);
-        var now = DateTimeOffset.UtcNow;
-        var after = now.AddHours(-1).ToUnixTimeMilliseconds();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var collectors = new List<CollectorStatus>();
         foreach (var name in names)
         {
             var agent = await ReadAgent(locations, instance.AgentLabel(name), token);
-            var (run, failures) = ReadRuns(store.Databases(name), after);
-            collectors.Add(new(name, versions.GetValueOrDefault(name), agent, run, failures));
+            var (runs, failures, recentFailures) = ReadHistory(store.Databases(name), now - 3_600_000);
+            var run = runs.FirstOrDefault() is { } latest ? latest with { Database = null } : null;
+            var version = versions.GetValueOrDefault(name);
+            var (health, problems) = Assess(version, agent, run, now);
+            collectors.Add(new(name, version, agent, run, failures, health, problems, runs, recentFailures));
         }
 
-        var status = new Status(instance.Name, store.Root, Commands.HostVersion, collectors);
+        var overallHealth = collectors.Count > 0 && collectors.All(collector => collector.Health == Stopped) ? Stopped
+            : collectors.Any(collector => collector.Health != Ok) ? Attention : Ok;
+        var status = new Status(instance.Name, store.Root, Commands.HostVersion, collectors, now, overallHealth);
         if (json)
             output.WriteLine(JsonSerializer.Serialize(status, StatusJson.Default.Status));
         else
-            WriteText(status, now.ToUnixTimeMilliseconds(), output);
+            WriteText(status, output);
+    }
+
+    // Read failures are evidence, not health: short AX timeouts happen every hour (see capture/index.mdx).
+    private static (string Health, List<string> Problems) Assess(string? version, AgentStatus agent, RunStatus? run, long now)
+    {
+        var problems = new List<string>();
+        var stopped = version is not null && agent.State == "not_loaded";
+        if (version is null) problems.Add("not_installed");
+        if (stopped) problems.Add("not_loaded");
+        if (agent.State is not ("not_loaded" or "running")) problems.Add("not_running");
+        if (run?.StopReason == "failed") problems.Add("run_failed");
+        if (run is { StoppedAtUtcMs: null } &&
+            Math.Max(run.ConfirmedUntilUtcMs ?? run.StartedAtUtcMs, run.StartedAtUtcMs) < now - 300_000)
+            problems.Add("stale");
+
+        return (stopped ? Stopped : problems.Count > 0 ? Attention : Ok, problems);
     }
 
     private static async Task<AgentStatus> ReadAgent(SystemLocations locations, string label, CancellationToken token)
@@ -54,9 +80,10 @@ internal static partial class CaptureStatus
         return new(state, null, lastExitCode);
     }
 
-    private static (RunStatus? Run, long Failures) ReadRuns(IReadOnlyList<string> paths, long after)
+    private static (RunStatus[] Runs, long Failures, ReadFailure[] RecentFailures) ReadHistory(IReadOnlyList<string> paths, long after)
     {
-        RunStatus? run = null;
+        var runs = new List<RunStatus>();
+        var recentFailures = new List<ReadFailure>();
         long failures = 0;
         foreach (var path in paths)
         {
@@ -65,29 +92,47 @@ internal static partial class CaptureStatus
                 DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false, DefaultTimeout = 3,
             }.ToString());
             database.Open();
+            var name = Path.GetFileNameWithoutExtension(path);
             using var command = database.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='capture_runs'";
             if (command.ExecuteScalar() is 0L) continue;
             command.CommandText = """
                 SELECT run_id, started_at_utc_ms, collector_version, confirmed_until_utc_ms,
                        stopped_at_utc_ms, stop_reason, error FROM capture_runs
-                ORDER BY started_at_utc_ms DESC, run_id DESC LIMIT 1
+                ORDER BY started_at_utc_ms DESC, run_id DESC LIMIT $run_limit
                 """;
+            command.Parameters.AddWithValue("$run_limit", RecentRunLimit);
             using (var reader = command.ExecuteReader())
-                if (reader.Read() && (run is null || reader.GetInt64(1) > run.StartedAtUtcMs))
-                    run = new(reader.GetInt64(0), reader.GetInt64(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+                while (reader.Read())
+                    runs.Add(new(reader.GetInt64(0), reader.GetInt64(1), reader.IsDBNull(2) ? null : reader.GetString(2),
                         reader.IsDBNull(3) ? null : reader.GetInt64(3), reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                        reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6));
-            command.CommandText = "SELECT COUNT(*) FROM capture_read_failures WHERE observed_at_utc_ms >= $after";
+                        reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6), name));
+
+            command.CommandText = """
+                SELECT observed_at_utc_ms, run_id, scope, error,
+                       (SELECT COUNT(*) FROM capture_read_failures WHERE observed_at_utc_ms >= $after)
+                FROM capture_read_failures
+                ORDER BY observed_at_utc_ms DESC, event_id DESC LIMIT $failure_limit
+                """;
             command.Parameters.AddWithValue("$after", after);
-            failures += (long)command.ExecuteScalar()!;
+            command.Parameters.AddWithValue("$failure_limit", RecentFailureLimit);
+            using var failureReader = command.ExecuteReader();
+            if (!failureReader.Read()) continue;
+            failures += failureReader.GetInt64(4);
+            do
+            {
+                recentFailures.Add(new(failureReader.GetInt64(0), failureReader.GetInt64(1),
+                    failureReader.IsDBNull(2) ? null : failureReader.GetString(2), failureReader.GetString(3), name));
+            } while (failureReader.Read());
         }
-        return (run, failures);
+        // Stable sorting keeps ties in database path order, then in descending local ID order within a database.
+        return (runs.OrderByDescending(run => run.StartedAtUtcMs).Take(RecentRunLimit).ToArray(), failures,
+            recentFailures.OrderByDescending(failure => failure.ObservedAtUtcMs).Take(RecentFailureLimit).ToArray());
     }
 
-    private static void WriteText(Status status, long now, TextWriter output)
+    private static void WriteText(Status status, TextWriter output)
     {
-        output.WriteLine($"{status.Instance} ({status.Store}) host {status.HostVersion}");
+        output.WriteLine($"{status.Instance} ({status.Store}) host {status.HostVersion}, health {status.Health}");
         foreach (var collector in status.Collectors)
         {
             var agent = collector.Agent;
@@ -95,9 +140,10 @@ internal static partial class CaptureStatus
                 : agent.LastExitCode is { } exit ? $" (last exit {exit})" : "";
             var run = collector.Run;
             var capture = run is null ? "no run" : FormattableString.Invariant(
-                $"started {DateTimeOffset.FromUnixTimeMilliseconds(run.StartedAtUtcMs):yyyy-MM-ddTHH:mm:ss'Z'}, confirmed {Confirmed(run.ConfirmedUntilUtcMs, now)}");
+                $"started {DateTimeOffset.FromUnixTimeMilliseconds(run.StartedAtUtcMs):yyyy-MM-ddTHH:mm:ss'Z'}, confirmed {Confirmed(run.ConfirmedUntilUtcMs, status.GeneratedAtUtcMs)}");
             if (run?.StoppedAtUtcMs is not null) capture += $", stopped ({run.StopReason})";
-            output.WriteLine($"  {collector.Name} {collector.Version ?? "-"}: {agent.State}{process}, {capture}, failures (1h) {collector.ReadFailuresLastHour}");
+            var problems = collector.Problems.Count > 0 ? $" [{string.Join(", ", collector.Problems)}]" : "";
+            output.WriteLine($"  {collector.Name} {collector.Version ?? "-"}: {agent.State}{process}, {capture}, failures (1h) {collector.ReadFailuresLastHour}{problems}");
         }
     }
 
@@ -115,11 +161,15 @@ internal static partial class CaptureStatus
         };
     }
 
-    private sealed record Status(string Instance, string Store, string HostVersion, List<CollectorStatus> Collectors);
-    private sealed record CollectorStatus(string Name, string? Version, AgentStatus Agent, RunStatus? Run, long ReadFailuresLastHour);
+    private sealed record Status(string Instance, string Store, string HostVersion, List<CollectorStatus> Collectors,
+        long GeneratedAtUtcMs, string Health);
+    private sealed record CollectorStatus(string Name, string? Version, AgentStatus Agent, RunStatus? Run, long ReadFailuresLastHour,
+        string Health, List<string> Problems, RunStatus[] RecentRuns, ReadFailure[] RecentReadFailures);
     private sealed record AgentStatus(string State, int? Pid, JsonValue? LastExitCode);
     private sealed record RunStatus(long RunId, long StartedAtUtcMs, string? CollectorVersion, long? ConfirmedUntilUtcMs,
-        long? StoppedAtUtcMs, string? StopReason, string? Error);
+        long? StoppedAtUtcMs, string? StopReason, string? Error,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Database);
+    private sealed record ReadFailure(long ObservedAtUtcMs, long RunId, string? Scope, string Error, string Database);
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
     [JsonSerializable(typeof(Status))]
