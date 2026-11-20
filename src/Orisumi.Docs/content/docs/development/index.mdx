@@ -1,66 +1,72 @@
 ---
-title: 命令行与开发
-description: 源码入口、采集运行与验证。
+title: 开发入口与命令
+description: 安装开发入口、命令一览、浏览器扩展、验证和行数统计。
 ---
 
-## 安装与源码入口
+## 安装
 
-只支持 macOS。需要 .NET 11 SDK 和 Xcode Command Line Tools。在仓库根目录安装全局入口：
+只支持 macOS。需要 .NET 11 SDK、Xcode Command Line Tools、Node.js（版本下限见文档站 `package.json` 的 `engines.node`），`PATH` 里要有 `~/.dotnet/tools` 和 `~/.local/bin`。首次在仓库根目录运行：
 
 ```sh
-dotnet pack src/Orisumi.Cli -c Release -o bin/packages
-dotnet tool install --global Orisumi.Cli --source bin/packages --version 0.1.1
+dotnet run --project src/Orisumi.Dev -- dev setup
 ```
 
-将全局工具目录 `~/.dotnet/tools` 加入 `PATH`。`orisumi` 从当前目录向上定位 `Orisumi.slnx` 与 CLI 项目，遇到其他 Git 仓库即停止；仓库外不能使用源码入口。
+`dev setup` 先检查上述前置条件，缺了就报错，不代为安装；然后构建解决方案，安装文档站和扩展的依赖，为开发实例构建扩展，最后安装全局工具 `orisumi-dev`。之后用 `orisumi-dev dev setup` 重跑。
 
-每次调用先增量构建当前检出的 Debug 源码，包括未提交修改；失败即退出。构建信息写 stderr，命令保留 stdin/stdout、参数、退出码和工作目录，相对路径以调用位置为准。
+## 两个入口
 
-普通源码修改无需重装；修改入口机制或项目路径后重新打包安装。直接运行构建产物不会自动构建；后台采集和 Chrome 接收端使用这种方式。
+- `orisumi`：生产实例里装好的宿主，见[实例与发布](./release.mdx)。
+- `orisumi-dev`：开发入口。从当前目录向上找 `Orisumi.slnx`，遇到别的 Git 仓库就停。每次先增量构建整个解决方案（Debug，含未提交的修改），构建失败就退出；再运行这个检出构建出的 `orisumi-dev`，所以改了开发命令不用重装，只有改了入口机制或项目路径才要重跑 `dev setup`。开发命令以外的命令转给源码构建的宿主，并带上本检出开发实例的 `--store`。构建输出写到 stderr；stdin/stdout、参数、退出码和工作目录原样保留。
 
-## 命令与运行
+宿主通过 `describe` 识别采集器。装好的宿主到实例的 `app/collectors/` 里找；源码构建的宿主取自己相对 `src/Orisumi.Cli` 的输出目录（如 `bin/Debug/net11.0/`），到每个 `src/Collectors/Orisumi.Collectors.*` 的同一相对目录找 `orisumi-*.dll`。
 
-CLI 使用 `System.CommandLine`、`Spectre.Console`，开发命令在 `Orisumi.Cli/Dev`，各采集器独立成项目。完整选项见各命令 `--help`。
+## 命令
+
+宿主在 `src/Orisumi.Cli`，开发命令在 `src/Orisumi.Dev`，采集器各自成项目。完整选项见 `--help`。不给 `--store` 时用程序所在的实例，见[实例与发布](./release.mdx#实例)。
+
+宿主命令，经 `orisumi-dev` 运行时作用于开发实例：
 
 | 命令 | 用途 |
 | --- | --- |
-| `orisumi dev build [-c Release]` | 构建项目 |
-| `orisumi capture start` | 启动或重启系统采集器，保留数据 |
-| `orisumi capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](./recovery.mdx) |
-| `orisumi codex capture` / `orisumi claude capture` | 常驻监听并增量导入，由 `capture start` 装成 LaunchAgent；没有一次性导入 |
-| `orisumi foreground --windows --input --microphone --audio-output --camera` | 持续采集 macOS，选项各开一个通道；可指定秒数，Ctrl+C 正常停止 |
-| `orisumi timeline --from … --to …` | 查询活动时间线，时间参数包含 UTC 偏移或 `Z` |
-| `orisumi dev docs` | 文档预览；安装、检查和构建见[文档维护](./contributing.mdx) |
+| `capture start` / `capture stop` | 启动或停止本实例的采集器，保留数据，见[安装与启停](./release.mdx#安装与启停) |
+| `capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](../capture/recovery.mdx) |
+| `export <目标目录>` | 导出所有观测库的快照，见[导出](../overview/storage.mdx#导出) |
+| `install <发布目录>…` | 把发布装进本实例 |
+| `<来源> …` | 转给采集器 `orisumi-<来源>`，参数、标准输入输出、退出码和 SIGTERM 原样传递 |
 
-`--store` 默认是 `~/Library/Application Support/Orisumi`，目录结构见[存储](./storage.mdx)。
+经宿主转发的采集器命令：
 
-`capture start` 停止同一存储目录上次启动的前台进程，再从调用环境启动全部通道，以继承窗口和输入权限；PID 和进程启动时间写入 `state/foreground.pid`，停止前据此确认仍是同一进程；日志直接追加至 `logs/foreground.{out,err}.log`。启动命令退出或终端关闭后继续采集。
+| 命令 | 用途 |
+| --- | --- |
+| `claude capture` / `codex capture` | 常驻监听并增量导入；由 `capture start` 装成 LaunchAgent，没有一次性导入 |
+| `macos foreground [秒数] --windows --input --microphone --audio-output --camera` | 采集 macOS，每个选项开一个通道；不给秒数就一直运行，Ctrl+C 正常停止 |
+| `macos timeline --from … --to …` | 活动时间线；时间要带 UTC 偏移或 `Z` |
+| `browser register-chrome <扩展 ID>` | 手动注册接收端；`capture start` 会自动注册 |
+| `<来源> describe` | 版本和启动方式 |
 
-Codex、Claude 常驻监听，由用户 LaunchAgent 保活；启动时先全量核对，之后按来源通知和定期核对增量导入。配置指向当前构建产物，重新运行启动命令会替换配置并重启。Chrome 扩展需单独重载；首次注册也可使用 `capture start --extension-id EXTENSION_ID`。
+开发命令：
 
-重建输出库前停止相关监听和导入；重建后重启采集并重载扩展，建立新初值。来源数据保持只读，清空输出库不会删除来源内容。
+| 命令 | 用途 |
+| --- | --- |
+| `dev setup` / `dev build [-c Release]` | 安装开发入口／构建解决方案 |
+| `dev docs …` | 文档站，见[文档维护](./contributing.mdx) |
+| `dev loc [--json]` | [行数统计](#行数统计) |
+| `extension install` / `extension build` | 安装扩展依赖／为开发实例构建扩展 |
+| `release` / `preview …` / `promote` | 发布、预览和切换，见[实例与发布](./release.mdx#预览与切换) |
 
 ## 浏览器扩展
 
 ```sh
-orisumi dev browser install
-orisumi dev browser build
-orisumi browser register-chrome EXTENSION_ID
+orisumi-dev extension install
+orisumi-dev extension build
+orisumi-dev capture start
 ```
 
-在 Chrome 扩展页启用开发者模式，加载 `src/Collectors/Orisumi.Collectors.Browser/ChromeExtension`，使用页面显示的 ID 注册。修改扩展后重新构建并重载；注册指向当前构建的接收端，扩展通过 `connectNative` 保持长连接，断开后退避重连。接收端 stdout 专用于 Native Messaging 二进制协议。
-
-## 行数统计
-
-`orisumi dev loc [--json]` 统计当前工作区，包括未提交修改和未忽略的新文件；跳过已删除文件、符号链接、空行和纯注释。`Impl`/`Tests` 按同一刻度显示，文档、配置和生成文件（含锁文件）归 `Outside code`，不计入代码总数。
-
-项目从 `.csproj`、`package.json` 识别，嵌套文件归最近项目；名称分别取项目文件名和包名。项目内测试归该项目；独立 C# 测试只引用一个非测试项目时归该项目，其余归 `Cross-module`。独立脚本归 `Scripts`，CLI 的 `Dev/` 归 CLI 实现。无法归属的已识别语言文件列入 `Unclassified files`，不计入总数。
-
-JSON stdout 包含 `code`、`roles`、`modules`、`languages`、`unclassifiedPaths`。文本重定向保持表格且不含终端控制码；`NO_COLOR` 关闭配色。
+`extension build` 把扩展构建到 `<检出>/.local/extension/`，写入开发实例的接收端名字，并打印路径和预期 ID。在 Chrome 扩展页打开开发者模式，加载这个目录；改了扩展就重新构建，再到 Chrome 里重载。接收端的 stdout 只用于 Native Messaging 二进制协议。
 
 ## 验证
 
-在仓库根目录运行；测试使用临时数据和进程，结束后清理。
+在仓库根目录运行。测试只用临时数据和进程，结束后清理。
 
 ```sh
 dotnet build Orisumi.slnx
@@ -70,14 +76,30 @@ dotnet run --file tests/SchemaChecks.cs
 dotnet run --file tests/CaptureIntegrationChecks.cs
 dotnet run --file tests/BrowserIntegrationChecks.cs
 dotnet run --file tests/CaptureCoverageChecks.cs
+dotnet run --file tests/ExportChecks.cs
 dotnet run --file tests/ClaudeIncrementalChecks.cs
 dotnet run --file tests/CodexIncrementalChecks.cs
 dotnet run --file tests/MacOSObservationChecks.cs
+dotnet run --file tests/InstanceChecks.cs
 npm --prefix src/Collectors/Orisumi.Collectors.Browser/Extension test
-dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi)"
-dotnet run --file tests/LocChecks.cs -- src/Orisumi.Cli/bin/Debug/net11.0/Orisumi.dll
+dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi-dev)" src/Orisumi.Cli/bin/Debug/net11.0
+dotnet run --file tests/LocChecks.cs -- src/Orisumi.Dev/bin/Debug/net11.0/orisumi-dev.dll
 ```
 
-平台检查覆盖主机标识、库的选择、主机绑定和并发建库；启动检查覆盖独立存活、日志、信号和旧 PID；Schema 检查来源清单、结构打包、视图、coverage 列、重复打开；采集检查覆盖独立变化、修订、重试、身份与中断；浏览器检查覆盖扩展转发、入队、重连与隐身过滤，以及接收端的快照核对、EOF、超时和历史事务；macOS 检查另用替身来源让每个通道走一遍开始、核对、中断、恢复，检查 Swift 输出的 JSONL 和 C# 入库结果，覆盖积压、事务回滚及两侧进程退出。源码入口检查使用临时仓库，覆盖更新、构建失败、参数、退出码、二进制输入输出和信号。LOC 检查使用临时 Git 仓库。
+| 检查 | 覆盖 |
+| --- | --- |
+| Platform | 主机标识、选库、主机绑定、并发建库 |
+| CaptureStartup | LaunchAgent 配置、分离启动后的存活、日志、信号、过期的 PID 文件 |
+| Schema | 项目与解决方案一致、`describe`、结构打包、视图、coverage 列、重复打开 |
+| CaptureIntegration、Claude/CodexIncremental | 独立变化、修订、重试、身份、中断、回放和增量 |
+| BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤；接收端的快照核对、EOF、超时、历史事务 |
+| CaptureCoverage、Export | 覆盖查询的区间；导出时未检查点的 WAL、重复导出、目标位置、库 ID 不符、半成品 |
+| MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
+| Instance | 实例解析、派生名字、扩展 ID、安装替换、命令链接、发布、预览和切换 |
+| SourceLauncher、Loc | 在临时仓库里测开发入口的构建、参数、退出码、二进制输入输出、信号，以及行数统计 |
 
-新增采集器的来源、恢复和数据库要求见[采集开发](./capture.mdx)。
+新增采集器的要求见[采集开发](../capture/index.mdx)。
+
+## 行数统计
+
+`orisumi-dev dev loc [--json]` 统计当前工作区，包括未提交的修改和未被忽略的新文件；不计空行、纯注释和符号链接。文档、配置和生成文件（含锁文件）单列为 `Outside code`，不算进代码总数。项目按 `.csproj`、`package.json` 识别，文件归最近的项目；只测一个项目的独立测试归那个项目，其余归 `Cross-module`。归不了类的文件列在 `Unclassified files`，也不算进总数。

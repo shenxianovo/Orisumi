@@ -1,0 +1,20 @@
+---
+title: Claude
+description: Claude Code 会话日志里的提问、回答、工具调用和用量。
+---
+
+只读 `CLAUDE_CONFIG_DIR`（默认 `~/.claude`）`projects/` 下的会话 JSONL，含子 Agent。Claude Code 默认只保留 30 天会话，过期前没读到的就补不回来。
+
+日志是一棵 uuid 树：每行一个节点，指向父节点，回退和重试会分叉。采集照这个结构存：每个带 uuid 的行都是一个事件，只存公共字段；要保留的内容另放一张表。没存内容的行（thinking、attachment、system）也有事件，所以父链是完整的。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `sessions` / `current_sessions` | 会话及父会话／最新的自定义标题、AI 标题和可见消息的起止时间 |
+| `transcript_events` | 每个节点：父 uuid（链首为 `''`）、行类型、块类型、时间、工作目录、Git 分支、入口、响应 ID、工具调用 ID、是否 sidechain；人输入的提示另记来源和权限模式，斜杠命令的提示来源为空 |
+| `event_contents` | 可见的文本、图像、文档；工具名和完整输入；工具结果的错误标记、权限决定及来源、内容长度，出错时保留完整错误文本 |
+| `message_timeline` | 可见消息按链排好，`visible_parent_uuid` 指向最近的可见祖先，分支和 sidechain 都在 |
+| `session_title_observations` | `custom`、`ai` 两种标题各自的初值和变化 |
+| `response_token_usage_observations` / `response_token_usage` | 一个响应跨多行时的用量／每个响应最后的用量，汇总用后者 |
+| `source_records` | 每个入库行的文件、行号和哈希，用于回到来源核对和重放去重 |
+
+不采：thinking 正文、成功的工具结果正文、附件、文件历史、API 请求、队列操作。

@@ -3,12 +3,10 @@ title: Orisumi
 description: 采集个人信息，供 Agent 理解和使用，也供人查看。
 ---
 
-Orisumi 将浏览器、Agent 会话和系统活动等来源的个人信息采集到本地，供 Agent 查询分析，也供人查看。
+Orisumi 把浏览器、Agent 会话和系统活动等来源的个人信息采集到本地，供 Agent 查询分析，也供人查看。
 
-- [命令行与开发](./development.mdx)：运行、构建和验证。
-- [采集开发](./capture.mdx)：采集范围、原则、取数方式、恢复和数据库约定。
-- [采集数据](./sources.mdx)：现有来源的事实含义与限制。
-- [覆盖与恢复](./recovery.mdx)：观测依据、缺口与中断恢复。
-- [存储](./storage.mdx)：存储目录的位置与结构，以及每个来源写哪个库。
-- [多设备](./devices.mdx)：设备与库的身份、跨设备合并和时间约定。
-- [文档维护](./contributing.mdx)：内容约定与文档站操作。
+文档分三块，在顶部切换：
+
+- **概览**：[架构](./architecture.mdx)讲进程和数据流，[存储](./storage.mdx)讲库放在哪、每个来源写哪个库，[多设备](./devices.mdx)讲设备身份和跨设备合并。
+- **采集**：[采集开发](../capture/index.mdx)是原则和数据库约定，[覆盖与恢复](../capture/recovery.mdx)讲怎么查观测依据，再往下是每个来源记了什么。
+- **开发**：[开发入口与命令](../development/index.mdx)，[实例与发布](../development/release.mdx)讲生产、预览、开发怎么隔开和切换，以及[文档维护](../development/contributing.mdx)。

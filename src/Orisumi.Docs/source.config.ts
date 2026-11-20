@@ -1,9 +1,11 @@
 import { defineConfig } from 'fumadocs-mdx/config';
+import { remarkMdxMermaid } from 'fumadocs-core/mdx-plugins';
 import { remarkGitChangelog } from 'fumadocs-page-history/remark';
 
 export default defineConfig({
   mdxOptions: {
     remarkPlugins: [
+      remarkMdxMermaid,
       [
         remarkGitChangelog,
         {

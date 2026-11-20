@@ -1,0 +1,7 @@
+{
+  "title": "概览",
+  "description": "Orisumi 是什么、怎么运转、数据放在哪",
+  "icon": "Compass",
+  "root": true,
+  "pages": ["index", "architecture", "storage", "devices"]
+}

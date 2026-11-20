@@ -3,7 +3,7 @@ title: 采集开发
 description: 采集范围、原则、取数方式、恢复和数据库约定。
 ---
 
-新增或修改采集器前读这一页。各来源具体记了什么见[采集数据](./sources.mdx)，怎么查能还原到哪见[覆盖与恢复](./recovery.mdx)。
+新增或修改采集器前读这一页。进程和数据流见[架构](../overview/architecture.mdx)，各来源记了什么见左侧「来源」，怎么查能还原到哪见[覆盖与恢复](./recovery.mdx)。
 
 ## 采什么
 
@@ -32,6 +32,8 @@ description: 采集范围、原则、取数方式、恢复和数据库约定。
 - 回合的开始时间不变，结束时间后来才有：开始时间放身份表，结束时间单独记。
 
 拆对了，每张表的一行都能用一句话说清：“某对象的某组属性，在这次观测时变成了这个值”。
+
+按怎么变拆表，不按长什么样拆表。日志里的条目写下就不变，各类型只是字段不同：Agent 日志每条事件一行，公共字段是列，各类型挑出的字段放进一张内容表的 `payload_json`；没挑内容的事件就没有内容行。来源加了新类型，只改挑字段的代码。
 
 ### 事件每次发生都记
 
@@ -67,8 +69,8 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 等式只在一条不断的观测链上成立。采集器停了、权限丢了、电脑休眠了，中间发生了什么我们不知道。如果直接接着记，查询会把断开的那段当成“没变”。
 
 - 每段连续观测有自己的初值。恢复后能补读就先补读；补不齐就记下缺口，再重新记初值。
-- `capture_runs` 每个常驻进程或浏览器连接的生命期记一行。开始时写主机观测，结束时间和 `stop_reason` 一起写，因错误终止时 `error` 才有值。未能确认结束时保留空值。
-- 每轮成功后，在事实与游标的事务里原地更新 `confirmed_until_utc_ms`。一轮失败则回滚，尽力在 `capture_read_failures` 另记时点和错误，继续沿用当前运行。覆盖只在状态变化、失败或缺口时另记。当前使用这套写入规则的来源见[采集数据](./sources.mdx)。
+- `capture_runs` 一个常驻进程或一条浏览器连接记一行。结束时间和 `stop_reason` 一起写，因错误终止时 `error` 才有值；异常退出时两者留空，表示未确认，不用重启时间或查询时间补。
+- 每轮提交时把 `confirmed_until_utc_ms` 更新到这一轮，说明至少确认到了哪。一轮失败就回滚，在 `capture_read_failures` 记下，运行继续。不为每一轮记覆盖，只在状态变化、失败和缺口时记。
 - 运行中也可能缺权限、通道不可用、采样漏掉短暂变化，这些另外记。所以采集在运行，不等于全程都看到了。
 - 没有新变化，只在链没断的前提下才能说明状态没变。
 
@@ -82,7 +84,7 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 | 变更通知 | 记初值，然后接上通知，记每次变化 | 重放还没送达的通知；补不了的区间记为缺口，重新记初值 |
 | 只能读当前值 | 定时读，和上次比，变了才记 | 记下采样边界，恢复后重新记初值 |
 
-后两种得到的“变化”可信度不同。通知送来的变化，时间接近真实。读当前值比出来的变化，只能说明“读的时候已经变了”：时间是读取时间，两次读取之间的 A→B→A 会整个丢掉。通知只说“有变化”、要再去读值时，读到的结果也属于后一种。用了后两种的，在[采集数据](./sources.mdx)写明丢什么。
+后两种得到的“变化”可信度不同。通知送来的变化，时间接近真实。读当前值比出来的变化，只能说明“读的时候已经变了”：时间是读取时间，两次读取之间的 A→B→A 会整个丢掉。通知只说“有变化”、要再去读值时，读到的结果也属于后一种。用了后两种的，在该来源的页面写明丢什么。
 
 **初值和通知要接上。** 先订阅通知并缓存，再读快照，然后把快照之后的通知接上。顺序反了，读快照和开始监听之间的变化会丢。来源做不到原子衔接时，用序号、重试或读后核对补上。
 
@@ -93,9 +95,9 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 - 一次观测产生的几条事实，在同一个事务里提交，各表的行共享同一个观测标识。读取游标和事实一起提交，否则会出现游标前进了但事实没写，或反过来。
 - 保留能回到来源核对的上下文，比如日志的文件和行号、来源对象的 ID。
 - 重试不能重复入库。可重试的跨进程投递用稳定的事件 ID；接收端提交后再确认，确认后才从持久队列删除。确认丢了，重发也安全。
-- `Storage/JsonlReader` 按文件身份和读取位置增量读取 JSONL，处理截断、替换、改写和残行，也支持由来源提供解码器、按版本读取整份归档。来源负责发现文件、挑选事实，并在写事实的事务内提交游标。文件变化通知只用来触发读取。
-- 输出库重建后，在新库中建立读取游标和初值；可回放的历史从来源重新补读。
-- `_source_cursors`、`_rollout_cursors`、`_history_cursors`、`_browser_deliveries`、`_browser_snapshots`、`capture_runs.confirmed_until_utc_ms` 和扩展待发队列保存采集进度，可以原地更新。
+- 日志游标记文件身份和读取位置，要处理截断、替换、移动和末尾的半行，`Storage/JsonlReader` 做这些；来源自己发现文件、挑事实。文件变化通知只用来触发读取，事实以文件内容为准。
+- 输出库重建后，读取游标和初值都从新库开始：能回放的历史重新补读，其余重新记初值。
+- 读取游标（`_source_cursors`、`_rollout_cursors`、`_history_cursors`）、浏览器投递进度（`_browser_deliveries`、`_browser_snapshots`）、`confirmed_until_utc_ms` 和扩展待发队列是采集进度，可以原地更新，不算历史事实。
 
 ## 查询视图
 
@@ -106,7 +108,7 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 
 ## 数据库结构
 
-每个来源写自己的库，放在哪、写哪个见[存储](./storage.mdx)。结构定义放在采集器项目的 `Schema/`：
+每个来源写自己的库，放在哪、写哪个见[存储](../overview/storage.mdx)。结构定义放在采集器项目的 `Schema/`：
 
 | 路径 | 内容 |
 | --- | --- |
@@ -116,7 +118,7 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 
 构建时自动收集这些文件，按表、索引、视图的顺序执行，同组按文件名排序，不用登记清单。这些文件只定义结构；导入时用的临时视图留在采集代码里。
 
-C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载程序集内的 SQL。常驻的 C# 采集器通过 `Storage/CaptureWriter` 写入：它在进程存活期间持有该来源的单写入锁（`state/locks/<来源>.writer.lock`），同一存储目录下第二个同来源写入进程直接失败。浏览器按配置加锁，各配置的写入事务由 SQLite 串行提交。macOS 的 Swift 助手在内存里比较观测值，以 JSONL 把变化和观测时间交给 C# 入库。
+C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载程序集内的 SQL，通过 `Storage/CaptureWriter` 写入，一轮怎么走见[架构](../overview/architecture.mdx#一轮写入)。它在运行期间持有单写入锁（`state/locks/<来源>.writer.lock`，浏览器按配置各一把），同一存储目录下第二个写入方直接失败。
 
 没有任何用户对象的空库在一个事务里建结构，失败时回滚；已有对象的库原样使用，不核对结构。打开连接时启用外键、3 秒锁等待和 WAL。
 
@@ -124,10 +126,10 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 
 每个库还有 `Collectors/Storage/Schema/` 里的共享表，构建时和来源自己的 `Schema/` 合在一起按文件名执行：
 
-- `database_identity`：建库时在同一事务里写一行，`database_id` 是随机 32 位十六进制，等于库文件名，之后不变。库在设备间合并时靠它区分，见[多设备](./devices.mdx)。
+- `database_identity`：建库时在同一事务里写一行，`database_id` 是随机 32 位十六进制，等于库文件名，之后不变。库在设备间合并时靠它区分，见[多设备](../overview/devices.mdx)。
 - `host_observations`：运行开始时由 `Orisumi.Platform.HostIdentity` 读到的主机原始标识，包括硬件 UUID、主机名、型号、系统版本、启动 ID、系统用户和存储目录；读不到的为空。和上一行完全相同时不写新行，所以重启开机或换了存储目录才会多一行。
 
-`capture_runs` 的最后一列 `host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入。由 `CaptureWriter` 写入。
+`capture_runs`、`capture_read_failures` 也是共享表。`capture_runs.host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；`collector_version` 记写这次运行的采集器版本（程序的版本号加提交号），加这一列之前的运行为 NULL。
 
 结构没有版本号，代码里不做迁移；SQLite 文件自带建表语句，旧库按它自己的结构读。改结构时停掉对应采集器，能迁移的用一次性脚本迁移现有库，再启动：只增不改的变更（加表、加可为空的列）不影响已有数据，新加的部分在此前没有行，即未观测；开发期破坏性变更也尽量原地迁移。迁移不了的破坏性更改，除非明确声明可以删，删掉 `state/current/<来源>.json`，下次采集新建库，旧库留在原处只读。旧库不会在打开时被拒绝，要到写入时才在 SQL 层报错。有了跨设备副本后，迁移生成的库是否换新 ID 待定。macOS 库总是建完整结构，选项只控制哪些通道采集和写入。
 
@@ -137,15 +139,25 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 2. 先做好初值衔接、提交确认和中断恢复，再接启动和查询。
 3. 按实际风险测：A→B→A、静止时不重复写、重复投递、提交前后崩溃、恢复后的缺口。日志来源另测半行、替换和截断；采样来源另测计数重置和身份变化。
 
-测试命令见[命令行与开发](./development.mdx)。
+测试命令见[开发入口与命令](../development/index.mdx#验证)。
 
 ## 新增采集器
 
-采集器共享建库、单写入与运行记录、JSONL 增量读取和参数绑定工具。取数、监听与游标持久化由各来源按上面的原则自己定。
+每个采集器是一个独立程序 `orisumi-<来源>`，单独构建、单独定版本。采集器共享建库、`CaptureWriter`、`JsonlReader`、参数绑定和命令入口这些工具，不共享采集流程：取数、监听、游标和写哪些表由各来源按上面的原则自己定。
 
-1. 建 `src/Collectors/Orisumi.Collectors.<来源>/`。`Collectors/Directory.Build.props` 已提供框架、SQLite、`Schema/` 打包和 `Storage/` 工具，C# 项目文件只写来源自己的依赖。
-2. 按上面的约定写 `Schema/`，包括 `capture_coverage`。共享结构提供运行表和读取失败事件表。
-3. 在 `Orisumi.slnx` 登记项目，在 `Orisumi.Cli/Capture/CaptureSources.cs` 登记来源名（即库文件名）；常驻采集同时写 LaunchAgent 的名称和参数，`capture start` 和 `capture coverage` 都从这里读取。
-4. 在 `Orisumi.Cli/Commands.cs` 加命令。
-5. 加 `tests/<来源>Checks.cs`，并登记到[命令行与开发](./development.mdx#验证)。`SchemaChecks` 会核对项目目录、`Orisumi.slnx` 和来源清单是否一致，以及 `capture_coverage` 的列。
-6. 在[采集数据](./sources.mdx)写它记了什么、丢什么，在[覆盖与恢复](./recovery.mdx#恢复边界)补一行恢复边界，在[命令行与开发](./development.mdx#命令与运行)补命令。
+宿主 `orisumi` 不引用任何采集器，只通过 `describe` 认识它。`describe` 输出一个 JSON 对象：名字（即 `observations/` 下的目录名）、版本，以及启动方式和参数。启动方式有三种：
+
+| 启动方式 | 含义 |
+| --- | --- |
+| `resident` | `capture start` 装成 LaunchAgent 常驻 |
+| `terminal` | `capture start` 从调用它的终端分离启动，继承终端的系统权限 |
+| `chrome` | 由 Chrome 拉起，`capture start` 不启动 |
+
+采集器之间、采集器与宿主之间的约定只有：存储布局、共享表、`capture_coverage` 的前六列和 `describe`。改这些要所有采集器跟着改，尽量不动。
+
+1. 建 `src/Collectors/Orisumi.Collectors.<来源>/`。`Collectors/Directory.Build.props` 把它构建成程序 `orisumi-<来源>`，并提供框架、SQLite、`Schema/` 打包、`Storage/` 与 `Hosting/` 工具和 AOT 设置；项目文件只写来源自己的依赖和 `Version`。代码要能 Native AOT 发布：JSON 用源码生成，不靠反射；`dotnet build` 报的 AOT 警告必须为零。
+2. 按上面的约定写 `Schema/`，包括 `capture_coverage`；运行表和读取失败表是共享的，不用写。
+3. 写 `Program.cs`：用 `CollectorCommand.Create` 建根命令并给出启动方式，再加来源自己的命令，交给 `CollectorCommand.Run`。
+4. 在 `Orisumi.slnx` 登记项目。宿主从 `describe` 发现采集器，发布也按 `src/Collectors/` 下的项目找组件，不用另外登记。
+5. 加 `tests/<来源>Checks.cs`，并登记到[验证](../development/index.mdx#验证)。`SchemaChecks` 会核对项目目录与 `Orisumi.slnx` 是否一致、`describe` 的名字是否等于目录名，以及 `capture_coverage` 的列。
+6. 在 `capture/sources/` 加一页写它记了什么、丢什么，在[覆盖与恢复](./recovery.mdx#恢复边界)补一行恢复边界，在[命令](../development/index.mdx#命令)补命令。

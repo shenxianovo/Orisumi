@@ -3,7 +3,7 @@ title: 多设备
 description: 设备与库的身份、跨设备合并和时间约定。
 ---
 
-Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一起读。这页记多设备的约定和尚未实现的部分；已实现的规则写在[采集开发](./capture.mdx)和[采集数据](./sources.mdx)，这里只引用。
+Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一起读。这页记多设备的约定和尚未实现的部分；已实现的规则写在[采集开发](../capture/index.mdx)和各来源页面，这里只引用。
 
 ## 身份
 
@@ -14,7 +14,7 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 | 库实例 | `database_identity`，建库时生成，即库文件名；库绑定建库的主机 | 已实现，见[存储](./storage.mdx) |
 | 主机观测 | `host_observations`，每次运行开始时读平台原始标识 | macOS 已实现，同上 |
 | 设备 | 由主机观测和少量人工合并规则读出，含显示名 | 未实现，在派生层做，可以改；做法见下 |
-| 来源实例 | 浏览器配置、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 等 | 已由各来源记录 |
+| 来源实例 | 浏览器扩展安装（`profile_id`）、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 等 | 已由各来源记录；浏览器是哪个 Chrome 配置在派生层判断 |
 
 - 迁移助理把用户目录拷到新 Mac：硬件 UUID 不同，读出两台设备。设备 ID 若存成本地文件，会被一起拷走，新机器冒充旧机器。
 - 一台机器上两个存储目录：两个库实例，硬件 UUID 相同，读出同一台设备。
@@ -41,10 +41,10 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 
 ## 时间
 
-- 每台设备用自己的时钟记 UTC 毫秒，含义见[时间分两种](./capture.mdx#时间分两种)。采集时不做跨设备校正。
+- 每台设备用自己的时钟记 UTC 毫秒，含义见[时间分两种](../capture/index.mdx#时间分两种)。采集时不做跨设备校正。
 - 时区不逐行记。每台设备记时区的初值和变化，其他来源按同一设备、同一时刻对照。
 - 启动 ID 随主机观测每次运行记一次，不逐行记。
-- 每台设备记时钟事件：墙钟和单调时钟一起读的初值，以及时钟被调整后的变化。macOS 见[采集数据](./sources.mdx#macos)；Windows 用 `WM_TIMECHANGE`，Android 用 `ACTION_TIME_CHANGED`。
+- 每台设备记时钟事件：墙钟和单调时钟一起读的初值，以及时钟被调整后的变化。macOS 见 [macOS](../capture/sources/macos.mdx#屏幕会话和时间)；Windows 用 `WM_TIMECHANGE`，Android 用 `ACTION_TIME_CHANGED`。
 - 时钟偏差作为观测另记，未实现。校正只在派生层做：`corrected_at` 为原始时间加该设备当时的偏差，偏差未知时按 0；原始时间不改。
 
 ## 查询与可视化

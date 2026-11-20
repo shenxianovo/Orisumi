@@ -3,7 +3,7 @@ title: 存储
 description: 存储目录的位置与结构，以及每个来源写哪个库。
 ---
 
-存储目录默认在 `~/Library/Application Support/Orisumi`；`--store` 可指定别处，开发和测试用临时目录。Windows 计划用 `%LOCALAPPDATA%\Orisumi`，Android 用应用私有目录，尚未实现。路径只由 `src/Orisumi.Platform` 的 `Store` 拼出。
+每个存储目录是一个实例：生产在 `~/Library/Application Support/Orisumi`，预览和开发实例见[实例与发布](../development/release.mdx#实例)；`--store` 可指定别处，测试用临时目录。Windows 计划用 `%LOCALAPPDATA%\Orisumi`，Android 用应用私有目录，尚未实现。路径只由 `src/Orisumi.Platform` 的 `Store` 拼出。
 
 正在写的库不放进 iCloud Drive、Dropbox 等同步盘：同步工具复制或覆盖写入中的 SQLite（尤其是 WAL）会损坏它。也不放 `~/Documents`、`~/Desktop`：这些目录受 macOS 隐私保护，后台 LaunchAgent 访问会被拦。
 
@@ -14,10 +14,23 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 | `observations/<来源>/<database_id>.sqlite` | 观测库：本机正在写的、以前写的、其他设备的副本 | 补不回来 | 要 |
 | `rules/` | 人写的规则，如设备合并（未实现） | 补不回来 | 要 |
 | `derived/` | 确定性派生，能从上两项原样重建（未实现） | 重建 | 不 |
-| `state/` | 本机运行状态：`current/<来源>.json`、`locks/`、`foreground.pid`、`chrome-native-host` | 下次采集从新库开始 | 不 |
+| `instance.json` | 实例名，见[实例与发布](../development/release.mdx#实例) | 程序找不到所属实例 | 不 |
+| `app/` | 装好的宿主和采集器 | 重新安装 | 不 |
+| `state/` | 本机运行状态：`current/<来源>.json`、`locks/`、`<来源>.pid`、`chrome-native-host` | 下次采集从新库开始 | 不 |
 | `logs/` | 采集器日志 | 无影响 | 不 |
 
 备份和同步只管 `observations/` 和 `rules/`。重跑结果会变或要付费的派生（如模型读出）不算可重建，出现时另定需要备份的位置。
+
+## 导出
+
+`orisumi export <目标目录>` 把每个来源的所有库拍成快照，按同样的布局写到 `<目标目录>/observations/<来源>/<库 ID>.sqlite`，不含 `state/` 和 `logs/`。
+
+- 快照用 `VACUUM INTO`：采集器照常写入，快照取同一时刻的已提交内容，包括还在 WAL 里的部分。每份是单个文件（DELETE 日志模式），通过完整性检查和库 ID 核对后才替换目标。
+- 存储里的库只读打开，内容不变；但打开一个没人在写的 WAL 库时，SQLite 仍可能建出 `-wal`、`-shm`。目标不能落在存储目录里。
+- 再次导出时，新快照替换同一库 ID 的旧快照；目标里同名文件的库 ID 对不上就不覆盖。
+- 输出 JSON，逐库给出 `exported`、`skipped`（没有 `database_identity`，如建库中途留下的空文件）或 `failed`；有失败时退出码为 1。
+
+导出的库放进另一个存储的 `observations/<来源>/`，就是那里的只读副本，见[多设备](./devices.mdx#合并)。
 
 ## 每个来源写哪个库
 
@@ -25,6 +38,6 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 - 一个库只有一个写入方：创建它的主机上的采集器。其他设备只保存只读副本，所以同步只是复制文件。
 - `state/current/<来源>.json` 记当前写的库 ID 和建库时的硬件 UUID。写入前由 `Store.WritableDatabase` 取库：没有指针、库文件不在，或硬件 UUID 与指针不同（如用迁移助理把存储拷到新 Mac），就新建一个库并改指针，旧库留在原处只读。读不到硬件 UUID 时无法证明换了机器，沿用当前库。
 - 新库在锁内建成空文件，同一来源的并发写入进程（如多个 Chrome 配置各自的接收端）使用同一个库。
-- 只读命令不建库：`capture coverage` 读每个来源的所有库，`timeline` 只读本机当前的 macOS 库。
+- 只读命令不建库。`capture coverage` 和 `export` 读每个来源的所有库，来源按 `observations/` 下的目录认，本机没装对应采集器的（如从其他设备拷来的库）也读；`macos timeline` 只读本机当前的 macOS 库。
 
-改结构的规则见[数据库结构](./capture.mdx#数据库结构)。
+改结构的规则见[数据库结构](../capture/index.mdx#数据库结构)。

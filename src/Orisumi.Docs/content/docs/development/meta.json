@@ -1,0 +1,7 @@
+{
+  "title": "开发",
+  "description": "命令、验证与文档维护",
+  "icon": "Wrench",
+  "root": true,
+  "pages": ["index", "release", "contributing"]
+}

@@ -1,0 +1,56 @@
+---
+title: macOS
+description: 前台应用、窗口、输入、离开、屏幕与音视频设备。
+---
+
+Swift 助手观测、在内存里比较，把变化连同观测时间以 JSONL 交给 `orisumi-macos foreground` 入库，流程见[架构](../../overview/architecture.mdx#各来源怎么走)。事件按 `run_id`、`run_sequence` 排序，`observed_at_utc_ms` 是 Swift 读到值或收到通知的时间。窗口和输入需要辅助功能、输入监控权限；缺哪个只停用对应通道。
+
+## 应用和窗口
+
+只记“人摆出来”的应用：进程第一次被看到是 `regular`（有 Dock 图标），或进入过前台，才开始记录，之后跟踪它的策略和存在。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `process_instances` / `running_app_observations` | 进程生命期：PID、bundle ID、名称、启动时间／纳入、恢复初值和消失 |
+| `foreground_app_events` / `foreground_app_history` | 前台应用的初值和切换，`has_app=0` 表示没有 |
+| `application_activation_policy_observations` / `regular_app_intervals` | 激活策略的变化／应用处于 `regular` 的区间 |
+| `window_focus_instances` / `focused_window_events` | 一段连续焦点及所属进程／焦点切换；`has_window=0` 表示没有聚焦窗口，读取失败为 NULL。焦点 ID 不是稳定的窗口 ID |
+| `window_title_observations` / `window_history` | 焦点段内的标题变化；无标题为 `''`，读不到为 NULL |
+
+窗口支持 AX 通知时监听，每 60 秒校准；不支持时每秒读一次。激活策略的 KVO 会漏变化，所以每秒再核对一次。
+
+## 输入和离开
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `keyboard_presses` | 一次按键：键码、按下和松开时间、按下时的修饰键；自动重复不另计，没看到松开时结束为空 |
+| `mouse_button_events` | 鼠标按下或松开：按钮、坐标 |
+| `afk_events` | active、idle 的初值和变化 |
+
+有输入监控时，按键、鼠标移动、按钮和滚轮刷新活动时间，到期判定离开；移动和滚轮不另存。没有时每秒读系统 idle。
+
+## 屏幕、会话和时间
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `screen_lock_events` / `display_sleep_events` | 锁屏／显示器休眠的初值和变化 |
+| `system_sleep_events` / `user_session_events` | 系统休眠、唤醒／用户会话切入、切出 |
+| `time_zone_events` | 时区的初值和变化 |
+| `clock_events` | 墙钟和 `mach_continuous_time` 同时读的初值，以及时钟被调后的变化；两者之差变了说明调过时钟，NTP 微调看不出 |
+
+锁屏取分布式通知，初值读 `CGSessionCopyCurrentDictionary()` 的未公开键 `CGSSessionScreenIsLocked`，读不到记 NULL。显示器休眠取 `NSWorkspace` 通知。
+
+系统休眠和会话切出会中断应用、窗口、输入、时区、时钟和音视频通道；恢复后各自重新记初值。锁屏和显示器休眠不中断其他通道。
+
+## 音频和摄像头
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `audio_process_instances` / `audio_process_presence_events` | CoreAudio 进程对象：PID、bundle ID、归属的应用实例／出现和消失 |
+| `audio_input_observations` | 每个音频进程是否在用麦克风，所有进程都记 |
+| `audio_output_observations` | 是否在出声，只记能归到应用的进程 |
+| `camera_devices` / `camera_device_presence_events` / `camera_running_observations` | 摄像头身份／连接和断开／是否在用；系统不说是谁在用 |
+
+helper 进程（Chrome、QQ、WebKit 等）用系统的 responsible PID 归到所属应用，查不到时用它自己的 PID。系统提示音这类归不到应用的输出不记。“在用”指音频流在跑，静音也算。音频和摄像头是读现值：通知只触发读取，每秒再核对一次，一秒内的往返会丢。这几个通道不需要授权。
+
+`capture_run_configuration` 记每次运行的离开阈值和各通道开关。`orisumi macos timeline` 把活动、屏幕状态、权限和通道合成一条时间线。

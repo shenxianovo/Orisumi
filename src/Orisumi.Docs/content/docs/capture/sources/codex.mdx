@@ -1,0 +1,22 @@
+---
+title: Codex
+description: Codex rollout 里的会话、回合、条目和用量，以及会话的名称、归档、置顶。
+---
+
+只读 `CODEX_HOME`（默认 `~/.codex`）。rollout（`sessions/`、`archived_sessions/`，含 `.zst` 归档）是唯一的日志来源；`state_5.sqlite` 只用来读日志里没有的三个现值：名称、归档、置顶。`thread_history_1.sqlite` 是 Codex 从 rollout 生成的投影，不读。
+
+rollout 的结构是会话 → 回合 → 条目，采集照这个结构存：会话一张身份表，回合生命周期和条目都是事件，要保留的内容另放一张表。一个长会话可以拆成多个 rollout 文件（文件名 `…-<会话>_<分段>.jsonl`），都归到同一个会话。
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `threads` / `current_threads` | 会话身份：创建时间、工作目录、Git、来源、父会话（子 Agent 或分叉）／加上最新名称、归档、置顶 |
+| `thread_name_observations` / `thread_archive_observations` / `thread_pin_observations` | 三个现值各自的初值和变化；名称 `''` 表示没改过名 |
+| `turns` / `current_turns` | 回合身份／开始、结束和状态 |
+| `rollout_events` / `event_contents` | 回合开始、结束、中断、上下文，以及每个完成的条目；内容见下 |
+| `message_timeline` | 用户和助手消息，按来源顺序 |
+| `response_token_usage_events` / `response_token_usage` | 每个响应一行用量；视图从回合上下文补上模型 |
+| `rollouts` / `source_file_events` | rollout 文件身份，以及首次读取、移动、换版、缺失；事件据此回到来源文件和行号 |
+
+条目内容只挑有用的字段：消息正文；命令的命令行、工作目录、退出码、耗时和输出长度，退出码非 0 时保留整段输出；文件改动的路径和类型；MCP 调用；搜索的查询；休眠时长；图像生成的提示词（不存图像）；回合的模型和审批、沙箱策略。推理和不认识的条目只记事件。
+
+名称、归档、置顶是读现值，两次读取之间的往返会丢。
