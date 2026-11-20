@@ -43,12 +43,14 @@ void Resolution()
     var inner = Instance.Create(Path.Combine(outer.Store.Root, "nested"), "test_codex");
     var installed = Directory.CreateDirectory(Path.GetDirectoryName(inner.Store.HostExecutable)!);
     Check(Instance.Resolve(installed.FullName).Store.Root == inner.Store.Root, "nearest instance.json wins");
-    Check(inner.AgentLabel("claude") == "dev.orisumi.test_codex.claude" &&
-        inner.BrowserPort == 47913 && inner.CommandName == "orisumi-test_codex", "derived names");
-    Check(outer.AgentLabel("codex") == "dev.orisumi.prod.codex" &&
+    Check(inner.CaptureAgentLabel("claude") == "dev.orisumi.test_codex.capture.claude" &&
+        inner.AppAgentLabel == "dev.orisumi.test_codex.app" && inner.BrowserPort == 47913 && inner.CommandName == "orisumi-test_codex", "derived names");
+    Check(outer.CaptureAgentLabel("codex") == "dev.orisumi.prod.capture.codex" &&
         outer.BrowserPort == 47810 && outer.CommandName == "orisumi", "production names");
     Check(ChromeExtension.DirectoryFor(dev, root.FullName) == DirectoryPaths.Resolve(Path.Combine(root.FullName, ".local", "extension")),
         "checkout instance uses its built extension");
+    Check(Instance.Create(Under("console instance"), "console").AppAgentLabel == "dev.orisumi.console.app",
+        "console is a valid instance name");
     var invalid = Directory.CreateDirectory(Under("invalid"));
     foreach (var name in new[] { "", "Prod", "test-prod", "../prod" })
     {
@@ -73,6 +75,8 @@ async Task Install()
           bootstrap) touch "$3.loaded" ;;
           print) [ -f "$(dirname "$0")/agents/${2##*/}.plist.loaded" ] || exit 113 ;;
           bootout) rm "$(dirname "$0")/agents/${2##*/}.plist.loaded" ;;
+          kickstart) [ "$2" = '-k' ] && [ -f "$(dirname "$0")/agents/${3##*/}.plist.loaded" ] || exit 2
+                     printf '%s\n' "$3" >> "$(dirname "$0")/kickstarts" ;;
           *) exit 2 ;;
         esac
         """);
@@ -82,10 +86,20 @@ async Task Install()
     var originalManifest = Path.Combine(browserRelease, "extension", "manifest.json");
     var manifest = File.ReadAllText(originalManifest);
     await InstallCommand.Run(instance, [host, browserRelease], locations, output, default);
-    await InstallCommand.Run(dev, [host], locations, output, default);
+    await ExpectAsync<ArgumentException>(() => InstallCommand.Run(dev, [host], locations, output, default));
     var link = Path.Combine(locations.Commands, instance.CommandName);
     Check(new FileInfo(link).LinkTarget == store.HostExecutable &&
-        Directory.GetFileSystemEntries(locations.Commands).Length == 1, "only the installed instance gets a link");
+        Directory.GetFileSystemEntries(locations.Commands).Length == 1, "the installed CLI keeps its command link");
+
+    var appLabel = instance.AppAgentLabel;
+    var appPlist = Path.Combine(locations.Agents, appLabel + ".plist");
+    var appFields = PlistFields(appPlist);
+    Check(appFields["Label"].Value == appLabel && appFields["RunAtLoad"].Name == "true" &&
+        !appFields.ContainsKey("KeepAlive") && appFields["ProgramArguments"].Elements().Select(element => element.Value)
+            .SequenceEqual([HostBundle.AppExecutable(store.Host), "--menu-bar"]) &&
+        IsAssociated(appFields) && File.Exists(appPlist + ".loaded"), "the app launches at login under Orisumi and stays quit");
+    Check(Directory.GetFiles(locations.Agents, "*.plist").Length == 1 && !Directory.Exists(dev.Store.Host),
+        "dev uses the checkout host and installs no app agent");
     var extension = Path.Combine(store.Collector("browser"), "extension");
     Check(File.ReadAllText(Path.Combine(extension, "manifest.json")).Contains("Orisumi Chrome Collector (test_codex)"),
         "installed manifest identifies the instance");
@@ -101,7 +115,9 @@ async Task Install()
     Check((await ProgramDescription.Read(File.ResolveLinkTarget(link, true)!.FullName, [], default)).Version == "0.1.0+next",
         "the refreshed link points to the replacement host");
     Check(!File.Exists(Path.Combine(store.Host, "old-only")), "the old install is gone");
-    Check(!Directory.EnumerateDirectories(store.App).Any(path => Path.GetFileName(path).StartsWith("host.")),
+    Check(File.ReadAllLines(Under("kickstarts")).SequenceEqual([Launchd.Service(appLabel)]),
+        "reinstall kickstarts the loaded app");
+    Check(!Directory.EnumerateDirectories(store.App).Any(path => Path.GetFileName(path).StartsWith("host.", StringComparison.Ordinal)),
         "no staged host directory remains");
 
     var bad = await Package(Under("bad browser"), "browser", "0.1.0+bad");
@@ -114,7 +130,7 @@ async Task Install()
     File.WriteAllText(Path.Combine(unverified, "orisumi-browser"), "#!/bin/sh\nexit 3\n");
     await ExpectAsync<IOException>(() => InstallCommand.Run(instance, [unverified], locations, output, default));
     Check((await ProgramDescription.Read(Path.Combine(store.Collector("browser"), "orisumi-browser"), [], default)).Version == "0.1.0+first" &&
-        !Directory.EnumerateDirectories(store.Collectors).Any(path => Path.GetFileName(path).StartsWith("browser.")), "invalid releases leave the installed version intact");
+        !Directory.GetDirectories(store.Collectors).Any(path => Path.GetFileName(path).StartsWith("browser.", StringComparison.Ordinal)), "invalid releases leave the installed version intact");
 
     await HostBundle.Verify(store.Host, default);
     Check(Instance.Resolve(Path.GetDirectoryName(store.HostExecutable)!).Store.Root == store.Root, "bundle walks up to instance.json");
@@ -137,21 +153,23 @@ async Task Install()
     Directory.CreateSymbolicLink(symlink, store.Root);
     var alias = Instance.Open(symlink);
     await CaptureStartup.Start(alias, locations, output, default, baseDirectory: store.Host);
-    var plist = Path.Combine(locations.Agents, alias.AgentLabel("browser") + ".plist");
-    var arguments = XDocument.Load(plist).Descendants("key").Single(key => key.Value == "ProgramArguments")
-        .ElementsAfterSelf().First().Elements().Select(element => element.Value);
-    Check(arguments.SequenceEqual([alias.Store.HostExecutable, "launch", "--",
+    var plist = Path.Combine(locations.Agents, alias.CaptureAgentLabel("browser") + ".plist");
+    var collectorFields = PlistFields(plist);
+    var arguments = collectorFields["ProgramArguments"].Elements().Select(element => element.Value);
+    Check(collectorFields["Label"].Value == "dev.orisumi.test_codex.capture.browser" &&
+        IsAssociated(collectorFields) && arguments.SequenceEqual([alias.Store.HostExecutable, "launch", "--",
         Path.Combine(alias.Store.Collector("browser"), "orisumi-browser"), "--store", alias.Store.Root, "capture"]),
-        "installed collector starts under the bundle via launchd");
+        "the collector starts under the bundle and is associated with Orisumi");
     Check(output.ToString().Contains($"Load unpacked Chrome extension: {DirectoryPaths.Resolve(extension)}") &&
         output.ToString().Contains($"Expected Chrome extension ID: {ChromeExtension.Id(DirectoryPaths.Resolve(extension))}"),
         "start reports the extension's real path and ID");
-    var otherAgent = Path.Combine(locations.Agents, "dev.orisumi.other.browser.plist");
+    var other = Instance.Create(Under("other store"), "other");
+    var otherAgent = Path.Combine(locations.Agents, other.CaptureAgentLabel("browser") + ".plist");
     File.WriteAllText(otherAgent, "preserve");
     await CaptureStartup.Stop(alias, locations, output, default);
-    Check(!File.Exists(plist) && !File.Exists(plist + ".loaded") && File.Exists(otherAgent),
-        "stop boots out only this instance's agent");
-    Console.WriteLine("PASS: signed bundle install, atomic replacement, bundle command link, signature refusals, extension configuration and isolated LaunchAgent cleanup");
+    Check(!File.Exists(plist) && !File.Exists(plist + ".loaded") && File.Exists(otherAgent) &&
+        File.Exists(appPlist) && File.Exists(appPlist + ".loaded"), "capture stop leaves the app loaded");
+    Console.WriteLine("PASS: signed bundle install, atomic replacement, command link, signature refusals, extension configuration, app bootstrap and kickstart, and isolated capture stop");
 }
 
 async Task Deployment()
@@ -164,6 +182,17 @@ async Task Deployment()
     string[] collectors = ["browser", "claude", "codex", "macos"];
     foreach (var component in new[] { "host" }.Concat(collectors))
         await Package(Under("packages/" + component), component, version);
+
+    WriteExecutable(Under("swift"), """
+        #!/bin/sh
+        set -eu
+        [ "$1 $2 $3 $4 $5 $6 $7 $8" = 'build -c release --package-path src/Orisumi.App.MacOS --product OrisumiApp --scratch-path' ]
+        if [ "${10}" = --show-bin-path ]; then printf '%s\n' "$9/release"; exit; fi
+        [ "${10} ${11}" = '-Xswiftc -warnings-as-errors' ]
+        fixtures=$(dirname "$0")
+        mkdir -p "$9/release"
+        cp "$fixtures/packages/host/Orisumi.app/Contents/MacOS/OrisumiApp" "$9/release/OrisumiApp"
+        """);
 
     var dotnet = Under("fake-dotnet");
     WriteExecutable(dotnet, """
@@ -201,7 +230,8 @@ async Task Deployment()
         fi
         package="$fixtures/packages/$component"
         if [ "$component" = host ]; then
-          cp -R "$package/Orisumi.app/Contents/." "$out/.."
+          cp -R "$package/Orisumi.app/Contents/Resources" "$out/.."
+          cp "$package/Orisumi.app/Contents/MacOS/orisumi" "$package/Orisumi.app/Contents/MacOS/libe_sqlite3.dylib" "$out/"
         else
           cp "$package/name" "$package/version" "$package/orisumi-$component" "$out/"
         fi
@@ -219,6 +249,7 @@ async Task Deployment()
     Deploy.AddTo(root, dotnet);
     var prod = new Store(Under("prod '中文"));
     var all = new Store(Under("all"));
+    var hostOnly = new Store(Under("host only"));
     var events = Under("events");
     var published = Under("published");
     var path = Environment.GetEnvironmentVariable("PATH");
@@ -238,13 +269,24 @@ async Task Deployment()
             (await ProgramDescription.Read(prod.HostExecutable, [], default)).Version == version &&
             File.ReadAllText(Path.Combine(prod.Collector("claude"), "version")) == version &&
             Directory.GetDirectories(prod.Collectors).Length == 1, "collector selection also installs the signed host");
+        await CheckHost(prod);
         Check(File.ReadAllLines(events).SequenceEqual(["install", "start"]), "temporary host installs before installed host starts");
 
         Check(await Invoke("deploy", "--prod", all.Root) == 0, "deploy all components");
         var second = CheckCleanup(["host", .. collectors]);
         Check(second != first && collectors.All(component => Directory.Exists(all.Collector(component))) &&
-            File.Exists(Path.Combine(all.Collector("browser"), "extension", "manifest.json")), "fresh publish builds all collectors and the extension");
+            File.Exists(Path.Combine(all.Collector("browser"), "extension", "manifest.json")),
+            "fresh publish builds all collectors and the extension");
+        await CheckHost(all);
         Check(File.ReadAllLines(events).SequenceEqual(["install", "start", "install", "start"]), "all components install before capture starts");
+
+        await ExpectAsync<ArgumentException>(() => Invoke("deploy", "--prod", hostOnly.Root, "console"), "未知的部署组件");
+        Check(await Invoke("deploy", "--prod", hostOnly.Root, "host") == 0, "deploy host component");
+        CheckCleanup("host");
+        await CheckHost(hostOnly);
+        Check(!Directory.Exists(hostOnly.Collectors), "host selection only installs the app bundle");
+        var expectedEvents = new[] { "install", "start", "install", "start", "install", "start" };
+        Check(File.ReadAllLines(events).SequenceEqual(expectedEvents), "host installs before capture starts");
 
         var sentinel = Path.Combine(prod.Host, "existing");
         File.WriteAllText(sentinel, "keep");
@@ -252,14 +294,30 @@ async Task Deployment()
         await ExpectAsync<IOException>(() => Invoke("deploy", "--prod", prod.Root, "codex"), "codex: AOT publish exited with code 17");
         var failed = CheckCleanup("host", "codex");
         Check(failed != first && failed != second && File.ReadAllText(sentinel) == "keep" &&
-            !Directory.Exists(prod.Collector("codex")) && File.ReadAllLines(events).SequenceEqual(["install", "start", "install", "start"]),
+            !Directory.Exists(prod.Collector("codex")) && File.ReadAllLines(events).SequenceEqual(expectedEvents),
             "publish failure leaves the existing production install and capture untouched");
-        Console.WriteLine("PASS: deploy dirty-tree refusal, component selection, install/start order, temporary cleanup and publish failure isolation");
+        Console.WriteLine("PASS: deploy host with signed GUI, CLI and SQLite, component selection, dirty-tree refusal, install/start order, temporary cleanup and publish failure isolation");
     }
     finally
     {
         Environment.CurrentDirectory = checkout;
         Environment.SetEnvironmentVariable("PATH", path);
+    }
+
+    async Task CheckHost(Store store)
+    {
+        await HostBundle.Verify(store.Host, default);
+        var fields = PlistFields(Path.Combine(store.Host, HostBundle.Name, "Contents", "Info.plist"));
+        Check(fields["CFBundleExecutable"].Value == HostBundle.AppExecutableName &&
+            fields["CFBundleDisplayName"].Value == "Orisumi" && fields["CFBundleVersion"].Value == version &&
+            fields["LSUIElement"].Name == "true", "the GUI is the signed agent-style app's main executable");
+        foreach (var executable in new[] { store.HostExecutable, Path.Combine(Path.GetDirectoryName(store.HostExecutable)!, "libe_sqlite3.dylib") })
+        {
+            using var signature = new StringWriter();
+            Check(await RunProcess.Run(HostBundle.Codesign, ["--display", "--verbose=4", executable], TextWriter.Null,
+                default, errors: signature) == 0 && signature.ToString().Split('\n').Contains($"Authority={HostBundle.Authority}"),
+                $"the bundle also contains a signed {Path.GetFileName(executable)}");
+        }
     }
 
     Task<int> Invoke(params string[] arguments) => root.Parse(arguments)
@@ -323,13 +381,19 @@ async Task<string> Package(string path, string name, string version, string? aut
         executable = HostBundle.Executable(path);
         Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
         File.Copy(fixture, executable);
+        File.Copy("/usr/bin/true", HostBundle.AppExecutable(path));
+        var library = Under("sqlite-fixture.dylib");
+        if (!File.Exists(library))
+            Check(await RunProcess.Run("/usr/bin/clang", ["-dynamiclib", "-x", "c", "/dev/null", "-o", library],
+                null, default) == 0, "build SQLite library signature fixture");
+        File.Copy(library, Path.Combine(Path.GetDirectoryName(executable)!, "libe_sqlite3.dylib"));
         var identifier = authority == HostBundle.Authority ? HostBundle.Identifier : "dev.orisumi.test";
         File.WriteAllText(Path.Combine(path, HostBundle.Name, "Contents", "Info.plist"), $$"""
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             <plist version="1.0"><dict>
             <key>CFBundleIdentifier</key><string>{{identifier}}</string>
-            <key>CFBundleExecutable</key><string>orisumi</string>
+            <key>CFBundleExecutable</key><string>{{HostBundle.AppExecutableName}}</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             </dict></plist>
             """);
@@ -375,12 +439,18 @@ async Task<string> Package(string path, string name, string version, string? aut
     if (host)
     {
         string[] signing = authority is null
-            ? ["--remove-signature", executable]
+            ? ["--remove-signature", HostBundle.AppExecutable(path)]
             : ["--force", "--sign", authority, "--timestamp=none", Path.Combine(path, HostBundle.Name)];
         Check(await RunProcess.Run(HostBundle.Codesign, signing, null, default) == 0, "prepare bundle signature fixture");
     }
     return path;
 }
+
+static Dictionary<string, XElement> PlistFields(string path) => XDocument.Load(path).Descendants("key")
+    .ToDictionary(key => key.Value, key => key.ElementsAfterSelf().First());
+
+static bool IsAssociated(Dictionary<string, XElement> fields) =>
+    fields["AssociatedBundleIdentifiers"].Elements().Select(element => element.Value).SequenceEqual([HostBundle.Identifier]);
 
 static void WriteExecutable(string path, string content)
 {

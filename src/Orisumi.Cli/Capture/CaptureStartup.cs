@@ -29,7 +29,7 @@ internal static class CaptureStartup
             {
                 token.ThrowIfCancellationRequested();
                 var name = program.Description.Name;
-                var label = instance.AgentLabel(name);
+                var label = instance.CaptureAgentLabel(name);
                 var path = Path.Combine(locations.Agents, label + ".plist");
                 LaunchAgent(label, program.Command(store.Root, program.Description.Arguments!), store, name).Save(path);
                 File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
@@ -62,7 +62,7 @@ internal static class CaptureStartup
 
     private static async Task StopCapture(Instance instance, SystemLocations locations, CancellationToken token)
     {
-        var agents = Launchd.AgentPlists(instance, locations).ToArray();
+        var agents = Launchd.CaptureAgentPlists(instance, locations).ToArray();
 
         await Task.WhenAll(agents.Select(StopAgent));
 
@@ -111,8 +111,6 @@ internal static class CaptureStartup
             new XElement("key", "KeepAlive"), new XElement("true"),
             new XElement("key", "ThrottleInterval"), new XElement("integer", 10),
             new XElement("key", "ExitTimeOut"), new XElement("integer", 30));
-        return new XDocument(new XDeclaration("1.0", "UTF-8", null),
-            new XDocumentType("plist", "-//Apple//DTD PLIST 1.0//EN", "http://www.apple.com/DTDs/PropertyList-1.0.dtd", null),
-            new XElement("plist", new XAttribute("version", "1.0"), dictionary));
+        return Launchd.Plist(dictionary);
     }
 }

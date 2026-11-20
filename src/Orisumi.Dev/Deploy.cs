@@ -18,7 +18,7 @@ internal static partial class Deploy
                 "Library", "Application Support", "Orisumi"),
         };
         var components = new Argument<string[]>("component") { Arity = ArgumentArity.ZeroOrMore };
-        var deploy = new Command("deploy", "构建并安装当前提交的 Native AOT 程序，再启动生产采集。") { prod, components };
+        var deploy = new Command("deploy", "构建并安装当前提交的程序，再启动生产采集。") { prod, components };
         deploy.SetAction((result, token) => Run(Repository.Require(), result.GetRequiredValue(prod),
             result.GetRequiredValue(components), dotnet, token));
         root.Add(deploy);
@@ -92,7 +92,10 @@ internal static partial class Deploy
         if (warnings != 0) throw new IOException($"{component}: AOT publish reported {warnings} warnings");
 
         if (component == "host")
+        {
+            await BuildApp(checkout, directory, token);
             await SignHost(directory, publish, projectVersion, version, token);
+        }
         if (component == "browser")
         {
             var extension = Path.Combine(checkout, DevCommand.ExtensionDirectory);
@@ -114,6 +117,24 @@ internal static partial class Deploy
             throw new InvalidDataException($"{directory}: expected {component} {version}, found {description.Name} {description.Version}");
     }
 
+    private static async Task BuildApp(string checkout, string directory, CancellationToken token)
+    {
+        string[] arguments = ["build", "-c", "release", "--package-path", "src/Orisumi.App.MacOS",
+            "--product", HostBundle.AppExecutableName, "--scratch-path", Path.Combine(Path.GetDirectoryName(directory)!, "swift-build")];
+        using var output = new StringWriter();
+        using var errors = new StringWriter();
+        var code = await RunProcess.Run("swift", [.. arguments, "-Xswiftc", "-warnings-as-errors"], output, token,
+            directory: checkout, errors: errors);
+        var log = output.ToString() + errors;
+        await Console.Out.WriteAsync(log);
+        token.ThrowIfCancellationRequested();
+        if (code != 0 || Warning().IsMatch(log))
+            throw new IOException($"host: Swift Release build failed (exit {code})");
+
+        var bin = (await Query("swift", checkout, token, [.. arguments, "--show-bin-path"])).Trim();
+        File.Copy(Path.Combine(bin, HostBundle.AppExecutableName), HostBundle.AppExecutable(directory));
+    }
+
     private static async Task SignHost(string directory, string publish, string projectVersion, string version, CancellationToken token)
     {
         var bundle = Path.Combine(directory, HostBundle.Name);
@@ -122,12 +143,13 @@ internal static partial class Deploy
             new XElement("plist", new XAttribute("version", "1.0"), new XElement("dict",
                 new XElement("key", "CFBundleIdentifier"), new XElement("string", HostBundle.Identifier),
                 new XElement("key", "CFBundleName"), new XElement("string", "Orisumi"),
-                new XElement("key", "CFBundleExecutable"), new XElement("string", ProgramDescription.ExecutableName("host")),
+                new XElement("key", "CFBundleDisplayName"), new XElement("string", "Orisumi"),
+                new XElement("key", "CFBundleExecutable"), new XElement("string", HostBundle.AppExecutableName),
                 new XElement("key", "CFBundlePackageType"), new XElement("string", "APPL"),
                 new XElement("key", "CFBundleShortVersionString"), new XElement("string", projectVersion),
                 new XElement("key", "CFBundleVersion"), new XElement("string", version),
+                new XElement("key", "LSMinimumSystemVersion"), new XElement("string", "14.0"),
                 new XElement("key", "LSUIElement"), new XElement("true"))));
-        info.Save(Path.Combine(bundle, "Contents", "Info.plist"));
 
         foreach (var symbols in Directory.GetDirectories(publish, "*.dSYM", SearchOption.AllDirectories))
             Directory.Delete(symbols, recursive: true);
@@ -136,6 +158,7 @@ internal static partial class Deploy
             if (Path.GetExtension(file) == ".pdb") File.Delete(file);
             else if (IsMachO(file)) await Sign(file);
         }
+        info.Save(Path.Combine(bundle, "Contents", "Info.plist"));
         await Sign(bundle);
 
         async Task Sign(string path)

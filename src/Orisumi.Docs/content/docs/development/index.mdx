@@ -84,6 +84,7 @@ dotnet run --file tests/CodexIncrementalChecks.cs
 dotnet run --file tests/MacOSObservationChecks.cs
 dotnet run --file tests/InstanceChecks.cs
 npm --prefix src/Collectors/Orisumi.Collectors.Browser/Extension test
+swift test --package-path src/Orisumi.App.MacOS
 dotnet run --file tests/SourceLauncherChecks.cs -- "$(command -v orisumi-dev)" src/Orisumi.Cli/bin/Debug/net11.0
 dotnet run --file tests/LocChecks.cs -- src/Orisumi.Dev/bin/Debug/net11.0/orisumi-dev.dll
 ```
@@ -95,10 +96,11 @@ dotnet run --file tests/LocChecks.cs -- src/Orisumi.Dev/bin/Debug/net11.0/orisum
 | CaptureStatus | 合并已装采集器、LaunchAgent 和来源目录；运行中、未加载、已退出和已停止的运行；不写存储 |
 | Schema | 项目与解决方案一致、`describe`、结构打包、视图、coverage 列、重复打开 |
 | CaptureIntegration、Claude/CodexIncremental | 独立变化、修订、重试、身份、中断、回放和增量 |
+| `swift test`（App.MacOS） | GUI 解码状态和覆盖 JSON、健康到图标的映射、运行时段的提取、从 app 位置找 CLI 和实例 |
 | BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤；接收端的 Origin 校验、并发配置、心跳、快照核对、关闭、超时、历史事务 |
 | CaptureCoverage、Export | 覆盖查询的区间；导出时未检查点的 WAL、重复导出、目标位置、库 ID 不符、半成品 |
 | MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
-| Instance | 实例解析、派生名字、扩展 ID、宿主签名核对、安装替换、命令链接、部署 |
+| Instance | 实例解析、派生名字、扩展 ID、宿主签名核对（含 GUI 主程序）、安装替换、命令链接、GUI 的 LaunchAgent、部署 |
 | SourceLauncher、Loc | 在临时仓库里测开发入口的构建、参数、退出码、二进制输入输出、信号，以及行数统计 |
 
 新增采集器的要求见[采集开发](../capture/index.mdx)。

@@ -42,7 +42,7 @@ flowchart LR
 | `orisumi-browser capture` | 一条扩展连接，每个 Chrome 配置一条 | 通知加定时快照；历史回放 |
 | `orisumi-macos foreground` 与 Swift 助手 | 进程生命期 | 通知加读现值 |
 
-四个采集器都由 `capture start` 装成 LaunchAgent，经签名的 `Orisumi.app` 拉起以获得系统权限，见[安装与启停](../development/release.mdx#安装与启停)。
+四个采集器都由 `capture start` 装成 LaunchAgent，经签名的 `Orisumi.app` 拉起以获得系统权限，见[安装与启停](../development/release.mdx#安装与启停)。同一个 app 的主程序是 GUI，它只调用 CLI，见 [GUI](../development/release.mdx#gui)。
 
 ## 一轮写入
 

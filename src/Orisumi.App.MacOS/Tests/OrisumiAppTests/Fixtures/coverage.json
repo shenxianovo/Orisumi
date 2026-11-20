@@ -1,0 +1,190 @@
+{
+  "from": "2026-11-20T00:00:00+08:00",
+  "to": "2026-11-20T23:00:00+08:00",
+  "sources": [
+    {
+      "source": "browser",
+      "database": "00000000000000000000000000000001",
+      "status": "queried",
+      "evidence": [
+        {
+          "scope": "browser",
+          "mode": "notification",
+          "started_at_utc_ms": 1795096800000,
+          "stopped_at_utc_ms": 1795136400000,
+          "evidence": "completed",
+          "detail": null,
+          "browser": "chrome",
+          "profile_id": "Default",
+          "run_id": 1,
+          "confirmed_until_utc_ms": 1795136398000
+        },
+        {
+          "scope": "browser",
+          "mode": "notification",
+          "started_at_utc_ms": 1795140000000,
+          "stopped_at_utc_ms": 1795179600000,
+          "evidence": "failed",
+          "detail": "Browser connection ended unexpectedly.",
+          "browser": "chrome",
+          "profile_id": "Default",
+          "run_id": 2,
+          "confirmed_until_utc_ms": 1795179600000
+        },
+        {
+          "scope": "tabs",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795176000000,
+          "stopped_at_utc_ms": 1795179600000,
+          "evidence": "snapshot_timeout",
+          "detail": null,
+          "browser": "chrome",
+          "profile_id": "Default",
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        }
+      ]
+    },
+    {
+      "source": "claude",
+      "database": "00000000000000000000000000000002",
+      "status": "queried",
+      "evidence": [
+        {
+          "scope": "project_logs",
+          "mode": "replay",
+          "started_at_utc_ms": 1795100400000,
+          "stopped_at_utc_ms": 1795140000000,
+          "evidence": "completed",
+          "detail": null,
+          "run_id": 1,
+          "confirmed_until_utc_ms": 1795139998000
+        },
+        {
+          "scope": "project_logs",
+          "mode": "replay",
+          "started_at_utc_ms": 1795143600000,
+          "stopped_at_utc_ms": null,
+          "evidence": "unconfirmed",
+          "detail": null,
+          "run_id": 2,
+          "confirmed_until_utc_ms": 1795186796000
+        }
+      ]
+    },
+    {
+      "source": "codex",
+      "database": "00000000000000000000000000000003",
+      "status": "queried",
+      "evidence": [
+        {
+          "scope": "import",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795104000000,
+          "stopped_at_utc_ms": 1795143600000,
+          "evidence": "completed",
+          "detail": null,
+          "run_id": 1,
+          "confirmed_until_utc_ms": 1795143598000
+        },
+        {
+          "scope": "import",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795147200000,
+          "stopped_at_utc_ms": null,
+          "evidence": "unconfirmed",
+          "detail": null,
+          "run_id": 2,
+          "confirmed_until_utc_ms": 1795186795000
+        },
+        {
+          "scope": "rollout",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795185600000,
+          "stopped_at_utc_ms": 1795185600000,
+          "evidence": "read_failed",
+          "detail": "Read interrupted. Retrying from last confirmation.",
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        }
+      ]
+    },
+    {
+      "source": "macos",
+      "database": "00000000000000000000000000000004",
+      "status": "queried",
+      "evidence": [
+        {
+          "scope": "foreground",
+          "mode": "notification",
+          "started_at_utc_ms": 1795107600000,
+          "stopped_at_utc_ms": 1795147200000,
+          "evidence": "completed",
+          "detail": null,
+          "run_id": 1,
+          "confirmed_until_utc_ms": 1795147198000
+        },
+        {
+          "scope": "foreground",
+          "mode": "notification",
+          "started_at_utc_ms": 1795150800000,
+          "stopped_at_utc_ms": null,
+          "evidence": "unconfirmed",
+          "detail": null,
+          "run_id": 2,
+          "confirmed_until_utc_ms": 1795186794000
+        },
+        {
+          "scope": "input",
+          "mode": "notification",
+          "started_at_utc_ms": 1795150800000,
+          "stopped_at_utc_ms": null,
+          "evidence": "unavailable",
+          "detail": "permission_denied",
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        },
+        {
+          "scope": "microphone",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795150800000,
+          "stopped_at_utc_ms": null,
+          "evidence": "available",
+          "detail": null,
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        },
+        {
+          "scope": "windows",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795150800000,
+          "stopped_at_utc_ms": null,
+          "evidence": "available",
+          "detail": null,
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        },
+        {
+          "scope": "windows",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795150801000,
+          "stopped_at_utc_ms": null,
+          "evidence": "method_selected",
+          "detail": null,
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        },
+        {
+          "scope": "foreground",
+          "mode": "notification",
+          "started_at_utc_ms": 1795185600000,
+          "stopped_at_utc_ms": 1795185600000,
+          "evidence": "read_failed",
+          "detail": "Read interrupted. Retrying from last confirmation.",
+          "run_id": 2,
+          "confirmed_until_utc_ms": null
+        }
+      ]
+    }
+  ]
+}

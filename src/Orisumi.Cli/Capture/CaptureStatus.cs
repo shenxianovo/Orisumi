@@ -22,15 +22,15 @@ internal static partial class CaptureStatus
         var programs = await CollectorPrograms.Read(store.Root, token, baseDirectory);
         var versions = programs.ToDictionary(program => program.Description.Name, program => program.Description.Version,
             StringComparer.Ordinal);
-        var prefix = instance.AgentLabel("");
-        var names = versions.Keys.Union(Launchd.AgentPlists(instance, locations)
+        var prefix = instance.CaptureAgentPrefix;
+        var names = versions.Keys.Union(Launchd.CaptureAgentPlists(instance, locations)
             .Select(path => Path.GetFileNameWithoutExtension(path)[prefix.Length..]), StringComparer.Ordinal)
             .Union(store.Sources(), StringComparer.Ordinal).Order(StringComparer.Ordinal);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var collectors = new List<CollectorStatus>();
         foreach (var name in names)
         {
-            var agent = await ReadAgent(locations, instance.AgentLabel(name), token);
+            var agent = await ReadAgent(locations, instance.CaptureAgentLabel(name), token);
             var (runs, failures, recentFailures) = ReadHistory(store.Databases(name), now - 3_600_000);
             var run = runs.FirstOrDefault() is { } latest ? latest with { Database = null } : null;
             var version = versions.GetValueOrDefault(name);

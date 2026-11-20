@@ -38,7 +38,7 @@ try
         set -eu
         [ "$1" = print ] && [ "$#" = 2 ] || exit 2
         case "$2" in
-          gui/"$(/usr/bin/id -u)"/dev.orisumi.test_status.*|gui/"$(/usr/bin/id -u)"/dev.orisumi.test_status_overall.*) ;;
+          gui/"$(/usr/bin/id -u)"/dev.orisumi.test_status.capture.*|gui/"$(/usr/bin/id -u)"/dev.orisumi.test_status_overall.capture.*) ;;
           *) exit 2 ;;
         esac
         case "$2" in
@@ -51,7 +51,9 @@ try
         esac
         """);
     Directory.CreateDirectory(locations.Agents);
-    foreach (var label in new[] { instance.AgentLabel("idle"), instance.AgentLabel("queued"), instance.AgentLabel("signaled"), "dev.orisumi.other.ignored" })
+    var other = Instance.Create(Path.Combine(temp.FullName, "other"), "other");
+    foreach (var label in new[] { instance.CaptureAgentLabel("idle"), instance.CaptureAgentLabel("queued"),
+        instance.CaptureAgentLabel("signaled"), other.CaptureAgentLabel("ignored"), instance.AppAgentLabel })
         File.WriteAllText(Path.Combine(locations.Agents, label + ".plist"), "");
     foreach (var name in new[] { "collecting", "unloaded" })
         Install(store, name);
@@ -216,7 +218,7 @@ try
     await CheckOverall("ok", 1);
     Console.WriteLine("PASS: empty, stopped, mixed and healthy stores, including completed runs and fresh starts");
 
-    File.WriteAllText(Path.Combine(locations.Agents, instance.AgentLabel("broken") + ".plist"), "");
+    File.WriteAllText(Path.Combine(locations.Agents, instance.CaptureAgentLabel("broken") + ".plist"), "");
     await Expect<IOException>("print failed", ["capture", "status", "--store", store.Root]);
     var checkout = Path.GetDirectoryName(baseDirectory)!;
     File.WriteAllText(Path.Combine(checkout, "Orisumi.slnx"), "<Solution />");

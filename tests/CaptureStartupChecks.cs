@@ -57,7 +57,8 @@ static void Check(bool condition, string message)
 
 async Task ConfigurationChecks()
 {
-    var store = new Store(Path.Combine(temp.FullName, "store & spaces ' 引号"));
+    var instance = Instance.Create(Path.Combine(temp.FullName, "store & spaces ' 引号"), "test_startup");
+    var store = instance.Store;
     var programs = await CollectorPrograms.Read(store.Root, CancellationToken.None, Path.GetDirectoryName(host));
     Check(programs.Select(program => program.Description.Name).Order().SequenceEqual(["browser", "claude", "codex", "macos"]),
         "all collector descriptions provide a launch command");
@@ -71,7 +72,7 @@ async Task ConfigurationChecks()
         foreach (var program in programs)
         {
             var (name, _, command) = program.Description;
-            var label = $"dev.orisumi.test_startup.{name}";
+            var label = instance.CaptureAgentLabel(name);
             var path = Path.Combine(temp.FullName, name + ".plist");
             CaptureStartup.LaunchAgent(label, program.Command(store.Root, command!), store, name).Save(path);
             var lint = await Process.RunAndCaptureTextAsync("/usr/bin/plutil", ["-lint", path], CancellationToken.None);
@@ -79,7 +80,9 @@ async Task ConfigurationChecks()
             var elements = XDocument.Load(path).Root!.Element("dict")!.Elements().ToArray();
             var fields = Enumerable.Range(0, elements.Length / 2).ToDictionary(i => elements[i * 2].Value, i => elements[i * 2 + 1]);
             string[] prefix = bundle ? [store.HostExecutable, "launch", "--"] : [];
-            Check(fields["Label"].Value == label, "collector uses its instance LaunchAgent label");
+            Check(fields["Label"].Value == label &&
+                fields["AssociatedBundleIdentifiers"].Elements().Select(item => item.Value).SequenceEqual([HostBundle.Identifier]),
+                "collector uses its instance LaunchAgent label and is associated with Orisumi");
             Check(fields["ProgramArguments"].Elements().Select(item => item.Value)
                 .SequenceEqual([.. prefix, dotnet, program.Path, "--store", store.Root, .. command!]), "argv boundaries survive XML encoding");
             Check(fields["WorkingDirectory"].Value == store.Root, "collector starts in its store");

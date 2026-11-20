@@ -1,0 +1,204 @@
+{
+  "instance": "app_fixture",
+  "store": "/tmp/Orisumi Fixture",
+  "host_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+  "generated_at_utc_ms": 1795186800000,
+  "health": "attention",
+  "collectors": [
+    {
+      "name": "browser",
+      "version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+      "health": "attention",
+      "problems": [
+        "not_running",
+        "run_failed"
+      ],
+      "agent": {
+        "state": "spawn scheduled",
+        "pid": null,
+        "last_exit_code": "terminated by signal"
+      },
+      "run": {
+        "run_id": 2,
+        "started_at_utc_ms": 1795140000000,
+        "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+        "confirmed_until_utc_ms": 1795179600000,
+        "stopped_at_utc_ms": 1795179600000,
+        "stop_reason": "failed",
+        "error": "Browser connection ended unexpectedly."
+      },
+      "read_failures_last_hour": 0,
+      "recent_runs": [
+        {
+          "run_id": 2,
+          "started_at_utc_ms": 1795140000000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795179600000,
+          "stopped_at_utc_ms": 1795179600000,
+          "stop_reason": "failed",
+          "error": "Browser connection ended unexpectedly.",
+          "database": "00000000000000000000000000000001"
+        },
+        {
+          "run_id": 1,
+          "started_at_utc_ms": 1795096800000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795136398000,
+          "stopped_at_utc_ms": 1795136400000,
+          "stop_reason": "completed",
+          "error": null,
+          "database": "00000000000000000000000000000001"
+        }
+      ],
+      "recent_read_failures": []
+    },
+    {
+      "name": "claude",
+      "version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+      "health": "ok",
+      "problems": [],
+      "agent": {
+        "state": "running",
+        "pid": 23401,
+        "last_exit_code": null
+      },
+      "run": {
+        "run_id": 2,
+        "started_at_utc_ms": 1795143600000,
+        "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+        "confirmed_until_utc_ms": 1795186796000,
+        "stopped_at_utc_ms": null,
+        "stop_reason": null,
+        "error": null
+      },
+      "read_failures_last_hour": 0,
+      "recent_runs": [
+        {
+          "run_id": 2,
+          "started_at_utc_ms": 1795143600000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795186796000,
+          "stopped_at_utc_ms": null,
+          "stop_reason": null,
+          "error": null,
+          "database": "00000000000000000000000000000002"
+        },
+        {
+          "run_id": 1,
+          "started_at_utc_ms": 1795100400000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795139998000,
+          "stopped_at_utc_ms": 1795140000000,
+          "stop_reason": "completed",
+          "error": null,
+          "database": "00000000000000000000000000000002"
+        }
+      ],
+      "recent_read_failures": []
+    },
+    {
+      "name": "codex",
+      "version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+      "health": "ok",
+      "problems": [],
+      "agent": {
+        "state": "running",
+        "pid": 23402,
+        "last_exit_code": null
+      },
+      "run": {
+        "run_id": 2,
+        "started_at_utc_ms": 1795147200000,
+        "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+        "confirmed_until_utc_ms": 1795186795000,
+        "stopped_at_utc_ms": null,
+        "stop_reason": null,
+        "error": null
+      },
+      "read_failures_last_hour": 1,
+      "recent_runs": [
+        {
+          "run_id": 2,
+          "started_at_utc_ms": 1795147200000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795186795000,
+          "stopped_at_utc_ms": null,
+          "stop_reason": null,
+          "error": null,
+          "database": "00000000000000000000000000000003"
+        },
+        {
+          "run_id": 1,
+          "started_at_utc_ms": 1795104000000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795143598000,
+          "stopped_at_utc_ms": 1795143600000,
+          "stop_reason": "completed",
+          "error": null,
+          "database": "00000000000000000000000000000003"
+        }
+      ],
+      "recent_read_failures": [
+        {
+          "run_id": 2,
+          "observed_at_utc_ms": 1795185600000,
+          "scope": "rollout",
+          "error": "Read interrupted. Retrying from last confirmation.",
+          "database": "00000000000000000000000000000003"
+        }
+      ]
+    },
+    {
+      "name": "macos",
+      "version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+      "health": "ok",
+      "problems": [],
+      "agent": {
+        "state": "running",
+        "pid": 23403,
+        "last_exit_code": null
+      },
+      "run": {
+        "run_id": 2,
+        "started_at_utc_ms": 1795150800000,
+        "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+        "confirmed_until_utc_ms": 1795186800012,
+        "stopped_at_utc_ms": null,
+        "stop_reason": null,
+        "error": null
+      },
+      "read_failures_last_hour": 1,
+      "recent_runs": [
+        {
+          "run_id": 2,
+          "started_at_utc_ms": 1795150800000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795186800012,
+          "stopped_at_utc_ms": null,
+          "stop_reason": null,
+          "error": null,
+          "database": "00000000000000000000000000000004"
+        },
+        {
+          "run_id": 1,
+          "started_at_utc_ms": 1795107600000,
+          "collector_version": "0.1.0+321c68f602d16d28d6baa5f43d48730454eaf3cb",
+          "confirmed_until_utc_ms": 1795147198000,
+          "stopped_at_utc_ms": 1795147200000,
+          "stop_reason": "completed",
+          "error": null,
+          "database": "00000000000000000000000000000004"
+        }
+      ],
+      "recent_read_failures": [
+        {
+          "run_id": 2,
+          "observed_at_utc_ms": 1795185600000,
+          "scope": "windows",
+          "error": "Read interrupted. Retrying from last confirmation.",
+          "database": "00000000000000000000000000000004"
+        }
+      ]
+    }
+  ]
+}

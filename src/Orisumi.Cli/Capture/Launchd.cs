@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Xml.Linq;
 using Orisumi.Platform;
 
 namespace Orisumi.Cli.Capture;
@@ -11,9 +12,18 @@ internal static class Launchd
     internal static string Domain => $"gui/{getuid()}";
     internal static string Service(string label) => $"{Domain}/{label}";
 
-    internal static IEnumerable<string> AgentPlists(Instance instance, SystemLocations locations) =>
+    internal static XDocument Plist(XElement dictionary)
+    {
+        dictionary.Add(new XElement("key", "AssociatedBundleIdentifiers"),
+            new XElement("array", new XElement("string", HostBundle.Identifier)));
+        return new XDocument(new XDeclaration("1.0", "UTF-8", null),
+            new XDocumentType("plist", "-//Apple//DTD PLIST 1.0//EN", "http://www.apple.com/DTDs/PropertyList-1.0.dtd", null),
+            new XElement("plist", new XAttribute("version", "1.0"), dictionary));
+    }
+
+    internal static IEnumerable<string> CaptureAgentPlists(Instance instance, SystemLocations locations) =>
         Directory.Exists(locations.Agents)
-            ? Directory.EnumerateFiles(locations.Agents, instance.AgentLabel("*") + ".plist") : [];
+            ? Directory.EnumerateFiles(locations.Agents, instance.CaptureAgentPrefix + "*.plist") : [];
 
     internal static async Task<string?> Print(SystemLocations locations, string service, CancellationToken token)
     {

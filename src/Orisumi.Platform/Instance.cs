@@ -15,7 +15,11 @@ public sealed class Instance
 
     public Store Store { get; }
     public string Name { get; }
-    public string AgentLabel(string collector) => $"dev.orisumi.{Name}.{collector}";
+    private string AgentPrefix => $"{HostBundle.Identifier}.{Name}";
+    internal bool IsDevelopment => Name.StartsWith("dev_", StringComparison.Ordinal);
+    internal string AppAgentLabel => $"{AgentPrefix}.app";
+    internal string CaptureAgentPrefix => $"{AgentPrefix}.capture.";
+    public string CaptureAgentLabel(string source) => CaptureAgentPrefix + source;
     public int BrowserPort => Name switch
     {
         "prod" => 47810,

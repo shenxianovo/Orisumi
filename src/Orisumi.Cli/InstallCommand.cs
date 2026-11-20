@@ -27,6 +27,8 @@ internal static class InstallCommand
                 (false, [var collector]) => Path.GetFileName(collector)[8..],
                 _ => throw new InvalidDataException($"发布目录应包含一个 Orisumi 程序：{source}"),
             };
+            if (bundle && instance.IsDevelopment)
+                throw new ArgumentException("开发实例使用检出中的宿主，不安装 Orisumi.app。");
             if (!seen.Add(name))
                 throw new InvalidDataException($"重复的发布组件：{name}");
 
@@ -50,8 +52,11 @@ internal static class InstallCommand
                 }
                 else Directory.Move(temporary, destination);
 
-                if (name == "host" && !instance.Name.StartsWith("dev_", StringComparison.Ordinal))
+                if (bundle)
+                {
                     Link(locations.Commands, instance.CommandName, store.HostExecutable);
+                    await AppStartup.Install(instance, locations, token);
+                }
                 output.WriteLine($"Installed {name} {description.Version} in {store.Root}");
             }
             finally
