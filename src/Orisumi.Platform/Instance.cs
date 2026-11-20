@@ -16,7 +16,13 @@ public sealed class Instance
     public Store Store { get; }
     public string Name { get; }
     public string AgentLabel(string collector) => $"dev.orisumi.{Name}.{collector}";
-    public string ChromeHost => $"com.orisumi.{Name}.browser";
+    public int BrowserPort => Name switch
+    {
+        "prod" => 47810,
+        "preview" => 47811,
+        _ => 47900 + (int)(Name.Aggregate(2166136261u,
+            (hash, character) => unchecked((hash ^ character) * 16777619u)) % 100),
+    };
     public string CommandName => Name == "prod" ? "orisumi" : "orisumi-" + Name;
 
     public static Instance Open(string root)
@@ -64,10 +70,16 @@ public sealed class Instance
     public static Instance Resolve(string baseDirectory)
     {
         if (Find(baseDirectory) is { } instance) return instance;
-        for (var directory = new DirectoryInfo(baseDirectory); directory is not null; directory = directory.Parent)
-            if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")))
-                return Development(directory.FullName);
+        if (FindCheckout(baseDirectory) is { } checkout) return Development(checkout);
         throw new DirectoryNotFoundException("找不到 instance.json 或 Orisumi.slnx。请使用 --store 指定存储目录。");
+    }
+
+    internal static string? FindCheckout(string start)
+    {
+        for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
+            if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")))
+                return directory.FullName;
+        return null;
     }
 
     public static Instance Development(string checkout)

@@ -11,6 +11,10 @@ internal static class ChromeExtension
         string.Concat(SHA256.HashData(Encoding.UTF8.GetBytes(absolutePath)).Take(16)
             .SelectMany(value => new[] { (char)('a' + (value >> 4)), (char)('a' + (value & 15)) }));
 
+    internal static string DirectoryFor(Instance instance, string? checkout) => DirectoryPaths.Resolve(checkout is null
+        ? Path.Combine(instance.Store.Collector("browser"), "extension")
+        : Path.Combine(checkout, ".local", "extension"));
+
     internal static void Configure(string directory, Instance instance)
     {
         var manifest = Path.Combine(directory, "manifest.json");
@@ -18,7 +22,7 @@ internal static class ChromeExtension
             throw new InvalidDataException($"无效的 Chrome 扩展清单：{manifest}");
         content["name"] = $"Orisumi Chrome Collector ({instance.Name})";
         File.WriteAllText(manifest, content.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        File.WriteAllText(Path.Combine(directory, "config.json"), $"{{\"nativeHost\":\"{instance.ChromeHost}\"}}\n");
+        File.WriteAllText(Path.Combine(directory, "config.json"), FormattableString.Invariant($"{{\"instance\":\"{instance.Name}\",\"port\":{instance.BrowserPort}}}\n"));
     }
 
     internal static void CheckConfiguration(string directory, Instance instance)
@@ -27,40 +31,9 @@ internal static class ChromeExtension
         if (!File.Exists(config)) throw new FileNotFoundException($"找不到扩展配置：{config}。请安装或构建 Chrome 扩展。");
         using var json = JsonDocument.Parse(File.ReadAllText(config));
         if (json.RootElement.ValueKind != JsonValueKind.Object ||
-            !json.RootElement.TryGetProperty("nativeHost", out var host) || host.ValueKind != JsonValueKind.String ||
-            host.GetString() != instance.ChromeHost)
+            !json.RootElement.TryGetProperty("instance", out var name) || name.ValueKind != JsonValueKind.String ||
+            name.GetString() != instance.Name || !json.RootElement.TryGetProperty("port", out var port) ||
+            port.ValueKind != JsonValueKind.Number || !port.TryGetInt32(out var number) || number != instance.BrowserPort)
             throw new InvalidDataException($"Chrome 扩展未配置给 {instance.Name}：{directory}");
     }
-
-    internal static string Register(Instance instance, string extensionId, string[] command, SystemLocations locations)
-    {
-        if (extensionId.Length != 32 || extensionId.Any(character => character is < 'a' or > 'p'))
-            throw new ArgumentException("expected a 32-character Chrome extension ID");
-
-        var store = instance.Store;
-        using var guard = Store.WaitLock(store.LockFile("chrome-registration"));
-        var launcher = store.ChromeLauncher;
-        File.WriteAllText(launcher, $"#!/bin/sh\nexec {string.Join(' ', command.Select(ShellQuote))}\n");
-        File.SetUnixFileMode(launcher, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-
-        Directory.CreateDirectory(locations.ChromeManifests);
-        var manifest = Manifest(instance, locations);
-        using var file = File.Create(manifest);
-        using var json = new Utf8JsonWriter(file);
-        json.WriteStartObject();
-        json.WriteString("name", instance.ChromeHost);
-        json.WriteString("description", "Orisumi browser collector");
-        json.WriteString("path", launcher);
-        json.WriteString("type", "stdio");
-        json.WriteStartArray("allowed_origins");
-        json.WriteStringValue($"chrome-extension://{extensionId}/");
-        json.WriteEndArray();
-        json.WriteEndObject();
-        return manifest;
-    }
-
-    internal static string Manifest(Instance instance, SystemLocations locations) =>
-        Path.Combine(locations.ChromeManifests, instance.ChromeHost + ".json");
-
-    private static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
 }

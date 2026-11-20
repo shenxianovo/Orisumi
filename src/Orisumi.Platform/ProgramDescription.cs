@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Orisumi.Platform;
 
 public sealed record ProgramDescription(string Name, string Version,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CollectorStart? Start = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? Arguments = null)
 {
     public static async Task<ProgramDescription> Read(string executable, string[] prefix, CancellationToken token)
     {
@@ -14,9 +14,8 @@ public sealed record ProgramDescription(string Name, string Version,
         if (code != 0) throw new IOException($"{executable} {string.Join(' ', prefix)}: describe exited with code {code}");
         var description = JsonSerializer.Deserialize(output.ToString(), DescriptionJson.Default.ProgramDescription);
         if (description is not { Name: { } name, Version.Length: > 0 } || !Instance.IsName(name) ||
-            (name == "host" ? description.Start is not null :
-                description.Start is not { Arguments: { } arguments, Mode: "resident" or "terminal" or "chrome" } ||
-                arguments.Any(argument => argument is null)))
+            (name == "host" ? description.Arguments is not null :
+                description.Arguments is not [{ Length: > 0 }, ..] arguments || arguments.Any(argument => argument is null)))
             throw new InvalidDataException($"{executable} {string.Join(' ', prefix)}: invalid program description");
         return description;
     }
@@ -25,8 +24,6 @@ public sealed record ProgramDescription(string Name, string Version,
 
     public static string ExecutableName(string component) => component == "host" ? "orisumi" : "orisumi-" + component;
 }
-
-public sealed record CollectorStart(string Mode, string[] Arguments);
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(ProgramDescription))]

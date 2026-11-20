@@ -41,8 +41,8 @@ dotnet run --project src/Orisumi.Dev -- dev setup
 | `claude capture` / `codex capture` | 常驻监听并增量导入；由 `capture start` 装成 LaunchAgent，没有一次性导入 |
 | `macos foreground [秒数] --windows --input --microphone --audio-output --camera` | 采集 macOS，每个选项开一个通道；不给秒数就一直运行，Ctrl+C 正常停止 |
 | `macos timeline --from … --to …` | 活动时间线；时间要带 UTC 偏移或 `Z` |
-| `browser register-chrome <扩展 ID>` | 手动注册接收端；`capture start` 会自动注册 |
-| `<来源> describe` | 版本和启动方式 |
+| `browser capture` | 常驻接收扩展的 WebSocket 连接；由 `capture start` 装成 LaunchAgent |
+| `<来源> describe` | 版本和常驻采集的参数 |
 
 开发命令：
 
@@ -62,7 +62,7 @@ orisumi-dev extension build
 orisumi-dev capture start
 ```
 
-`extension build` 把扩展构建到 `<检出>/.local/extension/`，写入开发实例的接收端名字，并打印路径和预期 ID。在 Chrome 扩展页打开开发者模式，加载这个目录；改了扩展就重新构建，再到 Chrome 里重载。接收端的 stdout 只用于 Native Messaging 二进制协议。
+`extension build` 把扩展构建到 `<检出>/.local/extension/`，写入开发实例的名字和接收端端口，并打印路径和预期 ID。在 Chrome 扩展页打开开发者模式，加载这个目录；改了扩展就重新构建，再到 Chrome 里重载。
 
 ## 验证
 
@@ -89,13 +89,13 @@ dotnet run --file tests/LocChecks.cs -- src/Orisumi.Dev/bin/Debug/net11.0/orisum
 | 检查 | 覆盖 |
 | --- | --- |
 | Platform | 主机标识、选库、主机绑定、并发建库 |
-| CaptureStartup | LaunchAgent 配置、分离启动后的存活、日志、信号、过期的 PID 文件 |
+| CaptureStartup | LaunchAgent 配置；`launch` 的参数、标准输入输出、进程组、信号转发和退出码 |
 | Schema | 项目与解决方案一致、`describe`、结构打包、视图、coverage 列、重复打开 |
 | CaptureIntegration、Claude/CodexIncremental | 独立变化、修订、重试、身份、中断、回放和增量 |
-| BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤；接收端的快照核对、EOF、超时、历史事务 |
+| BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤；接收端的 Origin 校验、并发配置、心跳、快照核对、关闭、超时、历史事务 |
 | CaptureCoverage、Export | 覆盖查询的区间；导出时未检查点的 WAL、重复导出、目标位置、库 ID 不符、半成品 |
 | MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
-| Instance | 实例解析、派生名字、扩展 ID、安装替换、命令链接、发布、预览和切换 |
+| Instance | 实例解析、派生名字、扩展 ID、宿主签名核对、安装替换、命令链接、发布、预览和切换 |
 | SourceLauncher、Loc | 在临时仓库里测开发入口的构建、参数、退出码、二进制输入输出、信号，以及行数统计 |
 
 新增采集器的要求见[采集开发](../capture/index.mdx)。

@@ -3,9 +3,11 @@
 #:property PublishAot=false
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 
-using System.Buffers.Binary;
 using System.Diagnostics;
-using System.IO.Pipes;
+using System.Net;
+using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Runtime.Versioning;
@@ -16,8 +18,8 @@ using Orisumi.Platform;
 
 [assembly: SupportedOSPlatform("macos")]
 
-if (args.Length > 1) throw new ArgumentException("Provide at most one native host executable.");
-if (args.Length == 1) Connection.Executable = Path.GetFullPath(args[0]);
+if (args.Length > 1) throw new ArgumentException("Provide at most one Native AOT browser executable.");
+if (args.Length == 1) Fixture.Executable = Path.GetFullPath(args[0]);
 
 WriterFailure();
 WriterConnection();
@@ -29,6 +31,8 @@ await BookmarksAndDownloads();
 await History();
 await Timeout();
 await CorruptDatabase();
+await WebSockets();
+await Termination();
 Console.WriteLine("Browser capture integration checks passed.");
 
 static void WriterFailure()
@@ -101,7 +105,7 @@ static async Task RejectedDelivery()
     }
     await using (var port = await fixture.Connect())
     {
-        var replay = await port.Deliver(1, "tabs", "unknown_event", malformed, inParts: true);
+        var replay = await port.Deliver(1, "tabs", "unknown_event", malformed, fragmented: true);
         Equal(true, replay["rejected"]?.GetValue<bool>(), "lost rejection ACK can be replayed");
         using var db = fixture.Database();
         using (var busy = db.BeginTransaction())
@@ -153,7 +157,7 @@ static async Task Tabs()
         await port.Deliver(2, "tabs", "tab_updated", toB);
     }
     using var db = fixture.Database();
-    Equal("completed", Value(db, "SELECT stop_reason FROM capture_runs"), "stdin EOF confirms the stop");
+    Equal("completed", Value(db, "SELECT stop_reason FROM capture_runs"), "WebSocket close confirms the stop");
     Equal(1L, Value(db, """
         SELECT COUNT(*) FROM capture_runs WHERE stopped_at_utc_ms >= confirmed_until_utc_ms
         AND confirmed_until_utc_ms >= started_at_utc_ms AND error IS NULL
@@ -183,7 +187,7 @@ static async Task Tabs()
         var corrected = initial.DeepClone();
         corrected["tabs"]![0]!["title"] = "Missed title";
         corrected["focusedWindowId"] = 2;
-        await port.Deliver(11, "tabs", "snapshot", corrected, inParts: true);
+        await port.Deliver(11, "tabs", "snapshot", corrected, fragmented: true);
         await port.Deliver(12, "tabs", "snapshot", corrected);
         Equal("Missed title", Value(db, "SELECT title FROM current_tabs WHERE tab_id=4"), "corrects the missed title event");
         Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_channel_events WHERE evidence='reconciliation_changed'"), "one gap per inconsistent snapshot");
@@ -201,7 +205,7 @@ static async Task Tabs()
     Equal(0L, Value(db, "SELECT COUNT(*) FROM pragma_foreign_key_check"), "all browser facts reference existing identities");
     Equal(0L, Value(db, "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='active_tab_focus_events'"),
         "foreground focus is derived from the two source facts");
-    Console.WriteLine("PASS: tab A→B→A, stationary observations, replay across connections, focus, reconciliation and EOF");
+    Console.WriteLine("PASS: tab A→B→A, stationary observations, replay across connections, focus, reconciliation and WebSocket close");
 }
 
 static async Task TabFocus()
@@ -391,6 +395,82 @@ static async Task CorruptDatabase()
     Console.WriteLine("PASS: opening an invalid database returns a failure without modifying it");
 }
 
+static async Task WebSockets()
+{
+    using var fixture = new Fixture();
+    var endpoint = fixture.Start(TimeSpan.FromMinutes(2), TimeSpan.FromMilliseconds(100));
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    foreach (var origin in new[] { null, "chrome-extension://wrong" })
+    {
+        using var socket = new ClientWebSocket();
+        socket.Options.CollectHttpResponseDetails = true;
+        if (origin is not null) socket.Options.SetRequestHeader("Origin", origin);
+        try { await socket.ConnectAsync(endpoint, deadline.Token); throw new Exception("unexpected WebSocket upgrade"); }
+        catch (WebSocketException) when (socket.HttpStatusCode == HttpStatusCode.Forbidden) { }
+    }
+    await using var first = await fixture.Connect();
+    await using (var duplicate = await fixture.Connect(expectedOk: false))
+    {
+        Equal(WebSocketMessageType.Close, (await duplicate.Receive(deadline.Token)).Type, "duplicate profile gets an error and then closes");
+    }
+    await using (var second = await fixture.Connect(profile: Guid.NewGuid()))
+    {
+        var snapshot = JsonNode.Parse("""{"tabs":[],"windows":[]}""")!;
+        var large = snapshot.DeepClone();
+        large["padding"] = new string('x', 2 * 1024 * 1024);
+        await Task.WhenAll(first.Deliver(1, "tabs", "snapshot", large, fragmented: true),
+            second.Deliver(1, "tabs", "snapshot", snapshot.DeepClone()));
+        var history = await second.Exchange(new { type = "history_poll" });
+        Equal(true, history["history"] is not null, "history poll returns a range");
+        await first.Heartbeat(deadline.Token);
+        await second.Heartbeat(deadline.Token);
+        using var database = fixture.Database();
+        Equal(2L, Value(database, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason IS NULL"), "two profile runs are active concurrently");
+    }
+    using var remaining = fixture.Database();
+    Equal(1L, Value(remaining, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason='completed'"), "closing one socket completes only its run");
+    Console.WriteLine("PASS: loopback WebSocket Origin rejects missing and wrong origins; concurrent profiles, duplicate lock, fragmented delivery, history and heartbeats");
+}
+
+static async Task Termination()
+{
+    using var fixture = new Fixture(external: true);
+    await using var first = await fixture.Connect();
+    await using var second = await fixture.Connect(profile: Guid.NewGuid());
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    using (var conflict = fixture.StartProcess())
+    {
+        try
+        {
+            var diagnostics = conflict.StandardError.ReadToEndAsync(deadline.Token);
+            await conflict.WaitForExitAsync(deadline.Token);
+            Equal(1, conflict.ExitCode, "an occupied port exits nonzero");
+            var message = await diagnostics;
+            Equal(true, message.Contains($"port {fixture.Instance.BrowserPort}") && message.Contains(fixture.Instance.Name),
+                "bind failure names the instance and port");
+        }
+        finally
+        {
+            if (!conflict.HasExited) { conflict.Kill(); await conflict.WaitForExitAsync(); }
+        }
+    }
+    if (Fixture.Executable is not null)
+    {
+        using var heartbeat = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        await Task.WhenAll(first.Heartbeat(heartbeat.Token), second.Heartbeat(heartbeat.Token));
+        Console.WriteLine("PASS: Native AOT WebSockets send the production 20-second heartbeat");
+    }
+    using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+    var elapsed = Stopwatch.StartNew();
+    fixture.Process!.Signal(PosixSignal.SIGTERM);
+    await Task.WhenAll(first.ExpectClose(shutdown.Token), second.ExpectClose(shutdown.Token));
+    await fixture.Process.WaitForExitAsync(shutdown.Token);
+    Equal(0, fixture.Process.ExitCode, "SIGTERM exits successfully");
+    using var database = fixture.Database();
+    Equal(2L, Value(database, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason='completed' AND error IS NULL"), "SIGTERM completes all runs");
+    Console.WriteLine($"PASS: bind diagnostics and SIGTERM closed both sockets and completed both runs in {elapsed.ElapsedMilliseconds} ms");
+}
+
 static object? Value(SqliteConnection db, string sql)
 {
     using var statement = db.CreateCommand();
@@ -409,25 +489,93 @@ static void Equal(object? expected, object? actual, string reason)
     if (!Equals(expected, actual)) throw new Exception($"{reason}: expected {expected ?? "NULL"}, got {actual ?? "NULL"}");
 }
 
-sealed class Fixture : IDisposable
+sealed class Fixture(bool external = false) : IDisposable
 {
     private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("orisumi-browser-");
-    internal string Store => directory.FullName;
     private readonly Guid profileId = Guid.NewGuid();
     private readonly Guid queueId = Guid.NewGuid();
     private readonly Guid browserSession = Guid.NewGuid();
+    private readonly CancellationTokenSource stop = new();
+    private Task? server;
+    private Uri? endpoint;
+    private Task<string>? diagnostics;
+    internal static string? Executable { get; set; }
+    internal Instance Instance { get; private set; } = null!;
+    internal Process? Process { get; private set; }
+    internal string Store => directory.FullName;
 
-    internal async Task<Connection> Connect(TimeSpan? interval = null, bool expectedOk = true)
+    internal Uri Start(TimeSpan? interval = null, TimeSpan? heartbeat = null)
     {
-        var port = await Connection.Start(Store, browserSession, interval);
+        if (endpoint is not null) return endpoint;
+        var name = "test_browser";
+        if (external)
+        {
+            // The CLI uses its instance's fixed port. Find an unused test name for that port.
+            var probes = Directory.CreateDirectory(Path.Combine(Store, "probes"));
+            do
+            {
+                name = "test_browser_" + Guid.NewGuid().ToString("N");
+                var probe = Instance.Create(Path.Combine(probes.FullName, name), name);
+                if (IsFree(probe.BrowserPort)) break;
+            } while (true);
+        }
+        Instance = Instance.Create(Store, name);
+        var port = external ? Instance.BrowserPort : FreePort();
+        endpoint = new Uri($"ws://127.0.0.1:{port}/");
+        if (external)
+        {
+            Process = StartProcess();
+            diagnostics = Process.StandardError.ReadToEndAsync();
+        }
+        else
+            server = BrowserServer.Run(Instance, port, interval ?? TimeSpan.FromMinutes(2),
+                heartbeat ?? TimeSpan.FromSeconds(20), stop.Token);
+        return endpoint;
+    }
+
+    internal Process StartProcess()
+    {
+        var managed = Path.GetFullPath("src/Collectors/Orisumi.Collectors.Browser/bin/Debug/net11.0/orisumi-browser.dll");
+        var start = new ProcessStartInfo(Executable ?? RunProcess.Dotnet)
+        {
+            UseShellExecute = false, RedirectStandardError = true,
+        };
+        if (Executable is null) start.ArgumentList.Add(managed);
+        foreach (var argument in new[] { "--store", Store, "capture" }) start.ArgumentList.Add(argument);
+        return System.Diagnostics.Process.Start(start)!;
+    }
+
+    internal async Task<Connection> Connect(TimeSpan? interval = null, bool expectedOk = true, Guid? profile = null)
+    {
+        var address = Start(interval);
+        if (server?.IsCompleted == true) await server;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        if (external)
+            while (true)
+            {
+                if (Process!.HasExited) throw new IOException(await diagnostics!);
+                using var tcp = new TcpClient();
+                try { await tcp.ConnectAsync(IPAddress.Loopback, address.Port, deadline.Token); break; }
+                catch (SocketException) { await Task.Delay(20, deadline.Token); }
+            }
+
+        var socket = new ClientWebSocket();
+        var checkout = external && Executable is null ? Environment.CurrentDirectory : null;
+        var origin = "chrome-extension://" + ChromeExtension.Id(ChromeExtension.DirectoryFor(Instance, checkout));
+        socket.Options.SetRequestHeader("Origin", origin);
+        try { await socket.ConnectAsync(address, deadline.Token); }
+        catch { socket.Dispose(); throw; }
+        var session = profile.HasValue ? Guid.NewGuid() : browserSession;
+        var queue = profile.HasValue ? Guid.NewGuid() : queueId;
+        var connection = new Connection(socket, session);
         try
         {
-            await port.Exchange(new { type = "open", profileId, queueId, browserSession }, expectedOk);
-            return port;
+            await connection.Exchange(new { type = "open", profileId = profile ?? profileId, queueId = queue, browserSession = session }, expectedOk);
+            return connection;
         }
         catch
         {
-            await port.DisposeAsync();
+            await connection.DisposeAsync();
             throw;
         }
     }
@@ -441,111 +589,114 @@ sealed class Fixture : IDisposable
         db.Open();
         return db;
     }
-    public void Dispose() => directory.Delete(recursive: true);
-}
 
-sealed class Connection(Stream input, Stream output, Task host, Guid browserSession, Process? process = null) : IAsyncDisposable
-{
-    internal static string? Executable { get; set; }
-
-    internal static async Task<Connection> Start(string store, Guid session, TimeSpan? snapshotInterval)
+    public void Dispose()
     {
-        // The executable uses the production timeout; the short watchdog scenario still uses a test clock interval.
-        if (Executable is not null && snapshotInterval is null)
+        try
         {
-            var start = new ProcessStartInfo(Executable)
+            stop.Cancel();
+            server?.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            if (Process is { HasExited: false })
             {
-                UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
-            };
-            foreach (var argument in new[] { "--store", store, "native-host" })
-                start.ArgumentList.Add(argument);
-            var child = Process.Start(start)!;
-            return new(child.StandardInput.BaseStream, child.StandardOutput.BaseStream, Finish(child), session, child);
-        }
-        var name = "orisumi-" + Guid.NewGuid().ToString("N")[..20];
-        var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-        var host = Task.Run(async () =>
-        {
-            await using (server)
-            {
-                await server.WaitForConnectionAsync();
-                await ChromeNativeHost.Run(store, server, server, snapshotInterval ?? TimeSpan.FromMinutes(2));
+                Process.Signal(PosixSignal.SIGTERM);
+                if (!Process.WaitForExit(5000)) { Process.Kill(); Process.WaitForExit(); }
             }
-        });
-        var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await client.ConnectAsync(5000);
-        return new(client, client, host, session);
+            if (diagnostics?.GetAwaiter().GetResult() is { Length: > 0 } error) Console.Error.Write(error);
+        }
+        finally
+        {
+            Process?.Dispose();
+            stop.Dispose();
+            directory.Delete(recursive: true);
+        }
     }
 
+    private static int FreePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    private static bool IsFree(int port)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, port);
+        try { listener.Start(); return true; }
+        catch (SocketException) { return false; }
+    }
+}
+
+sealed class Connection(ClientWebSocket socket, Guid browserSession) : IAsyncDisposable
+{
     internal async Task<JsonNode> Deliver(long sequence, string scope, string kind, JsonNode data, bool expectedOk = true,
-        bool inParts = false, long? observedAt = null)
+        bool fragmented = false, long? observedAt = null)
     {
         var payload = new { type = "delivery", sequence, scope, kind, data, browserSession, observedAtUtcMs = observedAt ?? 1000 + sequence };
-        JsonNode reply;
-        if (inParts)
-        {
-            var text = JsonSerializer.Serialize(payload);
-            var middle = text.Length / 2;
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            await Send(new { type = "part", body = text[..middle], more = true }, cancellation.Token);
-            reply = await Exchange(new { type = "part", body = text[middle..], more = false }, expectedOk);
-        }
-        else reply = await Exchange(payload, expectedOk);
+        var reply = await Exchange(payload, expectedOk, fragmented);
         if (expectedOk && reply["sequence"]?.GetValue<long>() != sequence)
-            throw new Exception("Native host must acknowledge the exact sequence");
+            throw new Exception("The collector must acknowledge the exact sequence");
         return reply;
     }
 
-    internal async Task<JsonNode> Exchange(object value, bool expectedOk = true)
+    internal async Task<JsonNode> Exchange(object value, bool expectedOk = true, bool fragmented = false)
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var token = cancellation.Token;
-        await Send(value, token);
-        var prefix = new byte[4];
-        await output.ReadExactlyAsync(prefix, token);
-        var count = BinaryPrimitives.ReadInt32LittleEndian(prefix);
-        if (count is <= 0 or > 1024 * 1024) throw new Exception("invalid Native Messaging reply size");
-        var bytes = new byte[count];
-        await output.ReadExactlyAsync(bytes, token);
-        var reply = JsonNode.Parse(bytes)!;
-        if (reply["ok"]?.GetValue<bool>() != expectedOk)
-            throw new Exception($"Unexpected Native Messaging acknowledgement: {reply}");
-        return reply;
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
+        var offset = 0;
+        if (fragmented)
+        {
+            offset = bytes.Length / 2;
+            await socket.SendAsync(bytes.AsMemory(0, offset), WebSocketMessageType.Text, false, token);
+        }
+        await socket.SendAsync(bytes.AsMemory(offset), WebSocketMessageType.Text, true, token);
+        while (true)
+        {
+            var (type, reply) = await Receive(token);
+            if (reply?["type"]?.GetValue<string>() == "heartbeat") continue;
+            if (type != WebSocketMessageType.Text || reply?["ok"]?.GetValue<bool>() != expectedOk)
+                throw new Exception($"Unexpected WebSocket acknowledgement: {type} {reply}");
+            return reply!;
+        }
     }
 
-    private async Task Send(object value, CancellationToken token)
+    internal async Task<(WebSocketMessageType Type, JsonNode? Message)> Receive(CancellationToken token)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
-        var prefix = new byte[4];
-        BinaryPrimitives.WriteInt32LittleEndian(prefix, bytes.Length);
-        await input.WriteAsync(prefix, token);
-        await input.WriteAsync(bytes, token);
-        await input.FlushAsync(token);
+        var buffer = new byte[4096];
+        using var stream = new MemoryStream();
+        while (true)
+        {
+            var frame = await socket.ReceiveAsync(buffer.AsMemory(), token);
+            if (frame.MessageType == WebSocketMessageType.Close) return (frame.MessageType, null);
+            stream.Write(buffer.AsSpan(0, frame.Count));
+            if (frame.EndOfMessage) return (frame.MessageType, JsonNode.Parse(stream.ToArray()));
+        }
+    }
+
+    internal async Task Heartbeat(CancellationToken token)
+    {
+        var (type, reply) = await Receive(token);
+        if (type != WebSocketMessageType.Text || reply?["type"]?.GetValue<string>() != "heartbeat")
+            throw new Exception($"Expected heartbeat, got {type} {reply}");
+    }
+
+    internal async Task ExpectClose(CancellationToken token)
+    {
+        while (true)
+        {
+            var (type, reply) = await Receive(token);
+            if (type == WebSocketMessageType.Close && socket.CloseStatus == WebSocketCloseStatus.NormalClosure) return;
+            if (reply?["type"]?.GetValue<string>() != "heartbeat") throw new Exception($"Expected close frame, got {type} {reply}");
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        try
+        using (socket)
         {
-            await input.DisposeAsync();
-            await host.WaitAsync(TimeSpan.FromSeconds(5));
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            if (socket.State == WebSocketState.Open)
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, cancellation.Token);
         }
-        finally
-        {
-            if (process is not null)
-            {
-                if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
-                process.Dispose();
-            }
-        }
-    }
-
-    private static async Task Finish(Process child)
-    {
-        var diagnostics = child.StandardError.ReadToEndAsync();
-        await child.WaitForExitAsync();
-        var error = await diagnostics;
-        if (error.Length != 0) Console.Error.Write(error);
-        if (child.ExitCode != 0) throw new IOException($"Native host exited with {child.ExitCode}");
     }
 }

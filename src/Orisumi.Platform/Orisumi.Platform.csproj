@@ -11,5 +11,6 @@
     <InternalsVisibleTo Include="InstanceChecks" />
     <InternalsVisibleTo Include="CaptureStartupChecks" />
     <InternalsVisibleTo Include="ExportChecks" />
+    <InternalsVisibleTo Include="BrowserIntegrationChecks" />
   </ItemGroup>
 </Project>

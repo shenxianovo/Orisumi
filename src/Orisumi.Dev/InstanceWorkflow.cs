@@ -72,7 +72,7 @@ internal static class InstanceWorkflow
     }
 
     internal static string InstalledProgram(Store store, string component) =>
-        Path.Combine(component == "host" ? store.Host : store.Collector(component), ProgramDescription.ExecutableName(component));
+        component == "host" ? store.HostExecutable : Path.Combine(store.Collector(component), ProgramDescription.ExecutableName(component));
 
     private static async Task CheckReleases(IEnumerable<(string Component, string Release)> selected, CancellationToken token)
     {
@@ -82,7 +82,7 @@ internal static class InstanceWorkflow
 
     private static async Task InstallAndStart(Store store, IReadOnlyList<(string Component, string Release)> selected, CancellationToken token)
     {
-        var host = Path.Combine(selected.Single(item => item.Component == "host").Release, "orisumi");
+        var host = HostBundle.Executable(selected.Single(item => item.Component == "host").Release);
         await Run("Install", host, token, ["--store", store.Root, "install", .. selected.Select(item => item.Release)]);
         await Run("Capture start", InstalledProgram(store, "host"), token, "--store", store.Root, "capture", "start");
     }

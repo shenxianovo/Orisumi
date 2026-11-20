@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Orisumi.Platform;
 
 namespace Orisumi.Dev;
@@ -44,8 +45,8 @@ internal static partial class Releases
     {
         var project = component == "host" ? Repository.CliProject
             : CollectorProjects(checkout).Single(collector => collector.Component == component).Project;
-        var version = (await Query(RunProcess.Dotnet, checkout, token, "msbuild", project, "-nologo", "-getProperty:Version")).Trim()
-            + "+" + head;
+        var projectVersion = (await Query(RunProcess.Dotnet, checkout, token, "msbuild", project, "-nologo", "-getProperty:Version")).Trim();
+        var version = projectVersion + "+" + head;
         var parent = Path.Combine(root, component);
         var target = Path.Combine(parent, version);
         if (Directory.Exists(target))
@@ -59,11 +60,20 @@ internal static partial class Releases
         Directory.CreateDirectory(temporary);
         try
         {
+            var publish = temporary;
+            if (component == "host")
+            {
+                var identities = await Query("/usr/bin/security", checkout, token, "find-identity", "-v", "-p", "codesigning");
+                if (!identities.Split('\n').Any(line => line.TrimEnd().EndsWith($"\"{HostBundle.Authority}\"", StringComparison.Ordinal)))
+                    throw new IOException($"找不到代码签名身份 {HostBundle.Authority}，请检查钥匙串。");
+                publish = Path.GetDirectoryName(HostBundle.Executable(temporary))!;
+            }
+
             using var build = new StringWriter();
             using var errors = new StringWriter();
             var code = await RunProcess.Run(RunProcess.Dotnet,
                 ["publish", project, "-c", "Release", "-r", "osx-arm64", "-p:PublishAot=true",
-                    $"-p:SourceRevisionId={head}", "-warnaserror", "-tl:off", "-o", temporary],
+                    $"-p:SourceRevisionId={head}", "-warnaserror", "-tl:off", "-o", publish],
                 build, token, directory: checkout, errors: errors);
             var log = build.ToString() + errors;
             await output.WriteAsync(log);
@@ -72,6 +82,8 @@ internal static partial class Releases
             var warnings = Warning().Matches(log).Count;
             if (warnings != 0) throw new IOException($"{component}: AOT publish reported {warnings} warnings");
 
+            if (component == "host")
+                await SignHost(temporary, publish, projectVersion, version, token);
             if (component == "browser")
             {
                 var directory = Path.Combine(checkout, DevCommand.ExtensionDirectory);
@@ -93,11 +105,56 @@ internal static partial class Releases
 
     internal static async Task Verify(string directory, string component, string version, CancellationToken token)
     {
-        var executable = Path.Combine(directory, ProgramDescription.ExecutableName(component));
+        var executable = component == "host" ? HostBundle.Executable(directory) :
+            Path.Combine(directory, ProgramDescription.ExecutableName(component));
         if (!File.Exists(executable)) throw new FileNotFoundException($"找不到发布程序：{executable}");
+        if (component == "host") await HostBundle.Verify(directory, token);
         var description = await ProgramDescription.Read(executable, [], token);
         if (description.Name != component || description.Version != version)
             throw new InvalidDataException($"{directory}: expected {component} {version}, found {description.Name} {description.Version}");
+    }
+
+    private static async Task SignHost(string release, string publish, string projectVersion, string version, CancellationToken token)
+    {
+        var bundle = Path.Combine(release, HostBundle.Name);
+        var info = new XDocument(new XDeclaration("1.0", "UTF-8", null),
+            new XDocumentType("plist", "-//Apple//DTD PLIST 1.0//EN", "http://www.apple.com/DTDs/PropertyList-1.0.dtd", null),
+            new XElement("plist", new XAttribute("version", "1.0"), new XElement("dict",
+                new XElement("key", "CFBundleIdentifier"), new XElement("string", HostBundle.Identifier),
+                new XElement("key", "CFBundleName"), new XElement("string", "Orisumi"),
+                new XElement("key", "CFBundleExecutable"), new XElement("string", ProgramDescription.ExecutableName("host")),
+                new XElement("key", "CFBundlePackageType"), new XElement("string", "APPL"),
+                new XElement("key", "CFBundleShortVersionString"), new XElement("string", projectVersion),
+                new XElement("key", "CFBundleVersion"), new XElement("string", version),
+                new XElement("key", "LSUIElement"), new XElement("true"))));
+        info.Save(Path.Combine(bundle, "Contents", "Info.plist"));
+
+        foreach (var symbols in Directory.GetDirectories(publish, "*.dSYM", SearchOption.AllDirectories))
+            Directory.Delete(symbols, recursive: true);
+        foreach (var file in Directory.EnumerateFiles(publish, "*", SearchOption.AllDirectories))
+        {
+            if (Path.GetExtension(file) == ".pdb") File.Delete(file);
+            else if (IsMachO(file)) await Sign(file);
+        }
+        await Sign(bundle);
+
+        async Task Sign(string path)
+        {
+            using var errors = new StringWriter();
+            var code = await RunProcess.Run(HostBundle.Codesign,
+                ["--force", "--sign", HostBundle.Authority, "--timestamp=none", path], TextWriter.Null, token, errors: errors);
+            token.ThrowIfCancellationRequested();
+            if (code != 0) throw new IOException($"{path}: {errors.ToString().Trim()}");
+        }
+    }
+
+    private static bool IsMachO(string path)
+    {
+        using var file = File.OpenRead(path);
+        if (file.Length < sizeof(uint)) return false;
+        using var header = new BinaryReader(file);
+        return header.ReadUInt32() is 0xfeedface or 0xfeedfacf or 0xcefaedfe or 0xcffaedfe
+            or 0xcafebabe or 0xbebafeca or 0xcafebabf or 0xbfbafeca;
     }
 
     internal static async Task<string> Head(string checkout, CancellationToken token) =>

@@ -19,8 +19,7 @@ internal static class CaptureStartup
         if (browser is not null)
         {
             var checkout = CollectorPrograms.Checkout(baseDirectory ?? AppContext.BaseDirectory);
-            extension = DirectoryPaths.Resolve(checkout is null ? Path.Combine(Path.GetDirectoryName(browser.Path)!, "extension")
-                : Path.Combine(checkout, ".local", "extension"));
+            extension = ChromeExtension.DirectoryFor(instance, checkout);
             ChromeExtension.CheckConfiguration(extension, instance);
         }
         await StopCapture(instance, locations, token);
@@ -33,32 +32,16 @@ internal static class CaptureStartup
             {
                 token.ThrowIfCancellationRequested();
                 var name = program.Description.Name;
-                var start = program.Description.Start!;
-                var command = program.Command(store.Root, start.Arguments);
-                if (start.Mode == "resident")
-                {
-                    var label = instance.AgentLabel(name);
-                    var path = Path.Combine(locations.Agents, label + ".plist");
-                    LaunchAgent(label, command, store, name).Save(path);
-                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                    await Launchctl(locations, token, "bootstrap", Domain, path);
-                    output.WriteLine($"Started {label}");
-                }
-                else if (start.Mode == "terminal")
-                {
-                    var error = Path.Combine(store.Logs, name + ".err.log");
-                    var pid = DetachedProcess.Start(command, Path.Combine(store.Logs, name + ".out.log"), error);
-                    var identity = ProcessIdentity.Of(pid);
-                    identity?.Write(store.ProcessFile(name));
-                    await Task.Delay(500, CancellationToken.None);
-                    if (DetachedProcess.HasExited(pid) || identity is null) throw new IOException($"{name} 采集启动失败，请查看 {error}。");
-                    output.WriteLine($"Started {name} collector: pid {pid}");
-                }
+                var label = instance.AgentLabel(name);
+                var path = Path.Combine(locations.Agents, label + ".plist");
+                LaunchAgent(label, program.Command(store.Root, program.Description.Arguments!), store, name).Save(path);
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                await Launchctl(locations, token, "bootstrap", Domain, path);
+                output.WriteLine($"Started {label}");
             }
-            if (browser is not null)
+            if (extension is not null)
             {
-                var id = ChromeExtension.Id(extension!);
-                ChromeExtension.Register(instance, id, browser.Command(store.Root, ["native-host", "--registered"]), locations);
+                var id = ChromeExtension.Id(extension);
                 output.WriteLine($"Load unpacked Chrome extension: {extension}");
                 output.WriteLine($"Expected Chrome extension ID: {id}");
             }
@@ -80,19 +63,10 @@ internal static class CaptureStartup
 
     private static async Task StopCapture(Instance instance, SystemLocations locations, CancellationToken token)
     {
-        var store = instance.Store;
-        string[] browsers = [];
-        using (Store.WaitLock(store.LockFile("chrome-registration")))
-        {
-            if (Directory.Exists(locations.ChromeManifests)) File.Delete(ChromeExtension.Manifest(instance, locations));
-            File.Delete(store.ChromeLauncher);
-            if (Directory.Exists(store.ChromeProcesses)) browsers = Directory.GetFiles(store.ChromeProcesses, "*.pid");
-        }
-        var terminal = Directory.GetFiles(store.State, "*.pid");
         var agents = Directory.Exists(locations.Agents)
             ? Directory.GetFiles(locations.Agents, instance.AgentLabel("*") + ".plist") : [];
 
-        await Task.WhenAll(agents.Select(StopAgent).Concat(browsers.Concat(terminal).Select(StopProcess)));
+        await Task.WhenAll(agents.Select(StopAgent));
 
         async Task StopAgent(string plist)
         {
@@ -127,16 +101,12 @@ internal static class CaptureStartup
             }
             File.Delete(plist);
         }
-
-        async Task StopProcess(string pidFile)
-        {
-            if (ProcessIdentity.Read(pidFile) is { } identity) await identity.Wait(token, terminate: true);
-            File.Delete(pidFile);
-        }
     }
 
     internal static XDocument LaunchAgent(string label, string[] command, Store store, string name)
     {
+        if (File.Exists(store.HostExecutable))
+            command = [store.HostExecutable, LaunchCommand.Name, "--", .. command];
         var dictionary = new XElement("dict",
             new XElement("key", "Label"), new XElement("string", label),
             new XElement("key", "ProgramArguments"), new XElement("array",

@@ -145,19 +145,13 @@ C# 采集器用 `Collectors/Storage/CollectorDatabase.Open` 打开库并加载�
 
 每个采集器是一个独立程序 `orisumi-<来源>`，单独构建、单独定版本。采集器共享建库、`CaptureWriter`、`JsonlReader`、参数绑定和命令入口这些工具，不共享采集流程：取数、监听、游标和写哪些表由各来源按上面的原则自己定。
 
-宿主 `orisumi` 不引用任何采集器，只通过 `describe` 认识它。`describe` 输出一个 JSON 对象：名字（即 `observations/` 下的目录名）、版本，以及启动方式和参数。启动方式有三种：
-
-| 启动方式 | 含义 |
-| --- | --- |
-| `resident` | `capture start` 装成 LaunchAgent 常驻 |
-| `terminal` | `capture start` 从调用它的终端分离启动，继承终端的系统权限 |
-| `chrome` | 由 Chrome 拉起，`capture start` 不启动 |
+宿主 `orisumi` 不引用任何采集器，只通过 `describe` 认识它。`describe` 输出一个 JSON 对象：名字（即 `observations/` 下的目录名）、版本和常驻采集的参数。`capture start` 用这些参数把每个采集器装成 LaunchAgent，见[安装与启停](../development/release.mdx#安装与启停)。数据在别的程序里的来源（如 Chrome）由那边的插件连到常驻的采集器，采集器不由那个程序拉起。
 
 采集器之间、采集器与宿主之间的约定只有：存储布局、共享表、`capture_coverage` 的前六列和 `describe`。改这些要所有采集器跟着改，尽量不动。
 
 1. 建 `src/Collectors/Orisumi.Collectors.<来源>/`。`Collectors/Directory.Build.props` 把它构建成程序 `orisumi-<来源>`，并提供框架、SQLite、`Schema/` 打包、`Storage/` 与 `Hosting/` 工具和 AOT 设置；项目文件只写来源自己的依赖和 `Version`。代码要能 Native AOT 发布：JSON 用源码生成，不靠反射；`dotnet build` 报的 AOT 警告必须为零。
 2. 按上面的约定写 `Schema/`，包括 `capture_coverage`；运行表和读取失败表是共享的，不用写。
-3. 写 `Program.cs`：用 `CollectorCommand.Create` 建根命令并给出启动方式，再加来源自己的命令，交给 `CollectorCommand.Run`。
+3. 写 `Program.cs`：用 `CollectorCommand.Create` 建根命令并给出常驻采集的参数，再加来源自己的命令，交给 `CollectorCommand.Run`。
 4. 在 `Orisumi.slnx` 登记项目。宿主从 `describe` 发现采集器，发布也按 `src/Collectors/` 下的项目找组件，不用另外登记。
 5. 加 `tests/<来源>Checks.cs`，并登记到[验证](../development/index.mdx#验证)。`SchemaChecks` 会核对项目目录与 `Orisumi.slnx` 是否一致、`describe` 的名字是否等于目录名，以及 `capture_coverage` 的列。
 6. 在 `capture/sources/` 加一页写它记了什么、丢什么，在[覆盖与恢复](./recovery.mdx#恢复边界)补一行恢复边界，在[命令](../development/index.mdx#命令)补命令。

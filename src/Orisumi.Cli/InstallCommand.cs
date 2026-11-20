@@ -19,21 +19,26 @@ internal static class InstallCommand
             var app = DirectoryPaths.Resolve(store.App);
             if (DirectoryPaths.Contains(app, source) || DirectoryPaths.Contains(source, app))
                 throw new ArgumentException($"发布目录必须位于实例的 app 之外：{source}");
-            var executables = Directory.GetFiles(source)
-                .Where(IsProgram).ToArray();
-            if (executables is not [var executable])
-                throw new InvalidDataException($"发布目录应包含一个 Orisumi 程序：{source}");
-            var filename = Path.GetFileName(executable);
-            var name = filename == "orisumi" ? "host" : filename[8..];
-            if (ProgramDescription.ExecutableName(name) != filename || !seen.Add(name))
-                throw new InvalidDataException($"无效或重复的发布组件：{executable}");
+            var bundle = Directory.Exists(Path.Combine(source, HostBundle.Name));
+            var executables = Directory.GetFiles(source).Where(IsCollector).ToArray();
+            var name = (bundle, executables) switch
+            {
+                (true, []) => "host",
+                (false, [var collector]) => Path.GetFileName(collector)[8..],
+                _ => throw new InvalidDataException($"发布目录应包含一个 Orisumi 程序：{source}"),
+            };
+            if (!seen.Add(name))
+                throw new InvalidDataException($"重复的发布组件：{name}");
 
             var destination = name == "host" ? store.Host : store.Collector(name);
             var temporary = destination + "." + Guid.NewGuid().ToString("N");
             try
             {
                 Copy(source, temporary);
-                var description = await ProgramDescription.Read(Path.Combine(temporary, filename), [], token);
+                if (bundle) await HostBundle.Verify(temporary, token);
+                var executable = bundle ? HostBundle.Executable(temporary) :
+                    Path.Combine(temporary, ProgramDescription.ExecutableName(name));
+                var description = await ProgramDescription.Read(executable, [], token);
                 if (description.Name != name)
                     throw new InvalidDataException($"{executable}: expected {name}, found {description.Name}");
                 if (name == "browser") ChromeExtension.Configure(Path.Combine(temporary, "extension"), instance);
@@ -46,7 +51,7 @@ internal static class InstallCommand
                 else Directory.Move(temporary, destination);
 
                 if (name == "host" && !instance.Name.StartsWith("dev_", StringComparison.Ordinal))
-                    Link(locations.Commands, instance.CommandName, Path.Combine(destination, "orisumi"));
+                    Link(locations.Commands, instance.CommandName, store.HostExecutable);
                 output.WriteLine($"Installed {name} {description.Version} in {store.Root}");
             }
             finally
@@ -56,10 +61,10 @@ internal static class InstallCommand
         }
     }
 
-    private static bool IsProgram(string path)
+    private static bool IsCollector(string path)
     {
         var name = Path.GetFileName(path);
-        return (name == "orisumi" || (name.StartsWith("orisumi-", StringComparison.Ordinal) && Instance.IsName(name[8..]))) &&
+        return name != "orisumi-host" && name.StartsWith("orisumi-", StringComparison.Ordinal) && Instance.IsName(name[8..]) &&
             (File.GetUnixFileMode(path) & UnixFileMode.UserExecute) != 0;
     }
 

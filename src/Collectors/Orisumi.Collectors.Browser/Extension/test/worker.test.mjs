@@ -62,40 +62,45 @@ async function harness(t) {
   const harness = { ...base, ports: [], retries, controls: { hold: () => false, history: undefined, acceptOpen: true } };
   t.mock.method(globalThis, "fetch", async url => {
     assert.equal(url, "chrome-extension://fixture/config.json");
-    return new Response(JSON.stringify({ nativeHost: "com.orisumi.dev_fixture.browser" }));
+    return new Response(JSON.stringify({ instance: "dev_fixture", port: 47971 }));
   });
-  const connectNative = host => {
-    assert.equal(host, "com.orisumi.dev_fixture.browser");
-    let active = true;
-    let body = "";
-    const port = { raw: [], messages: [], onMessage: event(), onDisconnect: event(),
-      disconnect() { if (active) { active = false; port.onDisconnect.emit(); } },
-      ack(sequence) { port.onMessage.emit(sequence === undefined ? { ok: true } : { ok: true, sequence }); },
-      postMessage(value) {
-        assert.ok(active);
-        const frame = JSON.parse(JSON.stringify(value));
-        port.raw.push(frame);
-        let request = frame;
-        if (value.type === "part") {
-          body += value.body;
-          if (value.more) return;
-          request = JSON.parse(body);
-          body = "";
-        }
-        port.messages.push(request);
-        if (request.type === "open") {
-          if (harness.controls.acceptOpen) queueMicrotask(() => port.ack());
-        } else if (request.type === "history_poll") {
-          const history = harness.controls.history;
-          harness.controls.history = undefined;
-          queueMicrotask(() => port.onMessage.emit({ ok: true, history }));
-        } else if (!harness.controls.hold(request)) queueMicrotask(() => port.ack(request.sequence));
-      },
-    };
-    harness.ports.push(port);
-    return port;
-  };
-  globalThis.chrome = { ...base, runtime: { getURL: path => `chrome-extension://fixture/${path}`, connectNative, onInstalled: event(), onStartup: event() } };
+  class MockWebSocket extends EventTarget {
+    static CLOSING = 2;
+    readyState = 0;
+    messages = [];
+    constructor(url) {
+      super();
+      assert.equal(url, "ws://127.0.0.1:47971/");
+      harness.ports.push(this);
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.dispatchEvent(new Event("open"));
+      });
+    }
+    close() {
+      if (this.readyState >= MockWebSocket.CLOSING) return;
+      this.readyState = 3;
+      this.dispatchEvent(new Event("close"));
+    }
+    reply(value) { this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) })); }
+    ack(sequence) { this.reply(sequence === undefined ? { ok: true } : { ok: true, sequence }); }
+    send(value) {
+      assert.equal(this.readyState, 1);
+      const request = JSON.parse(value);
+      this.messages.push(request);
+      if (request.type === "open") {
+        if (harness.controls.acceptOpen) queueMicrotask(() => this.ack());
+      } else if (request.type === "history_poll") {
+        const history = harness.controls.history;
+        harness.controls.history = undefined;
+        queueMicrotask(() => this.reply({ ok: true, history }));
+      } else if (!harness.controls.hold(request)) queueMicrotask(() => this.ack(request.sequence));
+    }
+  }
+  const websocket = globalThis.WebSocket;
+  globalThis.WebSocket = MockWebSocket;
+  t.after(() => { globalThis.WebSocket = websocket; });
+  globalThis.chrome = { ...base, runtime: { getURL: path => `chrome-extension://fixture/${path}`, onInstalled: event(), onStartup: event() } };
   harness.worker = () => import(`../bin/test-extension/worker.js?worker=${++workerNumber}`);
   harness.ready = async () => {
     await harness.worker();
@@ -117,19 +122,19 @@ test("retryable delivery replies back off without dropping or skipping the queue
   h.tabs.onUpdated.emit(7, { title: "B" }, tab(7, 1, false, "B"));
   h.tabs.onUpdated.emit(7, { title: "C" }, tab(7, 1, false, "C"));
   const pending = await eventually(() => deliveries(first).find(message => message.kind === "tab_updated"));
-  first.onMessage.emit({ ok: false, error: "busy" });
+  first.reply({ ok: false, error: "busy" });
   await eventually(() => h.retries[0]);
   assert.equal(h.retries[0].delay, 1000);
   h.retries[0].callback();
   const replay = await eventually(() => h.ports[1]?.messages.find(message => message.type === "delivery"));
   assert.deepEqual(replay, pending);
-  h.ports[1].onMessage.emit({ ok: false, error: "busy" });
+  h.ports[1].reply({ ok: false, error: "busy" });
   await eventually(() => h.retries[1]);
   assert.equal(h.retries[1].delay, 2000);
   assert.equal((await h.outbox.first()).sequence, pending.sequence);
   h.retries[1].callback();
   await eventually(() => deliveries(h.ports[2] ?? { messages: [] }).length);
-  h.ports[2].onMessage.emit({ ok: true, rejected: true, sequence: pending.sequence });
+  h.ports[2].reply({ ok: true, rejected: true, sequence: pending.sequence });
   const following = await eventually(() => deliveries(h.ports[2])[1]);
   assert.equal(following.sequence, pending.sequence + 1);
   assert.equal(following.data.change.title, "C");
@@ -165,14 +170,14 @@ test("startup creates installation identity and forwards full snapshots and abso
   assert.equal(deliveries(port)[7].scope, "tabs");
 });
 
-test("outbox survives a disconnected port, backs off and replays the exact pending sequence until ACK", async t => {
+test("outbox survives a disconnected WebSocket, backs off and replays the exact pending sequence until ACK", async t => {
   const h = await harness(t);
   const first = await h.ready();
   h.controls.hold = message => message.kind === "tab_updated";
   h.tabs.onUpdated.emit(7, { title: "B" }, tab(7, 1, false, "B"));
   const pending = await eventually(() => deliveries(first).find(message => message.kind === "tab_updated"));
   assert.equal((await h.outbox.first()).sequence, pending.sequence);
-  first.disconnect();
+  first.close();
   await eventually(() => h.retries.length === 1);
   assert.equal(h.retries[0].delay, 1000);
 
@@ -180,7 +185,7 @@ test("outbox survives a disconnected port, backs off and replays the exact pendi
   h.controls.acceptOpen = false;
   h.retries[0].callback();
   const second = await eventually(() => h.ports[1]?.messages.length && h.ports[1]);
-  second.disconnect();
+  second.close();
   await eventually(() => h.retries.length === 2);
   assert.equal(h.retries[1].delay, 2000);
   assert.equal((await (await openOutbox()).first()).sequence, pending.sequence);
@@ -199,7 +204,7 @@ test("outbox survives a disconnected port, backs off and replays the exact pendi
   assert.equal((await h.outbox.first()).sequence, next.sequence);
   third.ack(next.sequence);
   await eventually(async () => !await h.outbox.first());
-  third.disconnect();
+  third.close();
   await eventually(() => h.retries.length === 3);
   assert.equal(h.retries[2].delay, 1000);
 });
@@ -229,6 +234,8 @@ test("incognito data is filtered before entering the queue, including focus and 
   assert.doesNotMatch(transported, /private|\b(44|55|99)\b/);
   const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   assert.equal(manifest.incognito, "not_allowed");
+  assert.equal(manifest.minimum_chrome_version, "116");
+  assert.ok(!manifest.permissions.includes("nativeMessaging") && !("host_permissions" in manifest));
 });
 
 test("a new worker replays the pending delivery with the same queue and Chrome session identity", async t => {
@@ -237,7 +244,7 @@ test("a new worker replays the pending delivery with the same queue and Chrome s
   h.controls.hold = message => message.kind === "tab_updated";
   h.tabs.onUpdated.emit(7, { title: "Still pending" }, tab(7, 1, false, "Still pending"));
   const pending = await eventually(() => deliveries(oldWorker).find(message => message.kind === "tab_updated"));
-  oldWorker.disconnect();
+  oldWorker.close();
   await h.worker();
   const restarted = await eventually(() => h.ports[1] && deliveries(h.ports[1]).length && h.ports[1]);
   assert.deepEqual(restarted.messages[0], oldWorker.messages[0]);
@@ -260,17 +267,18 @@ test("history follows the receiver's range and collects retained visits and hist
     pages: [{ url: "https://example.test", title: "From history", visits: [visit] }] });
 });
 
-test("large logical messages use bounded frames and one acknowledgement", async t => {
+test("large deliveries use one WebSocket message and heartbeats leave the request pending", async t => {
   const h = await harness(t);
   const port = await h.ready();
   const title = ("🧪\\\n").repeat(300_000);
   h.controls.hold = message => message.kind === "tab_updated";
   h.tabs.onUpdated.emit(7, { title }, tab(7, 1, false, title));
   const message = await eventually(() => deliveries(port).find(message => message.kind === "tab_updated"));
-  const frames = port.raw.filter(frame => frame.type === "part");
-  assert.ok(frames.length > 1);
-  assert.ok(frames.every(frame => Buffer.byteLength(JSON.stringify(frame)) < 64 * 1024 * 1024));
+  assert.equal(port.messages.filter(frame => frame.kind === "tab_updated").length, 1);
   assert.equal(message.data.change.title, title);
+  port.reply({ type: "heartbeat" });
+  await sleep(20);
+  assert.equal(h.retries.length, 0);
   assert.equal((await h.outbox.first()).sequence, message.sequence);
   port.ack(message.sequence);
   await eventually(async () => !await h.outbox.first());

@@ -38,7 +38,7 @@ try
     var replaced = store.WritableDatabase("codex").DatabaseId;
     Check(replaced != moved && store.Databases("codex").Count == 2, "a missing database file starts a new database");
 
-    // Chrome starts one native host per message; concurrent first opens agree on one database.
+    // Concurrent browser profiles agree on one database when they first connect.
     var ids = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(() => store.WritableDatabase("browser").DatabaseId)));
     Check(ids.Distinct().Count() == 1 && store.Databases("browser").Count == 1, "concurrent first opens start one database");
     Console.WriteLine("PASS: store layout, host binding, missing files and concurrent first opens");

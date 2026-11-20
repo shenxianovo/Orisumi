@@ -14,11 +14,9 @@ public sealed partial class Store(string root)
 
     public string App => Path.Combine(Root, "app");
     public string Host => Path.Combine(App, "host");
+    internal string HostExecutable => HostBundle.Executable(Host);
     public string Collectors => Path.Combine(App, "collectors");
     public string Collector(string name) => Path.Combine(Collectors, name);
-    public string ChromeLauncher => Path.Combine(State, "chrome-native-host");
-    public string ProcessFile(string name) => Path.Combine(State, name + ".pid");
-    public string ChromeProcesses => Path.Combine(State, "chrome-pids");
 
     private string ObservationsRoot => Path.Combine(Root, "observations");
 
@@ -79,7 +77,7 @@ public sealed partial class Store(string root)
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException or JsonException) { return null; }
     }
 
-    // Short critical sections from concurrent processes, such as one Chrome native host per message, wait for each other.
+    // Concurrent writers wait for short store operations such as selecting the current database.
     internal static FileStream WaitLock(string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

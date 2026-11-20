@@ -5,6 +5,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Xml.Linq;
+using System.Text.Json;
 using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
@@ -21,12 +22,12 @@ var solution = XDocument.Load(Path.Combine(root, "Orisumi.slnx")).Descendants("P
     .Select(project => (string?)project.Attribute("Path")).ToArray();
 var programs = await CollectorPrograms.Read(temporary.FullName, CancellationToken.None, Path.Combine(root, "src/Orisumi.Cli/bin/Debug/net11.0"));
 Check(programs.Length == projects.Length, "build one executable per collector");
-var expectedStarts = new Dictionary<string, (string Mode, string[] Arguments)>
+var expectedArguments = new Dictionary<string, string[]>
 {
-    ["browser"] = ("chrome", []),
-    ["claude"] = ("resident", ["capture"]),
-    ["codex"] = ("resident", ["capture"]),
-    ["macos"] = ("terminal", ["foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"]),
+    ["browser"] = ["capture"],
+    ["claude"] = ["capture"],
+    ["codex"] = ["capture"],
+    ["macos"] = ["foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"],
 };
 Check(!typeof(CollectorPrograms).Assembly.GetReferencedAssemblies().Any(reference => reference.Name!.StartsWith("orisumi-", StringComparison.Ordinal)),
     "host does not reference collectors");
@@ -36,6 +37,15 @@ Console.WriteLine("PASS: each collector has a standalone build and the host asse
 string[] coverageColumns = ["scope", "mode", "started_at_utc_ms", "stopped_at_utc_ms", "evidence", "detail"];
 try
 {
+    var host = Path.Combine(root, "src/Orisumi.Cli/bin/Debug/net11.0/orisumi.dll");
+    var hostDescription = await ProgramDescription.Read(RunProcess.Dotnet, [host], default);
+    Check(hostDescription is { Name: "host", Arguments: null }, "host describes only its name and version");
+    await DescriptionShape(host, "name", "version");
+    await InvalidDescription("""{"name":"host","version":"1","arguments":["capture"]}""");
+    await InvalidDescription("""{"name":"browser","version":"1"}""");
+    await InvalidDescription("""{"name":"browser","version":"1","arguments":[]}""");
+    await InvalidDescription("""{"name":"browser","version":"1","arguments":["capture",null]}""");
+    Console.WriteLine("PASS: host describe fields and invalid program descriptions");
     foreach (var project in projects)
     {
         var source = project[prefix.Length..];
@@ -45,9 +55,9 @@ try
         var program = programs.Single(program => program.Path.StartsWith(projectDirectory, StringComparison.Ordinal));
         var name = source.ToLowerInvariant();
         Check(program.Description.Name == name && Path.GetFileName(program.Path) == $"orisumi-{name}.dll", project + " executable and describe name");
-        if (expectedStarts.TryGetValue(name, out var start))
-            Check(program.Description.Start!.Mode == start.Mode && program.Description.Start.Arguments.SequenceEqual(start.Arguments),
-                project + " describe mode and arguments");
+        if (expectedArguments.TryGetValue(name, out var arguments))
+            Check(program.Description.Arguments!.SequenceEqual(arguments), project + " describe arguments");
+        await DescriptionShape(program.Path, "arguments", "name", "version");
         // Each database has the shared Storage/Schema tables; loaders order both sets by file name.
         string[] schemas = [
             Path.Combine(root, "src/Collectors", project, "Schema"),
@@ -64,7 +74,7 @@ try
         Check(program.Description.Version == assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion &&
             System.Text.RegularExpressions.Regex.IsMatch(program.Description.Version, @"^0\.1\.0\+[0-9a-f]{40}$"),
             source + " describe reports the informational version with commit");
-        Console.WriteLine($"PASS: describe {name} {program.Description.Version} {program.Description.Start!.Mode} [{string.Join(", ", program.Description.Start.Arguments)}]");
+        Console.WriteLine($"PASS: describe {name} {program.Description.Version} [{string.Join(", ", program.Description.Arguments!)}]");
         Check(assembly.GetReferencedAssemblies().Any(reference => reference.Name == "ZstdSharp") == (source == "Codex"),
             source + " Zstandard assembly dependency");
         Check(TextRows(expected, "SELECT name FROM pragma_table_info('capture_coverage')")
@@ -107,6 +117,22 @@ try
     }
 }
 finally { temporary.Delete(recursive: true); }
+
+static async Task DescriptionShape(string executable, params string[] fields)
+{
+    using var output = new StringWriter();
+    Check(await RunProcess.Run(RunProcess.Dotnet, [executable, "describe"], output, default) == 0, "describe exits successfully");
+    using var json = JsonDocument.Parse(output.ToString());
+    Check(json.RootElement.EnumerateObject().Select(field => field.Name).Order(StringComparer.Ordinal).SequenceEqual(fields),
+        executable + " describe JSON fields");
+}
+
+static async Task InvalidDescription(string json)
+{
+    try { await ProgramDescription.Read("/bin/sh", ["-c", "printf '%s\\n' \"$1\"", "_", json], default); }
+    catch (InvalidDataException) { return; }
+    throw new Exception("accepted invalid describe payload " + json);
+}
 
 static string SourceFile([CallerFilePath] string path = "") => path;
 static void Check(bool valid, string message) { if (!valid) throw new Exception(message); }

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Runtime.InteropServices;
 
 namespace Orisumi.Platform;
@@ -13,29 +12,9 @@ internal sealed record ProcessIdentity(int Pid, long Started)
         return new(pid, info.StartSeconds * 1_000_000 + info.StartMicroseconds);
     }
 
-    internal void Write(string file)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllText(file, string.Create(CultureInfo.InvariantCulture, $"{Pid} {Started}"));
-    }
-
-    internal static ProcessIdentity? Read(string file)
-    {
-        try
-        {
-            return File.ReadAllText(file).Split(' ') is [var pid, var started] &&
-                int.TryParse(pid, CultureInfo.InvariantCulture, out var number) &&
-                long.TryParse(started, CultureInfo.InvariantCulture, out var ticks) ? new(number, ticks) : null;
-        }
-        catch (FileNotFoundException) { return null; }
-    }
-
-    internal async Task Wait(CancellationToken token, bool terminate = false)
+    internal async Task Wait(CancellationToken token)
     {
         if (Of(Pid) != this) return;
-        // A process that exits meanwhile is not found or not signalled.
-        if (terminate && Process.TryGetProcessById(Pid, out var process))
-            using (process) process.Signal(PosixSignal.SIGTERM);
         var timeout = Stopwatch.StartNew();
         while (Of(Pid) == this)
         {

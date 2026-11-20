@@ -40,7 +40,7 @@ try
         using System.Runtime.InteropServices;
         if (args is ["describe"])
         {
-            Console.WriteLine("""{"name":"forwarded","version":"0.1.0+fixture","start":{"mode":"chrome","arguments":[]}}""");
+            Console.WriteLine("""{"name":"forwarded","version":"0.1.0+fixture","arguments":["capture"]}""");
             return 0;
         }
         if (args.Length < 3 || args[0] != "--store") return 2;

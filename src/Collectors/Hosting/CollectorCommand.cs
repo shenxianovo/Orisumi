@@ -19,10 +19,10 @@ internal static class CollectorCommand
         Recursive = true,
     };
 
-    internal static RootCommand Create(string name, string description, Option<string?> store, string mode, string[] arguments)
+    internal static RootCommand Create(string name, string description, Option<string?> store, string[] arguments)
     {
-        var describe = new Command("describe", "输出采集器版本与启动方式。");
-        describe.SetAction(_ => new ProgramDescription(name, Version, new CollectorStart(mode, arguments)).Write(Console.Out));
+        var describe = new Command("describe", "输出采集器版本与启动参数。");
+        describe.SetAction(_ => new ProgramDescription(name, Version, arguments).Write(Console.Out));
         var root = new RootCommand(description) { store, describe };
         root.HelpName = "orisumi-" + name;
         return root;

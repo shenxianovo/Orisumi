@@ -1,8 +1,8 @@
-import { nativeHost, report } from "./native-host.js";
+import { browserConnection, report } from "./browser-connection.js";
 import type { Scope } from "./outbox.js";
 
 const alarm = "orisumi-capture";
-const link = nativeHost(() => sample(true));
+const link = browserConnection(() => sample(true));
 const none = chrome.windows.WINDOW_ID_NONE;
 const windows = new Set<number>();
 const tabs = new Set<number>();

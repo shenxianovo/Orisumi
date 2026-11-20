@@ -15,11 +15,9 @@ internal static class CollectorPrograms
     internal static string? Checkout(string baseDirectory)
     {
         if (Instance.Find(baseDirectory) is not null) return null;
-        for (var directory = new DirectoryInfo(baseDirectory); directory is not null; directory = directory.Parent)
-            if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")))
-                return DirectoryPaths.Contains(Path.Combine(directory.FullName, "src", "Orisumi.Cli"), baseDirectory)
-                    ? directory.FullName : null;
-        return null;
+        var checkout = Instance.FindCheckout(baseDirectory);
+        return checkout is not null && DirectoryPaths.Contains(Path.Combine(checkout, "src", "Orisumi.Cli"), baseDirectory)
+            ? checkout : null;
     }
 
     internal static async Task<CollectorProgram[]> Read(string store, CancellationToken token, string? baseDirectory = null)
@@ -42,7 +40,7 @@ internal static class CollectorPrograms
         async Task<CollectorProgram> Describe(string path)
         {
             var description = await ProgramDescription.Read(managed ? RunProcess.Dotnet : path, managed ? [path] : [], token);
-            if (description.Start is null || (!managed && description.Name != Path.GetFileName(Path.GetDirectoryName(path))))
+            if (description.Arguments is null || (!managed && description.Name != Path.GetFileName(Path.GetDirectoryName(path))))
                 throw new InvalidDataException($"{path}: invalid collector name {description.Name}");
             return new(path, managed, description);
         }

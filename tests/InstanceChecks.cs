@@ -4,6 +4,7 @@
 #:property PublishAot=false
 
 using System.Runtime.Versioning;
+using System.Xml.Linq;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
@@ -40,12 +41,15 @@ void Resolution()
 
     var outer = Instance.Create(Under("outer"), "prod");
     var inner = Instance.Create(Path.Combine(outer.Store.Root, "nested"), "test_codex");
-    var installed = Directory.CreateDirectory(Path.Combine(inner.Store.Host, "runtime"));
+    var installed = Directory.CreateDirectory(Path.GetDirectoryName(inner.Store.HostExecutable)!);
     Check(Instance.Resolve(installed.FullName).Store.Root == inner.Store.Root, "nearest instance.json wins");
     Check(inner.AgentLabel("claude") == "dev.orisumi.test_codex.claude" &&
-        inner.ChromeHost == "com.orisumi.test_codex.browser" && inner.CommandName == "orisumi-test_codex", "derived names");
+        inner.BrowserPort == 47913 && inner.CommandName == "orisumi-test_codex", "derived names");
     Check(outer.AgentLabel("codex") == "dev.orisumi.prod.codex" &&
-        outer.ChromeHost == "com.orisumi.prod.browser" && outer.CommandName == "orisumi", "production names");
+        outer.BrowserPort == 47810 && outer.CommandName == "orisumi", "production names");
+    Check(Instance.Create(Under("preview-port"), "preview").BrowserPort == 47811, "preview browser port");
+    Check(ChromeExtension.DirectoryFor(dev, root.FullName) == DirectoryPaths.Resolve(Path.Combine(root.FullName, ".local", "extension")),
+        "checkout instance uses its built extension");
     var invalid = Directory.CreateDirectory(Under("invalid"));
     foreach (var name in new[] { "", "Prod", "test-prod", "../prod" })
     {
@@ -62,16 +66,26 @@ async Task Install()
     var instance = Instance.Create(Under("install store '中文"), "test_codex");
     var store = instance.Store;
     var dev = Instance.Development(Under("development"));
-    var locations = new SystemLocations(Under("agents"), Under("manifests"), Under("commands"), "/usr/bin/false");
+    var locations = new SystemLocations(Under("agents"), Under("commands"), Under("fake-launchctl"));
+    WriteExecutable(locations.Launchctl, """
+        #!/bin/sh
+        set -eu
+        case "$1" in
+          bootstrap) touch "$3.loaded" ;;
+          print) [ -f "$(dirname "$0")/agents/${2##*/}.plist.loaded" ] || exit 113 ;;
+          bootout) rm "$(dirname "$0")/agents/${2##*/}.plist.loaded" ;;
+          *) exit 2 ;;
+        esac
+        """);
     using var output = new StringWriter();
-    var host = Package(Under("package from anywhere"), "host", "0.1.0+first");
-    var browserRelease = Package(Under("any browser directory"), "browser", "0.1.0+first");
+    var host = await Package(Under("package from anywhere"), "host", "0.1.0+first");
+    var browserRelease = await Package(Under("any browser directory"), "browser", "0.1.0+first");
     var originalManifest = Path.Combine(browserRelease, "extension", "manifest.json");
     var manifest = File.ReadAllText(originalManifest);
     await InstallCommand.Run(instance, [host, browserRelease], locations, output, default);
     await InstallCommand.Run(dev, [host], locations, output, default);
     var link = Path.Combine(locations.Commands, instance.CommandName);
-    Check(new FileInfo(link).LinkTarget == Path.Combine(store.Host, "orisumi") &&
+    Check(new FileInfo(link).LinkTarget == store.HostExecutable &&
         Directory.GetFileSystemEntries(locations.Commands).Length == 1, "only the installed instance gets a link");
     var extension = Path.Combine(store.Collector("browser"), "extension");
     Check(File.ReadAllText(Path.Combine(extension, "manifest.json")).Contains("Orisumi Chrome Collector (test_codex)"),
@@ -80,7 +94,7 @@ async Task Install()
     Check(File.ReadAllText(originalManifest) == manifest && !File.Exists(Path.Combine(browserRelease, "extension", "config.json")),
         "release extension remains unconfigured");
 
-    var next = Package(Under("new host"), "host", "0.1.0+next");
+    var next = await Package(Under("new host"), "host", "0.1.0+next");
     File.WriteAllText(Path.Combine(store.Host, "old-only"), "old");
     File.Delete(link);
     File.CreateSymbolicLink(link, Path.Combine(temp.FullName, "obsolete"));
@@ -91,35 +105,54 @@ async Task Install()
     Check(!Directory.EnumerateDirectories(store.App).Any(path => Path.GetFileName(path).StartsWith("host.")),
         "no staged host directory remains");
 
-    var bad = Package(Under("bad browser"), "browser", "0.1.0+bad");
+    var bad = await Package(Under("bad browser"), "browser", "0.1.0+bad");
     File.WriteAllText(Path.Combine(bad, "extension", "manifest.json"), "malformed");
     await ExpectAsync<JsonException>(() => InstallCommand.Run(instance, [bad], locations, output, default));
-    var wrong = Package(Under("wrong browser"), "browser", "0.1.0+wrong");
+    var wrong = await Package(Under("wrong browser"), "browser", "0.1.0+wrong");
     File.WriteAllText(Path.Combine(wrong, "name"), "codex");
     await ExpectAsync<InvalidDataException>(() => InstallCommand.Run(instance, [wrong], locations, output, default));
-    var unverified = Package(Under("failing describe"), "browser", "0.1.0+unverified");
+    var unverified = await Package(Under("failing describe"), "browser", "0.1.0+unverified");
     File.WriteAllText(Path.Combine(unverified, "orisumi-browser"), "#!/bin/sh\nexit 3\n");
     await ExpectAsync<IOException>(() => InstallCommand.Run(instance, [unverified], locations, output, default));
     Check((await ProgramDescription.Read(Path.Combine(store.Collector("browser"), "orisumi-browser"), [], default)).Version == "0.1.0+first" &&
         !Directory.EnumerateDirectories(store.Collectors).Any(path => Path.GetFileName(path).StartsWith("browser.")), "invalid releases leave the installed version intact");
 
+    await HostBundle.Verify(store.Host, default);
+    Check(Instance.Resolve(Path.GetDirectoryName(store.HostExecutable)!).Store.Root == store.Root, "bundle walks up to instance.json");
+    var portConfig = Path.Combine(extension, "config.json");
+    var config = File.ReadAllText(portConfig);
+    File.WriteAllText(portConfig, $$"""{"instance":"{{instance.Name}}","port":47810}""");
+    Expect<InvalidDataException>(() => ChromeExtension.CheckConfiguration(extension, instance));
+    File.WriteAllText(portConfig, config);
+
+    var unsigned = await Package(Under("unsigned host"), "host", "0.1.0+unsigned", authority: null);
+    var adHoc = await Package(Under("adhoc host"), "host", "0.1.0+adhoc", authority: "-");
+    var tampered = await Package(Under("tampered host"), "host", "0.1.0+tampered");
+    File.AppendAllText(Path.Combine(tampered, HostBundle.Name, "Contents/Resources/version"), "tampered");
+    foreach (var invalid in new[] { unsigned, adHoc, tampered })
+        await ExpectAsync<InvalidDataException>(() => InstallCommand.Run(instance, [invalid], locations, output, default));
+    Check((await ProgramDescription.Read(store.HostExecutable, [], default)).Version == "0.1.0+next",
+        "signature failures leave the installed bundle intact");
+
     var symlink = Under("aliased store");
     Directory.CreateSymbolicLink(symlink, store.Root);
     var alias = Instance.Open(symlink);
     await CaptureStartup.Start(alias, locations, output, default, baseDirectory: store.Host);
-    var registered = ChromeExtension.Manifest(instance, locations);
-    using (var actual = JsonDocument.Parse(File.ReadAllText(registered)))
-        Check(actual.RootElement.GetProperty("allowed_origins")[0].GetString() ==
-            $"chrome-extension://{ChromeExtension.Id(DirectoryPaths.Resolve(extension))}/", "registration uses real extension path");
-    var launcher = File.ReadAllText(store.ChromeLauncher);
-    Check(launcher.Contains("'/") && launcher.Contains("/orisumi-browser'") && !launcher.Contains("dotnet"),
-        "installed browser launches directly");
-    var otherManifest = Path.Combine(locations.ChromeManifests, "com.orisumi.other.browser.json");
-    File.WriteAllText(otherManifest, "preserve");
+    var plist = Path.Combine(locations.Agents, alias.AgentLabel("browser") + ".plist");
+    var arguments = XDocument.Load(plist).Descendants("key").Single(key => key.Value == "ProgramArguments")
+        .ElementsAfterSelf().First().Elements().Select(element => element.Value);
+    Check(arguments.SequenceEqual([alias.Store.HostExecutable, "launch", "--",
+        Path.Combine(alias.Store.Collector("browser"), "orisumi-browser"), "--store", alias.Store.Root, "capture"]),
+        "installed collector starts under the bundle via launchd");
+    Check(output.ToString().Contains($"Load unpacked Chrome extension: {DirectoryPaths.Resolve(extension)}") &&
+        output.ToString().Contains($"Expected Chrome extension ID: {ChromeExtension.Id(DirectoryPaths.Resolve(extension))}"),
+        "start reports the extension's real path and ID");
+    var otherAgent = Path.Combine(locations.Agents, "dev.orisumi.other.browser.plist");
+    File.WriteAllText(otherAgent, "preserve");
     await CaptureStartup.Stop(alias, locations, output, default);
-    Check(!File.Exists(registered) && !File.Exists(store.ChromeLauncher) && File.Exists(otherManifest),
-        "stop removes only this instance's browser registration");
-    Console.WriteLine("PASS: describe verification, atomic replacement, command links, extension customisation, real-path registration and isolated cleanup");
+    Check(!File.Exists(plist) && !File.Exists(plist + ".loaded") && File.Exists(otherAgent),
+        "stop boots out only this instance's agent");
+    Console.WriteLine("PASS: signed bundle install, atomic replacement, bundle command link, signature refusals, extension configuration and isolated LaunchAgent cleanup");
 }
 
 async Task Workflow()
@@ -139,14 +172,14 @@ async Task Workflow()
     Check(!Directory.Exists(preview.Root), "missing release does not create preview");
 
     foreach (var component in new[] { "host", "claude", "codex" })
-        Package(Path.Combine(releases, component, latest), component, latest);
+        await Package(Path.Combine(releases, component, latest), component, latest);
     await InstanceWorkflow.Preview(checkout, releases, preview, ["claude"], default);
     Check(Instance.Open(preview.Root).Name == "preview" &&
-        File.ReadAllText(Path.Combine(preview.Host, "version")) == latest &&
+        (await ProgramDescription.Read(preview.HostExecutable, [], default)).Version == latest &&
         File.ReadAllText(Path.Combine(preview.Collector("claude"), "version")) == latest &&
         !Directory.Exists(preview.Collector("codex")), "preview uses HEAD host and selected collectors");
 
-    Package(Path.Combine(releases, "claude", candidate), "claude", candidate);
+    await Package(Path.Combine(releases, "claude", candidate), "claude", candidate);
     File.WriteAllText(Path.Combine(preview.Collector("claude"), "version"), candidate);
     var migration = Under("migration file.cs");
     File.WriteAllText(migration, """
@@ -157,9 +190,10 @@ async Task Workflow()
     File.WriteAllText(events, "");
     Instance.Create(prod.Root, "prod");
     Directory.CreateDirectory(prod.App);
-    Package(prod.Host, "host", "0.1.0+older");
+    await Package(prod.Host, "host", "0.1.0+older");
     await InstanceWorkflow.Promote(checkout, releases, prod, preview, ["claude", "codex"], migration, default);
-    Check(File.ReadAllText(Path.Combine(prod.Collector("claude"), "version")) == candidate &&
+    Check((await ProgramDescription.Read(prod.HostExecutable, [], default)).Version == latest &&
+        File.ReadAllText(Path.Combine(prod.Collector("claude"), "version")) == candidate &&
         File.ReadAllText(Path.Combine(prod.Collector("codex"), "version")) == latest, "promote uses exact preview version and HEAD fallback");
     Check(File.ReadAllLines(events).SequenceEqual(["prod stop", "prod migrate", "prod install", "prod start", "preview stop"]),
         "stop, migrate, install, start and stop preview ordering");
@@ -205,18 +239,63 @@ async Task Workflow()
 
 string Under(string path) => Path.Combine(temp.FullName, path);
 
-static string Package(string path, string name, string version)
+async Task<string> Package(string path, string name, string version, string? authority = HostBundle.Authority)
 {
     Directory.CreateDirectory(path);
-    File.WriteAllText(Path.Combine(path, "name"), name);
-    File.WriteAllText(Path.Combine(path, "version"), version);
+    var host = name == "host";
+    var resources = host ? Path.Combine(path, HostBundle.Name, "Contents", "Resources") : path;
+    Directory.CreateDirectory(resources);
+    File.WriteAllText(Path.Combine(resources, "name"), name);
+    File.WriteAllText(Path.Combine(resources, "version"), version);
     if (name == "browser")
     {
         var extension = Directory.CreateDirectory(Path.Combine(path, "extension"));
         File.WriteAllText(Path.Combine(extension.FullName, "manifest.json"), """{"name":"Orisumi Chrome Collector"}""");
     }
     var executable = Path.Combine(path, ProgramDescription.ExecutableName(name));
-    File.WriteAllText(executable, """
+    if (host)
+    {
+        // A Mach-O entry point runs the sealed fixture script. Every operation stays inside the test directories.
+        var fixture = Under("workflow-executable");
+        if (!File.Exists(fixture))
+        {
+            var source = fixture + ".c";
+            File.WriteAllText(source, """
+                #include <mach-o/dyld.h>
+                #include <limits.h>
+                #include <string.h>
+                #include <unistd.h>
+                int main(int argc, char **argv) {
+                    char path[PATH_MAX];
+                    uint32_t size = sizeof(path);
+                    if (_NSGetExecutablePath(path, &size) != 0) return 90;
+                    char *filename = strrchr(path, '/') + 1;
+                    const char script[] = "../Resources/workflow";
+                    if (filename - path + sizeof(script) > sizeof(path)) return 91;
+                    memcpy(filename, script, sizeof(script));
+                    argv[0] = path;
+                    execv(path, argv);
+                    return 92;
+                }
+                """);
+            Check(await RunProcess.Run("/usr/bin/clang", [source, "-o", fixture], null, default) == 0, "build host fixture");
+        }
+        executable = HostBundle.Executable(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
+        File.Copy(fixture, executable);
+        var identifier = authority == HostBundle.Authority ? HostBundle.Identifier : "dev.orisumi.test";
+        File.WriteAllText(Path.Combine(path, HostBundle.Name, "Contents", "Info.plist"), $$"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0"><dict>
+            <key>CFBundleIdentifier</key><string>{{identifier}}</string>
+            <key>CFBundleExecutable</key><string>orisumi</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            </dict></plist>
+            """);
+    }
+
+    WriteExecutable(host ? Path.Combine(resources, "workflow") : executable, """
         #!/bin/sh
         set -eu
         dir=$(dirname "$0")
@@ -226,7 +305,7 @@ static string Package(string path, string name, string version)
           if [ "$name" = host ]; then
             printf '{"name":"host","version":"%s"}\n' "$version"
           else
-            printf '{"name":"%s","version":"%s","start":{"mode":"chrome","arguments":[]}}\n' "$name" "$version"
+            printf '{"name":"%s","version":"%s","arguments":["capture"]}\n' "$name" "$version"
           fi
           exit
         fi
@@ -242,15 +321,30 @@ static string Package(string path, string name, string version)
         shift
         printf '%s install\n' "${store##*/}" >> "$events"
         for release; do
-          name=$(cat "$release/name")
-          destination="$store/app/collectors/$name"
-          if [ "$name" = host ]; then destination="$store/app/host"; fi
+          if [ -d "$release/Orisumi.app" ]; then
+            destination="$store/app/host"
+          else
+            name=$(cat "$release/name")
+            destination="$store/app/collectors/$name"
+          fi
           mkdir -p "$destination"
           cp -R "$release/." "$destination/"
         done
         """);
-    File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    if (host)
+    {
+        string[] signing = authority is null
+            ? ["--remove-signature", executable]
+            : ["--force", "--sign", authority, "--timestamp=none", Path.Combine(path, HostBundle.Name)];
+        Check(await RunProcess.Run(HostBundle.Codesign, signing, null, default) == 0, "prepare bundle signature fixture");
+    }
     return path;
+}
+
+static void WriteExecutable(string path, string content)
+{
+    File.WriteAllText(path, content);
+    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 }
 
 static void Expect<T>(Action action) where T : Exception

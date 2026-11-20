@@ -16,7 +16,7 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 | `derived/` | 确定性派生，能从上两项原样重建（未实现） | 重建 | 不 |
 | `instance.json` | 实例名，见[实例与发布](../development/release.mdx#实例) | 程序找不到所属实例 | 不 |
 | `app/` | 装好的宿主和采集器 | 重新安装 | 不 |
-| `state/` | 本机运行状态：`current/<来源>.json`、`locks/`、`<来源>.pid`、`chrome-native-host` | 下次采集从新库开始 | 不 |
+| `state/` | 本机运行状态：`current/<来源>.json`、`locks/` | 下次采集从新库开始 | 不 |
 | `logs/` | 采集器日志 | 无影响 | 不 |
 
 备份和同步只管 `observations/` 和 `rules/`。重跑结果会变或要付费的派生（如模型读出）不算可重建，出现时另定需要备份的位置。
@@ -37,7 +37,7 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 - 文件名就是库 ID（`database_identity.database_id`），建库时生成，之后不变。
 - 一个库只有一个写入方：创建它的主机上的采集器。其他设备只保存只读副本，所以同步只是复制文件。
 - `state/current/<来源>.json` 记当前写的库 ID 和建库时的硬件 UUID。写入前由 `Store.WritableDatabase` 取库：没有指针、库文件不在，或硬件 UUID 与指针不同（如用迁移助理把存储拷到新 Mac），就新建一个库并改指针，旧库留在原处只读。读不到硬件 UUID 时无法证明换了机器，沿用当前库。
-- 新库在锁内建成空文件，同一来源的并发写入进程（如多个 Chrome 配置各自的接收端）使用同一个库。
+- 新库在锁内建成空文件，同一来源的并发写入方（如多个 Chrome 配置各自的连接）使用同一个库。
 - 只读命令不建库。`capture coverage` 和 `export` 读每个来源的所有库，来源按 `observations/` 下的目录认，本机没装对应采集器的（如从其他设备拷来的库）也读；`macos timeline` 只读本机当前的 macOS 库。
 
 改结构的规则见[数据库结构](../capture/index.mdx#数据库结构)。

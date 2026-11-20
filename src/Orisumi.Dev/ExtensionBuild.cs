@@ -7,13 +7,12 @@ internal static class ExtensionBuild
     internal static async Task<int> BuildDevelopment(string checkout, CancellationToken token)
     {
         var instance = Instance.Development(checkout);
-        var target = Path.Combine(checkout, ".local", "extension");
+        var target = ChromeExtension.DirectoryFor(instance, checkout);
         var code = await Build(checkout, target, token);
         if (code != 0) return code;
         ChromeExtension.Configure(target, instance);
-        var path = DirectoryPaths.Resolve(target);
-        Console.WriteLine($"Load unpacked Chrome extension: {path}");
-        Console.WriteLine($"Expected Chrome extension ID: {ChromeExtension.Id(path)}");
+        Console.WriteLine($"Load unpacked Chrome extension: {target}");
+        Console.WriteLine($"Expected Chrome extension ID: {ChromeExtension.Id(target)}");
         return 0;
     }
 

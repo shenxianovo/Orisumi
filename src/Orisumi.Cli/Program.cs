@@ -7,6 +7,8 @@ using Spectre.Console;
 
 try
 {
+    if (args is [LaunchCommand.Name, .. var child]) return await LaunchCommand.Run(child);
+
     var root = Commands.Create();
     if (await CollectorPrograms.TryForward(root, args) is int collectorExitCode)
         return collectorExitCode;

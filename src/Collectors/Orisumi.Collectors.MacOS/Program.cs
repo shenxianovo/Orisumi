@@ -5,7 +5,7 @@ using Orisumi.CommandLine;
 using Orisumi.Platform;
 
 var store = CollectorCommand.StoreOption();
-var root = CollectorCommand.Create("macos", "Orisumi · macOS 采集", store, "terminal",
+var root = CollectorCommand.Create("macos", "Orisumi · macOS 采集", store,
     ["foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"]);
 var seconds = new Argument<int?>("seconds")
 {

@@ -21,7 +21,7 @@ internal static class SourceLauncher
         var project = Path.Combine(root, Repository.DevProject);
         return await RunProcess.WithCancellation(async token =>
         {
-            // Build logs must never corrupt command stdout (in particular Native Messaging).
+            // Build logs go to stderr so command stdout can carry structured output.
             var build = await RunProcess.Run(RunProcess.Dotnet, ["msbuild", Path.Combine(root, "Orisumi.slnx"), "-restore", "-target:Build", "-property:Configuration=Debug",
                 "-nologo", "-verbosity:quiet", "-consoleLoggerParameters:NoSummary", "-tl:off"],
                 Console.Error, token);

@@ -3,7 +3,7 @@ title: 架构
 description: 采集进程、数据怎么流进库，以及各来源共享什么。
 ---
 
-每个来源由自己的程序 `orisumi-<来源>` 采集、自己决定记什么，写进自己的 SQLite 库。宿主 `orisumi` 不引用任何采集器：它按各采集器 `describe` 给出的方式启动它们，把 `orisumi <来源> …` 转给对应程序，并直接读各库做覆盖查询和导出；约定见[新增采集器](../capture/index.mdx#新增采集器)。各来源共享的只有“怎么安全地写”：单写入、运行记录、事务和进度，由 `Storage/CaptureWriter` 负责。写库只在 C# 里做；状态放在能可靠持有它的一方，见下文[各来源怎么走](#各来源怎么走)。
+每个来源由自己的程序 `orisumi-<来源>` 采集、自己决定记什么，写进自己的 SQLite 库。宿主 `orisumi` 不引用任何采集器：它按各采集器 `describe` 给出的参数把它们装成 LaunchAgent，把 `orisumi <来源> …` 转给对应程序，并直接读各库做覆盖查询和导出；约定见[新增采集器](../capture/index.mdx#新增采集器)。各来源共享的只有“怎么安全地写”：单写入、运行记录、事务和进度，由 `Storage/CaptureWriter` 负责。写库只在 C# 里做；状态放在能可靠持有它的一方，见下文[各来源怎么走](#各来源怎么走)。
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
     CL["orisumi-claude capture"]
     CX["orisumi-codex capture"]
     EXT["Chrome 扩展"]
-    NH["orisumi-browser native-host"]
+    NH["orisumi-browser capture"]
     SW["Swift 观测助手"]
     FG["orisumi-macos foreground"]
   end
@@ -28,21 +28,21 @@ flowchart LR
   CJ --> CL
   CR --> CX
   CS -. 现值 .-> CX
-  CH --> EXT -- connectNative --> NH
+  CH --> EXT -- WebSocket --> NH
   OS --> SW -- JSONL --> FG
   CL & CX & NH & FG --> W --> DB --> Q
 ```
 
 ## 进程
 
-| 进程 | 由谁启动 | 一次运行 | 取数 |
-| --- | --- | --- | --- |
-| `orisumi-claude capture` | LaunchAgent（`resident`） | 进程生命期 | 回放会话日志 |
-| `orisumi-codex capture` | LaunchAgent（`resident`） | 进程生命期 | 回放 rollout；名称、归档、置顶读现值 |
-| `orisumi-browser native-host` | Chrome，扩展调用 `connectNative` 时（`chrome`） | 一条连接，每个 Chrome 配置一条 | 通知加定时快照；历史回放 |
-| `orisumi-macos foreground` 与 Swift 助手 | `capture start`，从终端启动以继承权限（`terminal`） | 进程生命期 | 通知加读现值 |
+| 进程 | 一次运行 | 取数 |
+| --- | --- | --- |
+| `orisumi-claude capture` | 进程生命期 | 回放会话日志 |
+| `orisumi-codex capture` | 进程生命期 | 回放 rollout；名称、归档、置顶读现值 |
+| `orisumi-browser capture` | 一条扩展连接，每个 Chrome 配置一条 | 通知加定时快照；历史回放 |
+| `orisumi-macos foreground` 与 Swift 助手 | 进程生命期 | 通知加读现值 |
 
-`capture start` 装好两个 LaunchAgent、启动 macOS 采集，并注册浏览器接收端；接收端只能由 Chrome 拉起。实例、全局名字和启停见[实例与发布](../development/release.mdx)。
+四个采集器都由 `capture start` 装成 LaunchAgent，经签名的 `Orisumi.app` 拉起以获得系统权限，见[安装与启停](../development/release.mdx#安装与启停)。
 
 ## 一轮写入
 
@@ -66,7 +66,7 @@ flowchart LR
 sequenceDiagram
   participant C as Chrome
   participant E as 扩展
-  participant H as native-host
+  participant H as orisumi-browser
   participant D as SQLite
   C->>E: 事件 / 定时快照
   E->>E: 写入持久待发队列
@@ -74,7 +74,9 @@ sequenceDiagram
   H->>D: 与最后已知状态比较，写变化
   H-->>E: 确认
   E->>E: 从队列删除
-  Note over E,H: 连接断开时接收端读到 EOF，写运行结束；扩展退避重连并重发未确认的投递
+  Note over E,H: 连接关闭时接收端写运行结束；扩展退避重连并重发未确认的投递
 ```
 
 历史访问由接收端告诉扩展下一段读哪，读取位置和访问记录在同一事务提交。
+
+接收端常驻，在本实例的本机端口收扩展的 WebSocket 连接，只接受本实例扩展的 Origin（`chrome-extension://<扩展 ID>`）。它每 20 秒发一次心跳，没有投递时扩展的后台也不会被 Chrome 停掉。
