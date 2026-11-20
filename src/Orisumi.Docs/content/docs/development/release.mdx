@@ -1,9 +1,9 @@
 ---
-title: 实例与发布
-description: 生产、预览和开发实例，以及发布、安装、预览和切换。
+title: 实例与部署
+description: 生产和开发实例，以及部署、安装和启停。
 ---
 
-生产只运行装进它自己目录的发布版本；开发用检出里的构建和自己的存储，所以开发不影响生产。
+生产只运行装进它自己目录的 Native AOT 程序；开发用检出里的构建和自己的存储，所以开发不影响生产。
 
 ## 实例
 
@@ -12,22 +12,25 @@ description: 生产、预览和开发实例，以及发布、安装、预览和�
 | 实例 | 目录 | 名字 | 命令 |
 | --- | --- | --- | --- |
 | 生产 | `~/Library/Application Support/Orisumi` | `prod` | `orisumi` |
-| 预览 | `~/Library/Application Support/Orisumi-preview` | `preview` | `orisumi-preview` |
 | 开发 | `<检出>/.local/store` | `dev_<检出目录名>` | `orisumi-dev` |
 
-- 名字只含 `[a-z0-9_]`。每个用户级的全局名字都由它派生，生产也一样：LaunchAgent `dev.orisumi.<名字>.<来源>`，浏览器接收端端口（生产 47810，预览 47811，其他实例 47900 加名字的 FNV-1a 哈希模 100），命令链接 `~/.local/bin/orisumi`（生产）或 `~/.local/bin/orisumi-<名字>`。开发实例没有命令链接。
+- 名字只含 `[a-z0-9_]`。每个用户级的全局名字都由它派生，生产也一样：LaunchAgent `dev.orisumi.<名字>.<来源>`，浏览器接收端端口（生产 47810，其他实例 47900 加名字的 FNV-1a 哈希模 100），命令链接 `~/.local/bin/orisumi`（生产）或 `~/.local/bin/orisumi-<名字>`。开发实例没有命令链接。
 - 程序没给 `--store` 时，从自己所在目录往上找 `instance.json`；找不到而处在检出里，就用这个检出的开发实例，首次使用时创建；都不是就报错。不回落到生产目录，也不读环境变量：LaunchAgent 拉起的进程不继承环境变量。
-- 每个检出各有一个开发实例，多个 worktree 可以同时开发。开发实例只做短时运行和测试，常驻采集留给预览。
+- 每个检出各有一个开发实例，多个 worktree 可以同时开发。开发实例只做短时运行和测试，常驻采集留给生产。
 
-## 发布
+## 部署
 
-`orisumi-dev release [组件…]` 只在工作树干净时运行。宿主（`host`）和每个采集器各自发布成 Native AOT 程序，放进 `~/Library/Application Support/Orisumi-releases/<组件>/<版本>/`。版本是程序版本加提交号（如 `0.1.0+5bcfe4ea…`），也就是运行记录里的 `collector_version`。
+```sh
+orisumi-dev deploy [组件…]
+```
 
-- 组件就是宿主和 `src/Collectors/` 下的每个项目，不用登记。
-- 发布要求零警告，并用 `describe` 核对版本。已有的版本目录直接复用，发布后不再改动。浏览器的发布另含 `extension/`，macOS 的含 Swift 助手。
+只在工作树干净时运行。把宿主（`host`）和选中的采集器（不给就是全部）各自发布成 Native AOT 程序，放在临时目录，用新宿主 `orisumi install` 装进生产，再 `capture start`，最后删掉临时目录。版本是程序版本加提交号（如 `0.1.0+5bcfe4ea…`），也就是运行记录里的 `collector_version`。`--prod` 可改生产目录，供测试使用。
+
+- 组件就是宿主和 `src/Collectors/` 下的每个项目，不用登记。宿主总会一起部署，安装和启停都经过它。
+- 发布要求零警告，并用 `describe` 核对版本。浏览器的发布另含 `extension/`，macOS 的含 Swift 助手。
 - 宿主发布成 `Orisumi.app`（bundle ID `dev.orisumi`），用钥匙串里名为 `Orisumi Development` 的代码签名证书签名；采集器不签名。没有这个证书就建一个：钥匙串访问 › 证书助理 › 创建证书，身份类型选「自签名根证书」，证书类型选「代码签名」，`security find-identity -v -p codesigning` 能列出即可。
 - 不要运行未用这个证书签名、bundle ID 又是 `dev.orisumi` 的程序：macOS 会作废已经给 Orisumi 的权限。开发构建不生成 app。
-- 发布目录不含实例信息，同一份能装进预览，也能装进生产。以后对外分发，可以把它包成 NuGet 包或压缩包；安装只认目录。
+- 不保留旧版本。回退就检出旧提交再部署；改过库结构的版本按[数据库结构](../capture/index.mdx#数据库结构)处理旧库。
 
 ## 安装与启停
 
@@ -36,23 +39,8 @@ description: 生产、预览和开发实例，以及发布、安装、预览和�
 `capture start` 用各采集器 `describe` 给出的参数，把它们装成 LaunchAgent `dev.orisumi.<名字>.<来源>` 并启动；已在运行的先停掉。LaunchAgent 在登录时启动，退出后 10 秒重启。`capture stop` 停掉并删除它们，每次运行以 `completed` 结束。日志在 `logs/<来源>.{out,err}.log`。
 
 - 装好的实例里，LaunchAgent 运行的是 `Orisumi.app/Contents/MacOS/orisumi launch -- <采集器命令>`：它把采集器作为子进程拉起，转发停止信号，以采集器的退出码退出。macOS 按发起进程所属的 app 判断系统权限，所以采集器用的是 Orisumi.app 的权限，采集器换版本不用重新授权。
-- 首次安装后，在系统设置 › 隐私与安全性的「辅助功能」和「输入监控」里加入 `<实例目录>/app/host/Orisumi.app` 并打开。授权跟 bundle ID 和证书走：生产和预览共用，重装和升级宿主都保留。缺权限时 macOS 采集只停用对应通道。
+- 首次安装后，在系统设置 › 隐私与安全性的「辅助功能」和「输入监控」里加入 `<实例目录>/app/host/Orisumi.app` 并打开。授权跟 bundle ID 和证书走，重装和升级宿主都保留。缺权限时 macOS 采集只停用对应通道。
 - 开发实例没有 Orisumi.app，LaunchAgent 直接运行采集器，macOS 采集拿不到这两项权限；开发时在终端里运行 `orisumi-dev macos foreground`，用终端的权限。
 - 浏览器扩展连本实例的接收端端口，`capture start` 打印扩展路径和预期 ID。
 
-Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`。接收端因此按扩展所在路径算出 ID 来注册，不用手填。在 Chrome 中加载扩展仍需手动，`capture start` 会打印路径和预期 ID。预览和生产的扩展可以装在同一个 Chrome 配置里并排运行。
-
-## 预览与切换
-
-```sh
-orisumi-dev release
-orisumi-dev preview start [组件…]
-orisumi-dev preview status
-orisumi-dev promote [组件…] [--migrate 迁移.cs]
-```
-
-- `preview start` 把当前提交的发布装进预览实例并启动。预览读同一批真实来源，写自己的库，和生产并排运行。`preview status` 对生产和预览各运行一次实例里装的 `orisumi capture status`。
-- `promote` 停掉生产，运行可选的迁移脚本（`dotnet run --file 迁移.cs -- <生产目录>`），把预览里装着的同一版本装进生产，启动生产，最后停掉预览。预览没装的组件用当前提交的发布。迁移规则见[数据库结构](../capture/index.mdx#数据库结构)。
-- 回退：旧版本目录都还在。停掉生产，用 `orisumi install` 装回旧版本，再 `capture start`。改过库结构的版本退不回去。
-
-`--releases`、`--prod`、`--preview` 可以改这三个目录，供测试使用。
+Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`。接收端因此按扩展所在路径算出 ID 来注册，不用手填。在 Chrome 中加载扩展仍需手动，`capture start` 会打印路径和预期 ID。扩展装在实例目录里的固定路径，重新部署后 Chrome 只需重载。

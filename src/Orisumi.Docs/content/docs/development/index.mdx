@@ -15,14 +15,14 @@ dotnet run --project src/Orisumi.Dev -- dev setup
 
 ## 两个入口
 
-- `orisumi`：生产实例里装好的宿主，见[实例与发布](./release.mdx)。
+- `orisumi`：生产实例里装好的宿主，见[实例与部署](./release.mdx)。
 - `orisumi-dev`：开发入口。从当前目录向上找 `Orisumi.slnx`，遇到别的 Git 仓库就停。每次先增量构建整个解决方案（Debug，含未提交的修改），构建失败就退出；再运行这个检出构建出的 `orisumi-dev`，所以改了开发命令不用重装，只有改了入口机制或项目路径才要重跑 `dev setup`。开发命令以外的命令转给源码构建的宿主，并带上本检出开发实例的 `--store`。构建输出写到 stderr；stdin/stdout、参数、退出码和工作目录原样保留。
 
 宿主通过 `describe` 识别采集器。装好的宿主到实例的 `app/collectors/` 里找；源码构建的宿主取自己相对 `src/Orisumi.Cli` 的输出目录（如 `bin/Debug/net11.0/`），到每个 `src/Collectors/Orisumi.Collectors.*` 的同一相对目录找 `orisumi-*.dll`。
 
 ## 命令
 
-宿主在 `src/Orisumi.Cli`，开发命令在 `src/Orisumi.Dev`，采集器各自成项目。完整选项见 `--help`。不给 `--store` 时用程序所在的实例，见[实例与发布](./release.mdx#实例)。
+宿主在 `src/Orisumi.Cli`，开发命令在 `src/Orisumi.Dev`，采集器各自成项目。完整选项见 `--help`。不给 `--store` 时用程序所在的实例，见[实例与部署](./release.mdx#实例)。
 
 宿主命令，经 `orisumi-dev` 运行时作用于开发实例：
 
@@ -53,7 +53,7 @@ dotnet run --project src/Orisumi.Dev -- dev setup
 | `dev docs …` | 文档站，见[文档维护](./contributing.mdx) |
 | `dev loc [--json]` | [行数统计](#行数统计) |
 | `extension install` / `extension build` | 安装扩展依赖／为开发实例构建扩展 |
-| `release` / `preview …` / `promote` | 发布、预览和切换，见[实例与发布](./release.mdx#预览与切换) |
+| `deploy [组件…]` | 把当前提交发布、装进生产并启动采集，见[部署](./release.mdx#部署) |
 
 ## 浏览器扩展
 
@@ -98,7 +98,7 @@ dotnet run --file tests/LocChecks.cs -- src/Orisumi.Dev/bin/Debug/net11.0/orisum
 | BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤；接收端的 Origin 校验、并发配置、心跳、快照核对、关闭、超时、历史事务 |
 | CaptureCoverage、Export | 覆盖查询的区间；导出时未检查点的 WAL、重复导出、目标位置、库 ID 不符、半成品 |
 | MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
-| Instance | 实例解析、派生名字、扩展 ID、宿主签名核对、安装替换、命令链接、发布、预览和切换 |
+| Instance | 实例解析、派生名字、扩展 ID、宿主签名核对、安装替换、命令链接、部署 |
 | SourceLauncher、Loc | 在临时仓库里测开发入口的构建、参数、退出码、二进制输入输出、信号，以及行数统计 |
 
 新增采集器的要求见[采集开发](../capture/index.mdx)。

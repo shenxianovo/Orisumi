@@ -7,7 +7,7 @@
     <ToolCommandName>orisumi-dev</ToolCommandName>
     <PackageId>Orisumi.Dev</PackageId>
     <Version>0.1.0</Version>
-    <Description>Develop and release Orisumi from a source checkout.</Description>
+    <Description>Develop and deploy Orisumi from a source checkout.</Description>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

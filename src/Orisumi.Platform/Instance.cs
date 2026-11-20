@@ -19,7 +19,6 @@ public sealed class Instance
     public int BrowserPort => Name switch
     {
         "prod" => 47810,
-        "preview" => 47811,
         _ => 47900 + (int)(Name.Aggregate(2166136261u,
             (hash, character) => unchecked((hash ^ character) * 16777619u)) % 100),
     };

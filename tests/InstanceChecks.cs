@@ -20,8 +20,8 @@ try
 {
     Resolution();
     await Install();
-    await Workflow();
-    Console.WriteLine("Instance, install and release workflow checks passed.");
+    await Deployment();
+    Console.WriteLine("Instance, install and deploy checks passed.");
 }
 finally { temp.Delete(recursive: true); }
 
@@ -47,7 +47,6 @@ void Resolution()
         inner.BrowserPort == 47913 && inner.CommandName == "orisumi-test_codex", "derived names");
     Check(outer.AgentLabel("codex") == "dev.orisumi.prod.codex" &&
         outer.BrowserPort == 47810 && outer.CommandName == "orisumi", "production names");
-    Check(Instance.Create(Under("preview-port"), "preview").BrowserPort == 47811, "preview browser port");
     Check(ChromeExtension.DirectoryFor(dev, root.FullName) == DirectoryPaths.Resolve(Path.Combine(root.FullName, ".local", "extension")),
         "checkout instance uses its built extension");
     var invalid = Directory.CreateDirectory(Under("invalid"));
@@ -155,78 +154,126 @@ async Task Install()
     Console.WriteLine("PASS: signed bundle install, atomic replacement, bundle command link, signature refusals, extension configuration and isolated LaunchAgent cleanup");
 }
 
-async Task Workflow()
+async Task Deployment()
 {
-    var releases = Under("releases");
-    var preview = new Store(Under("preview"));
-    var prod = new Store(Under("prod"));
-    var head = await Releases.Head(checkout, default);
-    var latest = "0.1.0+" + head;
-    var candidate = "0.1.0+candidate";
-    var dirty = Directory.CreateDirectory(Under("dirty"));
-    Check(await RunProcess.Run("git", ["init", "-q"], null, default, directory: dirty.FullName) == 0, "init fixture");
-    File.WriteAllText(Path.Combine(dirty.FullName, "untracked"), "dirty");
-    await ExpectAsync<IOException>(() => Releases.Build(dirty.FullName, releases, ["host"], TextWriter.Null, default), "干净");
-    Check(!Directory.Exists(releases), "dirty release writes nothing");
-    await ExpectAsync<DirectoryNotFoundException>(() => InstanceWorkflow.Preview(checkout, releases, preview, ["claude"], default));
-    Check(!Directory.Exists(preview.Root), "missing release does not create preview");
+    var source = Under("deploy checkout");
+    Check(await RunProcess.Run("git", ["clone", "-q", "--shared", checkout, source], null, default) == 0, "clone deploy fixture");
+    using var revision = new StringWriter();
+    Check(await RunProcess.Run("git", ["rev-parse", "HEAD"], revision, default, directory: source) == 0, "read fixture HEAD");
+    var version = "0.1.0+" + revision.ToString().Trim();
+    string[] collectors = ["browser", "claude", "codex", "macos"];
+    foreach (var component in new[] { "host" }.Concat(collectors))
+        await Package(Under("packages/" + component), component, version);
 
-    foreach (var component in new[] { "host", "claude", "codex" })
-        await Package(Path.Combine(releases, component, latest), component, latest);
-    await InstanceWorkflow.Preview(checkout, releases, preview, ["claude"], default);
-    Check(Instance.Open(preview.Root).Name == "preview" &&
-        (await ProgramDescription.Read(preview.HostExecutable, [], default)).Version == latest &&
-        File.ReadAllText(Path.Combine(preview.Collector("claude"), "version")) == latest &&
-        !Directory.Exists(preview.Collector("codex")), "preview uses HEAD host and selected collectors");
-
-    await Package(Path.Combine(releases, "claude", candidate), "claude", candidate);
-    File.WriteAllText(Path.Combine(preview.Collector("claude"), "version"), candidate);
-    var migration = Under("migration file.cs");
-    File.WriteAllText(migration, """
-        var root = args.Single();
-        File.AppendAllText(Path.Combine(Path.GetDirectoryName(root)!, "events"), "prod migrate\n");
+    var dotnet = Under("fake-dotnet");
+    WriteExecutable(dotnet, """
+        #!/bin/sh
+        set -eu
+        case "$1" in
+          msbuild)
+            [ "$#" = 4 ] && [ "$3" = -nologo ] && [ "$4" = -getProperty:Version ] || exit 2
+            printf '0.1.0\n'
+            exit ;;
+          publish) ;;
+          *) exit 2 ;;
+        esac
+        [ "$#" = 12 ] && [ "$3 $4 $5 $6 $7" = "-c Release -r osx-arm64 -p:PublishAot=true" ] || exit 2
+        [ "$8" = "-p:SourceRevisionId=$(git rev-parse HEAD)" ]
+        [ "$9 ${10} ${11}" = "-warnaserror -tl:off -o" ]
+        name=${2##*/}
+        case "$name" in
+          Orisumi.Cli.csproj) component=host ;;
+          Orisumi.Collectors.*.csproj)
+            name=${name#Orisumi.Collectors.}
+            component=$(printf '%s' "${name%.csproj}" | tr '[:upper:]' '[:lower:]') ;;
+          *) exit 2 ;;
+        esac
+        out=${12}
+        fixtures=$(dirname "$0")
+        mkdir -p "$out"
+        directory=$out
+        if [ "$component" = host ]; then
+          directory=${out%/Orisumi.app/Contents/MacOS}
+        fi
+        printf '%s\n' "$directory" >> "$fixtures/published"
+        if [ -f "$fixtures/fail-publish" ] && [ "$(cat "$fixtures/fail-publish")" = "$component" ]; then
+          exit 17
+        fi
+        package="$fixtures/packages/$component"
+        if [ "$component" = host ]; then
+          cp -R "$package/Orisumi.app/Contents/." "$out/.."
+        else
+          cp "$package/name" "$package/version" "$package/orisumi-$component" "$out/"
+        fi
         """);
-    var events = Under("events");
-    File.WriteAllText(events, "");
-    Instance.Create(prod.Root, "prod");
-    Directory.CreateDirectory(prod.App);
-    await Package(prod.Host, "host", "0.1.0+older");
-    await InstanceWorkflow.Promote(checkout, releases, prod, preview, ["claude", "codex"], migration, default);
-    Check((await ProgramDescription.Read(prod.HostExecutable, [], default)).Version == latest &&
-        File.ReadAllText(Path.Combine(prod.Collector("claude"), "version")) == candidate &&
-        File.ReadAllText(Path.Combine(prod.Collector("codex"), "version")) == latest, "promote uses exact preview version and HEAD fallback");
-    Check(File.ReadAllLines(events).SequenceEqual(["prod stop", "prod migrate", "prod install", "prod start", "preview stop"]),
-        "stop, migrate, install, start and stop preview ordering");
-    Check(File.ReadAllText(Path.Combine(releases, "claude", candidate, "version")) == candidate, "releases remain unchanged");
-
-    File.WriteAllText(migration, "return 17;");
-    File.WriteAllText(events, "");
-    await ExpectAsync<IOException>(() => InstanceWorkflow.Promote(checkout, releases, prod, preview, ["claude"], migration, default),
-        "migration");
-    Check(File.ReadAllLines(events).SequenceEqual(["prod stop"]), "migration failure prevents install and further capture changes");
+    WriteExecutable(Under("npm"), """
+        #!/bin/sh
+        set -eu
+        [ -f manifest.json ]
+        if [ "$*" = ci ]; then exit; fi
+        [ "$#" = 5 ] && [ "$1 $2 $3 $4" = "run build -- --outDir" ] || exit 2
+        mkdir -p "$5"
+        """);
 
     var root = new RootCommand();
-    ReleaseCommands.AddTo(root);
-    var missing = Under("missing preview");
-    Check((await Status(preview.Root)).SequenceEqual([$"prod {latest}", $"preview {latest}"]),
-        "preview status delegates to each installed host in order");
-    Check((await Status(missing)).SequenceEqual([$"prod {latest}", $"preview: not installed ({missing})"]) &&
-        !Directory.Exists(missing), "preview status handles a missing host without creating the store");
-    Console.WriteLine("PASS: dirty tree refusal, missing release, preview, exact promotion with migration and fallback, failure ordering and status");
-
-    async Task<string[]> Status(string previewRoot)
+    Deploy.AddTo(root, dotnet);
+    var prod = new Store(Under("prod '中文"));
+    var all = new Store(Under("all"));
+    var events = Under("events");
+    var published = Under("published");
+    var path = Environment.GetEnvironmentVariable("PATH");
+    try
     {
-        using var report = new StringWriter();
-        var previous = Console.Out;
-        try
-        {
-            Console.SetOut(report);
-            var code = await root.Parse(["preview", "status", "--prod", prod.Root, "--preview", previewRoot])
-                .InvokeAsync(new InvocationConfiguration { EnableDefaultExceptionHandler = false });
-            Check(code == 0, "preview status succeeds");
-        }
-        finally { Console.SetOut(previous); }
-        return report.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Environment.CurrentDirectory = source;
+        Environment.SetEnvironmentVariable("PATH", temp.FullName + Path.PathSeparator + path);
+        var untracked = Path.Combine(source, "untracked");
+        File.WriteAllText(untracked, "dirty");
+        await ExpectAsync<IOException>(() => Invoke("deploy", "--prod", prod.Root, "claude"), "干净");
+        Check(!Directory.Exists(prod.Root) && !File.Exists(published), "dirty worktree refuses before publishing or creating prod");
+        File.Delete(untracked);
+
+        Check(await Invoke("deploy", "--prod", prod.Root, "claude") == 0, "deploy selected collector");
+        var first = CheckCleanup("host", "claude");
+        Check(Instance.Open(prod.Root).Name == "prod" &&
+            (await ProgramDescription.Read(prod.HostExecutable, [], default)).Version == version &&
+            File.ReadAllText(Path.Combine(prod.Collector("claude"), "version")) == version &&
+            Directory.GetDirectories(prod.Collectors).Length == 1, "collector selection also installs the signed host");
+        Check(File.ReadAllLines(events).SequenceEqual(["install", "start"]), "temporary host installs before installed host starts");
+
+        Check(await Invoke("deploy", "--prod", all.Root) == 0, "deploy all components");
+        var second = CheckCleanup(["host", .. collectors]);
+        Check(second != first && collectors.All(component => Directory.Exists(all.Collector(component))) &&
+            File.Exists(Path.Combine(all.Collector("browser"), "extension", "manifest.json")), "fresh publish builds all collectors and the extension");
+        Check(File.ReadAllLines(events).SequenceEqual(["install", "start", "install", "start"]), "all components install before capture starts");
+
+        var sentinel = Path.Combine(prod.Host, "existing");
+        File.WriteAllText(sentinel, "keep");
+        File.WriteAllText(Under("fail-publish"), "codex");
+        await ExpectAsync<IOException>(() => Invoke("deploy", "--prod", prod.Root, "codex"), "codex: AOT publish exited with code 17");
+        var failed = CheckCleanup("host", "codex");
+        Check(failed != first && failed != second && File.ReadAllText(sentinel) == "keep" &&
+            !Directory.Exists(prod.Collector("codex")) && File.ReadAllLines(events).SequenceEqual(["install", "start", "install", "start"]),
+            "publish failure leaves the existing production install and capture untouched");
+        Console.WriteLine("PASS: deploy dirty-tree refusal, component selection, install/start order, temporary cleanup and publish failure isolation");
+    }
+    finally
+    {
+        Environment.CurrentDirectory = checkout;
+        Environment.SetEnvironmentVariable("PATH", path);
+    }
+
+    Task<int> Invoke(params string[] arguments) => root.Parse(arguments)
+        .InvokeAsync(new InvocationConfiguration { EnableDefaultExceptionHandler = false });
+
+    string CheckCleanup(params string[] components)
+    {
+        var directories = File.ReadAllLines(published);
+        File.Delete(published);
+        Check(directories.Select(Path.GetFileName).SequenceEqual(components), "publish order and components");
+        var staging = Path.GetDirectoryName(directories[0])!;
+        Check(directories.All(directory => Path.GetDirectoryName(directory) == staging) &&
+            !Directory.Exists(staging), "deployment removes the whole temporary directory");
+        return staging;
     }
 }
 
@@ -249,7 +296,7 @@ async Task<string> Package(string path, string name, string version, string? aut
     if (host)
     {
         // A Mach-O entry point runs the sealed fixture script. Every operation stays inside the test directories.
-        var fixture = Under("workflow-executable");
+        var fixture = Under("host-fixture");
         if (!File.Exists(fixture))
         {
             var source = fixture + ".c";
@@ -263,7 +310,7 @@ async Task<string> Package(string path, string name, string version, string? aut
                     uint32_t size = sizeof(path);
                     if (_NSGetExecutablePath(path, &size) != 0) return 90;
                     char *filename = strrchr(path, '/') + 1;
-                    const char script[] = "../Resources/workflow";
+                    const char script[] = "../Resources/fixture";
                     if (filename - path + sizeof(script) > sizeof(path)) return 91;
                     memcpy(filename, script, sizeof(script));
                     argv[0] = path;
@@ -288,7 +335,7 @@ async Task<string> Package(string path, string name, string version, string? aut
             """);
     }
 
-    WriteExecutable(host ? Path.Combine(resources, "workflow") : executable, """
+    WriteExecutable(host ? Path.Combine(resources, "fixture") : executable, """
         #!/bin/sh
         set -eu
         dir=$(dirname "$0")
@@ -302,31 +349,27 @@ async Task<string> Package(string path, string name, string version, string? aut
           fi
           exit
         fi
-        if [ "$1" = capture ] && [ "$2" = status ]; then
-          [ "$name" = host ] && [ "$#" = 4 ] && [ "$3" = --store ] && [ -f "$4/instance.json" ]
-          printf '%s %s\n' "${4##*/}" "$(cat "$dir/version")"
-          exit
-        fi
-        [ "$name" = host ] && [ "$1" = --store ]
+        [ "$name" = host ] && [ "$1" = --store ] && [ -f "$2/instance.json" ] || exit 2
         store=$2
         shift 2
         events="$(dirname "$store")/events"
         if [ "$1" = capture ]; then
-          printf '%s %s\n' "${store##*/}" "$2" >> "$events"
+          [ "$#" = 2 ] && [ "$2" = start ] && [ "$dir" -ef "$store/app/host/Orisumi.app/Contents/Resources" ] || exit 2
+          printf 'start\n' >> "$events"
           exit
         fi
-        [ "$1" = install ]
+        [ "$1" = install ] && [ "$dir" -ef "$2/Orisumi.app/Contents/Resources" ] || exit 2
         shift
-        printf '%s install\n' "${store##*/}" >> "$events"
-        for release; do
-          if [ -d "$release/Orisumi.app" ]; then
+        printf 'install\n' >> "$events"
+        for package; do
+          if [ -d "$package/Orisumi.app" ]; then
             destination="$store/app/host"
           else
-            name=$(cat "$release/name")
+            name=$(cat "$package/name")
             destination="$store/app/collectors/$name"
           fi
           mkdir -p "$destination"
-          cp -R "$release/." "$destination/"
+          cp -R "$package/." "$destination/"
         done
         """);
     if (host)

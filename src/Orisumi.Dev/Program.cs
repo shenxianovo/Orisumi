@@ -8,19 +8,11 @@ try
 {
     if (await SourceLauncher.TryRun(args) is int launched) return launched;
 
-    var root = new RootCommand("Orisumi · 开发、发布与预览") { DevCommand.Create(), DevCommand.Extension() };
+    var root = new RootCommand("Orisumi · 开发与部署") { DevCommand.Create(), DevCommand.Extension() };
     root.HelpName = "orisumi-dev";
-    ReleaseCommands.AddTo(root);
+    Deploy.AddTo(root, RunProcess.Dotnet);
 
-    var index = 0;
-    while (index < args.Length)
-    {
-        var option = args[index];
-        if (option is "--releases" or "--prod" or "--preview") index += 2;
-        else if (option.Split('=', ':')[0] is "--releases" or "--prod" or "--preview") index++;
-        else break;
-    }
-    var command = index < args.Length ? args[index] : null;
+    var command = args.Length > 0 ? args[0] : null;
     if (command is not (null or "-h" or "-?" or "--help" or "--version") &&
         !root.Subcommands.Any(item => item.Name == command))
     {
