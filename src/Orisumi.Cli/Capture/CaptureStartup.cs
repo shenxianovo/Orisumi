@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Xml.Linq;
 using Orisumi.Platform;
 
@@ -36,7 +33,9 @@ internal static class CaptureStartup
                 var path = Path.Combine(locations.Agents, label + ".plist");
                 LaunchAgent(label, program.Command(store.Root, program.Description.Arguments!), store, name).Save(path);
                 File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                await Launchctl(locations, token, "bootstrap", Domain, path);
+                var domain = Launchd.Domain;
+                var bootstrap = await Launchd.Run(locations, token, "bootstrap", domain, path);
+                if (bootstrap.Code != 0) throw Launchd.Error("bootstrap", $"{domain} {path}", bootstrap.Error);
                 output.WriteLine($"Started {label}");
             }
             if (extension is not null)
@@ -63,33 +62,27 @@ internal static class CaptureStartup
 
     private static async Task StopCapture(Instance instance, SystemLocations locations, CancellationToken token)
     {
-        var agents = Directory.Exists(locations.Agents)
-            ? Directory.GetFiles(locations.Agents, instance.AgentLabel("*") + ".plist") : [];
+        var agents = Launchd.AgentPlists(instance, locations).ToArray();
 
         await Task.WhenAll(agents.Select(StopAgent));
 
         async Task StopAgent(string plist)
         {
-            var service = $"{Domain}/{Path.GetFileNameWithoutExtension(plist)}";
-            var before = await LaunchctlResult(locations, token, "print", service);
-            if (before.Code is not (0 or 113)) throw LaunchError("print", service, before.Error);
-            if (before.Code == 0)
+            var service = Launchd.Service(Path.GetFileNameWithoutExtension(plist));
+            var before = await Launchd.Print(locations, service, token);
+            if (before is not null)
             {
-                var pidLine = before.Output.Split('\n').Select(line => line.Trim())
-                    .FirstOrDefault(line => line.StartsWith("pid = ", StringComparison.Ordinal));
-                var identity = pidLine is not null && int.TryParse(pidLine.AsSpan(6), CultureInfo.InvariantCulture, out var pid)
-                    ? ProcessIdentity.Of(pid) : null;
-                var bootout = await LaunchctlResult(locations, token, "bootout", service);
+                var identity = Launchd.Pid(before) is int pid ? ProcessIdentity.Of(pid) : null;
+                var bootout = await Launchd.Run(locations, token, "bootout", service);
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
                 deadline.CancelAfter(TimeSpan.FromSeconds(30));
                 try
                 {
                     while (true)
                     {
-                        var current = await LaunchctlResult(locations, deadline.Token, "print", service);
-                        if (current.Code == 113) break; // The service is absent from this launchd domain.
-                        if (current.Code != 0) throw LaunchError("print", service, current.Error);
-                        if (bootout.Code != 0) throw LaunchError("bootout", service, bootout.Error);
+                        var current = await Launchd.Print(locations, service, deadline.Token);
+                        if (current is null) break;
+                        if (bootout.Code != 0) throw Launchd.Error("bootout", service, bootout.Error);
                         await Task.Delay(100, deadline.Token);
                     }
                 }
@@ -122,26 +115,4 @@ internal static class CaptureStartup
             new XDocumentType("plist", "-//Apple//DTD PLIST 1.0//EN", "http://www.apple.com/DTDs/PropertyList-1.0.dtd", null),
             new XElement("plist", new XAttribute("version", "1.0"), dictionary));
     }
-
-    private static IOException LaunchError(string action, string service, string error) =>
-        new($"launchctl {action} {service}: {error.Trim()}");
-
-    private static string Domain => $"gui/{getuid()}";
-
-    private static async Task Launchctl(SystemLocations locations, CancellationToken token, params string[] arguments)
-    {
-        var result = await LaunchctlResult(locations, token, arguments);
-        if (result.Code != 0) throw new IOException($"launchctl {string.Join(' ', arguments)}: {result.Error.Trim()}");
-    }
-
-    private static async Task<(int Code, string Output, string Error)> LaunchctlResult(SystemLocations locations,
-        CancellationToken cancellation, params string[] arguments)
-    {
-        var result = await Process.RunAndCaptureTextAsync(locations.Launchctl, arguments, cancellation);
-        if (result.ExitStatus.Canceled) throw new OperationCanceledException(cancellation);
-        return (result.ExitStatus.ExitCode, result.StandardOutput, result.StandardError);
-    }
-
-    [DllImport("/usr/lib/libSystem.B.dylib")]
-    private static extern uint getuid();
 }

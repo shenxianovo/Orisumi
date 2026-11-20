@@ -51,7 +51,7 @@ orisumi-dev preview status
 orisumi-dev promote [组件…] [--migrate 迁移.cs]
 ```
 
-- `preview start` 把当前提交的发布装进预览实例并启动。预览读同一批真实来源，写自己的库，和生产并排运行。`preview status` 列出两边装的版本、各来源最近一次运行和最近一小时的读取失败。
+- `preview start` 把当前提交的发布装进预览实例并启动。预览读同一批真实来源，写自己的库，和生产并排运行。`preview status` 对生产和预览各运行一次实例里装的 `orisumi capture status`。
 - `promote` 停掉生产，运行可选的迁移脚本（`dotnet run --file 迁移.cs -- <生产目录>`），把预览里装着的同一版本装进生产，启动生产，最后停掉预览。预览没装的组件用当前提交的发布。迁移规则见[数据库结构](../capture/index.mdx#数据库结构)。
 - 回退：旧版本目录都还在。停掉生产，用 `orisumi install` 装回旧版本，再 `capture start`。改过库结构的版本退不回去。
 

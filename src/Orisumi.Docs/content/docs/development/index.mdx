@@ -29,6 +29,7 @@ dotnet run --project src/Orisumi.Dev -- dev setup
 | 命令 | 用途 |
 | --- | --- |
 | `capture start` / `capture stop` | 启动或停止本实例的采集器，保留数据，见[安装与启停](./release.mdx#安装与启停) |
+| `capture status [--json]` | 各采集器的版本、LaunchAgent 状态（pid 或上次退出码）、最近一次运行和最近一小时的读取失败；只读 |
 | `capture coverage --from … --to …` | 查询各来源的[观测依据与缺口](../capture/recovery.mdx) |
 | `export <目标目录>` | 导出所有观测库的快照，见[导出](../overview/storage.mdx#导出) |
 | `install <发布目录>…` | 把发布装进本实例 |
@@ -72,6 +73,7 @@ orisumi-dev capture start
 dotnet build Orisumi.slnx
 dotnet run --file tests/PlatformChecks.cs
 dotnet run --file tests/CaptureStartupChecks.cs
+dotnet run --file tests/CaptureStatusChecks.cs
 dotnet run --file tests/SchemaChecks.cs
 dotnet run --file tests/CaptureIntegrationChecks.cs
 dotnet run --file tests/BrowserIntegrationChecks.cs
@@ -90,6 +92,7 @@ dotnet run --file tests/LocChecks.cs -- src/Orisumi.Dev/bin/Debug/net11.0/orisum
 | --- | --- |
 | Platform | 主机标识、选库、主机绑定、并发建库 |
 | CaptureStartup | LaunchAgent 配置；`launch` 的参数、标准输入输出、进程组、信号转发和退出码 |
+| CaptureStatus | 合并已装采集器、LaunchAgent 和来源目录；运行中、未加载、已退出和已停止的运行；不写存储 |
 | Schema | 项目与解决方案一致、`describe`、结构打包、视图、coverage 列、重复打开 |
 | CaptureIntegration、Claude/CodexIncremental | 独立变化、修订、重试、身份、中断、回放和增量 |
 | BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤；接收端的 Origin 校验、并发配置、心跳、快照核对、关闭、超时、历史事务 |

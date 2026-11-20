@@ -6,7 +6,7 @@
 using System.Runtime.Versioning;
 using System.Xml.Linq;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
+using System.CommandLine;
 using Orisumi.Cli;
 using Orisumi.Cli.Capture;
 using Orisumi.Dev;
@@ -205,35 +205,28 @@ async Task Workflow()
         "migration");
     Check(File.ReadAllLines(events).SequenceEqual(["prod stop"]), "migration failure prevents install and further capture changes");
 
-    var first = DateTimeOffset.UtcNow.AddMinutes(-10).ToUnixTimeMilliseconds();
-    WriteRuns("first", first, "old", 111, [first, first - 3_600_001]);
-    WriteRuns("second", first + 1, candidate, 222, [first + 1]);
-    using var report = new StringWriter();
-    await InstanceStatus.Write("prod", prod, report, default);
-    Check(report.ToString().Contains($"claude {candidate}") &&
-        report.ToString().Contains($"collector_version={candidate} confirmed_until_utc_ms=222 read_failures_last_hour=2"),
-        "status uses the latest run across databases and counts only recent failures");
+    var root = new RootCommand();
+    ReleaseCommands.AddTo(root);
+    var missing = Under("missing preview");
+    Check((await Status(preview.Root)).SequenceEqual([$"prod {latest}", $"preview {latest}"]),
+        "preview status delegates to each installed host in order");
+    Check((await Status(missing)).SequenceEqual([$"prod {latest}", $"preview: not installed ({missing})"]) &&
+        !Directory.Exists(missing), "preview status handles a missing host without creating the store");
     Console.WriteLine("PASS: dirty tree refusal, missing release, preview, exact promotion with migration and fallback, failure ordering and status");
 
-    void WriteRuns(string name, long started, string version, long confirmed, long[] failures)
+    async Task<string[]> Status(string previewRoot)
     {
-        Directory.CreateDirectory(prod.Observations("claude"));
-        using var db = new SqliteConnection($"Data Source={Path.Combine(prod.Observations("claude"), name + ".sqlite")};Pooling=False");
-        db.Open();
-        using var command = db.CreateCommand();
-        command.CommandText = """
-            CREATE TABLE capture_runs (run_id INTEGER PRIMARY KEY, started_at_utc_ms, collector_version, confirmed_until_utc_ms);
-            CREATE TABLE capture_read_failures (observed_at_utc_ms);
-            INSERT INTO capture_runs VALUES (1, $started, $version, $confirmed);
-            """;
-        command.Parameters.AddWithValue("$started", started);
-        command.Parameters.AddWithValue("$version", version);
-        command.Parameters.AddWithValue("$confirmed", confirmed);
-        command.ExecuteNonQuery();
-        command.Parameters.Clear();
-        command.CommandText = "INSERT INTO capture_read_failures VALUES ($time)";
-        var parameter = command.Parameters.AddWithValue("$time", 0L);
-        foreach (var failure in failures) { parameter.Value = failure; command.ExecuteNonQuery(); }
+        using var report = new StringWriter();
+        var previous = Console.Out;
+        try
+        {
+            Console.SetOut(report);
+            var code = await root.Parse(["preview", "status", "--prod", prod.Root, "--preview", previewRoot])
+                .InvokeAsync(new InvocationConfiguration { EnableDefaultExceptionHandler = false });
+            Check(code == 0, "preview status succeeds");
+        }
+        finally { Console.SetOut(previous); }
+        return report.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
     }
 }
 
@@ -307,6 +300,11 @@ async Task<string> Package(string path, string name, string version, string? aut
           else
             printf '{"name":"%s","version":"%s","arguments":["capture"]}\n' "$name" "$version"
           fi
+          exit
+        fi
+        if [ "$1" = capture ] && [ "$2" = status ]; then
+          [ "$name" = host ] && [ "$#" = 4 ] && [ "$3" = --store ] && [ -f "$4/instance.json" ]
+          printf '%s %s\n' "${4##*/}" "$(cat "$dir/version")"
           exit
         fi
         [ "$name" = host ] && [ "$1" = --store ]

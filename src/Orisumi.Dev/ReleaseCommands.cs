@@ -31,7 +31,18 @@ internal static class ReleaseCommands
         status.SetAction(async (result, token) =>
         {
             foreach (var (name, option) in new[] { ("prod", prod), ("preview", preview) })
-                await InstanceStatus.Write(name, new Store(result.GetRequiredValue(option)), Console.Out, token);
+            {
+                var store = new Store(result.GetRequiredValue(option));
+                var host = store.HostExecutable;
+                if (!File.Exists(host))
+                {
+                    Console.WriteLine($"{name}: not installed ({store.Root})");
+                    continue;
+                }
+                var code = await RunProcess.Run(host, ["capture", "status", "--store", store.Root], Console.Out, token);
+                token.ThrowIfCancellationRequested();
+                if (code != 0) throw new IOException($"Capture status: {host} exited with code {code}");
+            }
         });
         root.Add(new Command("preview", "管理预览实例。") { start, stop, status });
 

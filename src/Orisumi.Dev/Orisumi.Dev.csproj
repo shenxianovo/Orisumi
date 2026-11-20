@@ -14,7 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../Orisumi.Platform/Orisumi.Platform.csproj" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="System.CommandLine" Version="3.0.0" />
     <InternalsVisibleTo Include="InstanceChecks" />

@@ -1,7 +1,6 @@
 using System.CommandLine;
 using System.ComponentModel;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Orisumi.Dev;
 using Orisumi.Platform;
 
@@ -46,7 +45,7 @@ catch (OperationCanceledException)
     return 130;
 }
 catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or
-    InvalidDataException or JsonException or Win32Exception or SqliteException)
+    InvalidDataException or JsonException or Win32Exception)
 {
     Console.Error.WriteLine($"orisumi-dev: {error.Message}");
     return error is ArgumentException ? 2 : 1;

@@ -23,6 +23,7 @@
     <PackageReference Include="System.CommandLine" Version="3.0.0" />
     <InternalsVisibleTo Include="InstanceChecks" />
     <InternalsVisibleTo Include="CaptureStartupChecks" />
+    <InternalsVisibleTo Include="CaptureStatusChecks" />
     <InternalsVisibleTo Include="CaptureCoverageChecks" />
     <InternalsVisibleTo Include="ExportChecks" />
     <InternalsVisibleTo Include="SchemaChecks" />

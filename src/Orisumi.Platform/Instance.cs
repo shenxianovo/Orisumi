@@ -67,10 +67,13 @@ public sealed class Instance
 
     public static string DefaultRoot() => Resolve(AppContext.BaseDirectory).Store.Root;
 
-    public static Instance Resolve(string baseDirectory)
+    public static Instance Resolve(string baseDirectory) => Resolve(baseDirectory, createDevelopment: true);
+
+    internal static Instance Resolve(string baseDirectory, bool createDevelopment)
     {
         if (Find(baseDirectory) is { } instance) return instance;
-        if (FindCheckout(baseDirectory) is { } checkout) return Development(checkout);
+        if (FindCheckout(baseDirectory) is { } checkout)
+            return createDevelopment ? Development(checkout) : Open(DevelopmentRoot(checkout));
         throw new DirectoryNotFoundException("找不到 instance.json 或 Orisumi.slnx。请使用 --store 指定存储目录。");
     }
 
@@ -86,8 +89,10 @@ public sealed class Instance
     {
         var folder = new DirectoryInfo(checkout).Name.ToLowerInvariant();
         var name = "dev_" + string.Concat(folder.Select(character => IsNameCharacter(character) ? character : '_'));
-        return Create(Path.Combine(checkout, ".local", "store"), name);
+        return Create(DevelopmentRoot(checkout), name);
     }
+
+    private static string DevelopmentRoot(string checkout) => Path.Combine(checkout, ".local", "store");
 
     internal static bool IsName(string name) => name.Length > 0 && name.All(IsNameCharacter);
     private static bool IsNameCharacter(char character) => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_';
