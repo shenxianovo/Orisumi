@@ -3,146 +3,104 @@ import SwiftUI
 
 struct SourceDetail: View {
     let collector: Collector
+    let status: CaptureStatus
     let channels: [Channel]
     let store: URL
-    let now: Date
-    @State private var selectedFailure: Int?
+
+    private var now: Date { status.generatedAt }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(collector.displayName).font(.largeTitle.bold())
-                    Spacer()
+        Form {
+            Section {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(collector.displayName).font(.title2.weight(.semibold))
+                        HStack(spacing: 6) {
+                            StatusDot(color: collector.stateColor)
+                            Text(collector.sentence(now: now)).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 12)
                     Button("Show Log", systemImage: "doc.text", action: openLogs)
                         .disabled(logs.isEmpty)
+                        .help(logs.isEmpty ? "No log files yet" : logs.map(\.lastPathComponent).joined(separator: ", "))
                     Button("Reveal Database", systemImage: "folder") {
                         NSWorkspace.shared.activateFileViewerSelecting([database])
                     }
                     .disabled(!FileManager.default.fileExists(atPath: database.path))
                 }
-                section("Status") { statusGrid }
-                section("Channels") { channelsTable }
-                section("Recent runs") { runsTable }
-                section("Recent read failures") { failuresTable }
+                .padding(.vertical, 4)
             }
-            .padding(24)
-        }
-    }
 
-    private var statusGrid: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 18, verticalSpacing: 8) {
-            GridRow {
-                field("State")
-                VStack(alignment: .leading, spacing: 4) {
-                    Label {
-                        Text(collector.health.title)
-                    } icon: {
-                        Image(systemName: "circle.fill").font(.system(size: 7))
-                            .foregroundStyle(collector.stateColor)
-                    }
-                    if !collector.problemLabels.isEmpty {
-                        Text(collector.problemLabels.joined(separator: " · ")).foregroundStyle(.secondary)
+            if collector.problems.count > 1 {
+                Section("Needs Attention") {
+                    ForEach(Array(zip(collector.problems, collector.problemSentences(now: now))), id: \.0) { problem, sentence in
+                        let severe = problem == "not_running" || problem == "run_failed"
+                        Label {
+                            Text(sentence).textSelection(.enabled)
+                        } icon: {
+                            Image(systemName: severe ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(severe ? Color.red : Color.orange)
+                        }
                     }
                 }
             }
-            GridRow { field("Agent"); Text(collector.agent?.displayState ?? "—") }
-            GridRow {
-                field("Version")
-                Text(shortVersion(collector.version)).help(collector.version ?? "").textSelection(.enabled)
+
+            Section("Status") {
+                LabeledContent("Agent") { Text(collector.agentText).textSelection(.enabled) }
+                LabeledContent("Version") {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(shortVersion(collector.version)).textSelection(.enabled).help(collector.version ?? "")
+                        if status.versionDiffers(collector) {
+                            Text("Host runs \(shortVersion(status.hostVersion))").font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                }
+                LabeledContent("Current run") { Text(currentRun) }
+                if let confirmed = collector.run?.confirmed, collector.run?.isOpen == true {
+                    LabeledContent("Last confirmed") {
+                        Text(relativeDate(confirmed, to: now)).help(absoluteDate(confirmed))
+                    }
+                }
+                LabeledContent("Read failures in the last hour") {
+                    Text((collector.readFailuresLastHour ?? 0).formatted())
+                }
             }
-            GridRow { field("Current run start"); Text(absoluteDate(collector.run?.started)) }
-            GridRow {
-                field("Last confirmed")
-                if let confirmed = collector.run?.confirmed {
-                    Text("\(relativeDate(confirmed, to: now)) · \(absoluteDate(confirmed))")
+
+            Section("Channels") {
+                if channels.isEmpty {
+                    Text("No channel changes recorded today").foregroundStyle(.secondary)
                 } else {
-                    Text("—")
+                    ForEach(channels) { ChannelRow(channel: $0) }
+                }
+            }
+
+            Section("Recent Runs") {
+                if collector.recentRuns.isEmpty {
+                    Text("No runs yet").foregroundStyle(.secondary)
+                } else {
+                    ForEach(collector.recentRuns) { RunRow(run: $0, now: now) }
+                }
+            }
+
+            Section("Recent Read Failures") {
+                if collector.recentReadFailures.isEmpty {
+                    Text("No read failures").foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(collector.recentReadFailures.enumerated()), id: \.offset) { _, failure in
+                        FailureRow(failure: failure, now: now)
+                    }
                 }
             }
         }
+        .formStyle(.grouped)
     }
 
-    @ViewBuilder
-    private var channelsTable: some View {
-        if channels.isEmpty {
-            empty("No channel evidence for today")
-        } else {
-            Table(channels) {
-                TableColumn("Channel", value: \.name)
-                TableColumn("Status") { channel in
-                    Text(channel.status).foregroundStyle(channel.unavailable ? Color.orange : Color.primary)
-                }
-                TableColumn("Method") { Text(words($0.method).capitalized) }
-                TableColumn("Detail") { Text($0.detail ?? "—").help($0.detail ?? "") }
-            }
-            .frame(height: tableHeight(channels.count))
-        }
-    }
-
-    @ViewBuilder
-    private var runsTable: some View {
-        let runs = collector.recentRuns
-        if !runs.isEmpty {
-            Table(runs) {
-                TableColumn("Started") { tableDate($0.started).help(absoluteDate($0.started)) }
-                TableColumn("Ended") { tableDate($0.stopped).help(absoluteDate($0.stopped)) }
-                TableColumn("Duration") { run in
-                    Text(duration(run)).monospacedDigit()
-                }
-                .width(72)
-                TableColumn("Stop reason") { Text($0.stopReason.map { words($0).capitalized } ?? "—") }
-                TableColumn("Error") { Text($0.error ?? "—").help($0.error ?? "") }
-                TableColumn("Version") { Text(shortVersion($0.collectorVersion)).monospacedDigit() }
-            }
-            .frame(height: tableHeight(runs.count))
-        } else {
-            empty("No recent runs")
-        }
-    }
-
-    @ViewBuilder
-    private var failuresTable: some View {
-        let failures = collector.recentReadFailures
-        if !failures.isEmpty {
-            Table(Array(failures.enumerated()).map(FailureRow.init), selection: $selectedFailure) {
-                TableColumn("Time") { tableDate($0.failure.observed).help(absoluteDate($0.failure.observed)) }
-                    .width(min: 100, ideal: 115, max: 170)
-                TableColumn("Scope") { Text($0.failure.scope ?? "—") }
-                    .width(min: 90, ideal: 100, max: 140)
-                TableColumn("Error") { Text($0.failure.error).textSelection(.enabled).help($0.failure.error) }
-            }
-            .frame(height: tableHeight(failures.count))
-            if let selectedFailure, failures.indices.contains(selectedFailure) {
-                Text(failures[selectedFailure].error)
-                    .textSelection(.enabled)
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            empty("No recent read failures")
-        }
-    }
-
-    private func field(_ title: String) -> some View { Text(title).foregroundStyle(.secondary) }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.title2.bold())
-            content()
-        }
-    }
-
-    private func empty(_ message: String) -> some View { Text(message).foregroundStyle(.secondary) }
-
-    private func tableHeight(_ rows: Int) -> CGFloat { CGFloat(min(rows, 6)) * 25 + 30 }
-
-    private func duration(_ run: Run) -> String {
-        guard let end = run.stopped ?? run.confirmed, end >= run.started else { return "—" }
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = [.day, .hour, .minute, .second]
-        formatter.unitsStyle = .abbreviated
-        formatter.maximumUnitCount = 2
-        return formatter.string(from: run.started, to: end) ?? "—"
+    private var currentRun: String {
+        guard let run = collector.run else { return "No runs yet" }
+        if run.isOpen { return "Started \(timeText(run.started, now: now)) · \(run.durationText(now: now))" }
+        let reason = run.stopReason.map(humanized) ?? "Ended"
+        return "None · last ended \(timeText(run.stopped!, now: now)) (\(reason.lowercased()))"
     }
 
     private var database: URL {
@@ -161,11 +119,89 @@ struct SourceDetail: View {
     }
 }
 
-private struct FailureRow: Identifiable {
-    let id: Int
-    let failure: ReadFailure
+private struct ChannelRow: View {
+    let channel: Channel
 
-    init(_ entry: (Int, ReadFailure)) {
-        (id, failure) = entry
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(channel.name)
+                Text(channel.method).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Text(trailing)
+                .foregroundStyle(channel.unavailable ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var available: Bool { channel.status == "Available" }
+    private var symbol: String {
+        channel.unavailable ? "exclamationmark.triangle.fill" : available ? "checkmark.circle.fill" : "minus.circle"
+    }
+    private var color: Color { channel.unavailable ? .orange : available ? .green : .secondary }
+    private var trailing: String {
+        if let detail = channel.detail { return channel.unavailable || available ? detail : "\(channel.status) · \(detail)" }
+        return channel.status
+    }
+}
+
+private struct RunRow: View {
+    let run: Run
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(run.spanText(now: now)).monospacedDigit()
+                Text(run.durationText(now: now)).foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(state).foregroundStyle(stateStyle)
+            }
+            if let error = run.error {
+                Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+            }
+        }
+        .help("Run \(run.runId) · \(run.collectorVersion ?? "unknown version")")
+        .accessibilityElement(children: .combine)
+    }
+
+    private var state: String {
+        run.isOpen ? "Running" : run.stopReason.map(humanized) ?? "Ended"
+    }
+
+    private var stateStyle: AnyShapeStyle {
+        if run.isOpen { return AnyShapeStyle(Color.accentColor) }
+        return run.stopReason == "failed" ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary)
+    }
+}
+
+private struct FailureRow: View {
+    let failure: ReadFailure
+    let now: Date
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(timeText(failure.observed, now: now))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 64, alignment: .leading)
+                .help(absoluteDate(failure.observed))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(failure.error)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                if let scope = failure.scope {
+                    Text(humanized(scope)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }

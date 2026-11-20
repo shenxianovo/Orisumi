@@ -23,9 +23,14 @@ struct OrisumiApp: App {
         MenuBarExtra {
             AppMenu(model: model)
         } label: {
-            Image(systemName: model.health.symbol)
-                .renderingMode(.template)
-                .accessibilityLabel(Text(model.health.title))
+            Group {
+                if let icon = MenuBarIcon.image(for: model.health) {
+                    Image(nsImage: icon)
+                } else {
+                    Image(systemName: model.health.symbol).renderingMode(.template)
+                }
+            }
+            .accessibilityLabel(Text(model.status?.headline ?? model.health.title))
         }
         .menuBarExtraStyle(.menu)
     }
@@ -60,10 +65,10 @@ private struct AppMenu: View {
     let model: AppModel
 
     var body: some View {
-        Text(model.status?.summary ?? Health.unavailable.title)
+        Text(model.status?.headline ?? "Can't read Orisumi's status")
         if let status = model.status {
             ForEach(status.collectors) { collector in
-                Text("\(collector.displayName) — \(collector.menuState(now: status.generatedAt))")
+                Text("\(collector.displayName) — \(collector.sentence(now: status.generatedAt))")
             }
         }
         Divider()

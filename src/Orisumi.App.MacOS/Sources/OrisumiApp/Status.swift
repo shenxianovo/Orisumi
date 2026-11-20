@@ -42,12 +42,6 @@ struct CaptureStatus: Decodable {
     var generatedAt: Date { date(milliseconds: generatedAtUtcMs) }
 
     var anyLoaded: Bool { collectors.contains { $0.agent?.loaded == true } }
-
-    var summary: String {
-        guard health == .ok else { return health.title }
-        let count = collectors.count
-        return "Capturing · \(count) \(count == 1 ? "source" : "sources")"
-    }
 }
 
 struct Collector: Decodable, Identifiable {
@@ -72,37 +66,6 @@ struct Collector: Decodable, Identifiable {
         default: name.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
-
-    var problemLabels: [String] {
-        problems.map {
-            switch $0 {
-            case "not_installed": "Not installed"
-            case "not_loaded": "Not loaded"
-            case "not_running": "Not running"
-            case "run_failed": "Run failed"
-            case "stale": "Confirmation is stale"
-            default: words($0).capitalized
-            }
-        }
-    }
-
-    var stateLabel: String {
-        if health == .stopped { return "Stopped" }
-        if let problem = problemLabels.first { return problem }
-        return health.title
-    }
-
-    var stateColor: Color {
-        if problems.contains(where: { $0 == "run_failed" || $0 == "not_running" }) { return .red }
-        return health.color
-    }
-
-    func menuState(now: Date) -> String {
-        if health == .ok, let confirmed = run?.confirmed {
-            return "confirmed \(relativeDate(confirmed, to: now))"
-        }
-        return stateLabel.prefix(1).lowercased() + String(stateLabel.dropFirst())
-    }
 }
 
 struct Agent: Decodable {
@@ -111,13 +74,6 @@ struct Agent: Decodable {
     let lastExitCode: ExitCode?
 
     var loaded: Bool { state != "not_loaded" }
-
-    var displayState: String {
-        let label = words(state).capitalized
-        if let pid { return "\(label) (PID \(pid))" }
-        if let lastExitCode { return "\(label) (last exit \(lastExitCode.value))" }
-        return label
-    }
 }
 
 struct ExitCode: Decodable {
@@ -161,37 +117,4 @@ struct ReadFailure: Decodable {
 
 func date(milliseconds: Int64) -> Date {
     Date(timeIntervalSince1970: Double(milliseconds) / 1000)
-}
-
-func relativeDate(_ date: Date, to now: Date) -> String {
-    guard now.timeIntervalSince(date) >= 1 else { return "now" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .abbreviated
-    return formatter.localizedString(for: date, relativeTo: now)
-}
-
-func absoluteDate(_ date: Date?) -> String {
-    date?.formatted(date: .abbreviated, time: .shortened) ?? "—"
-}
-
-func tableDate(_ date: Date?) -> Text {
-    guard let date else { return Text("—") }
-    let calendar = Calendar.current
-    if calendar.isDateInToday(date) { return Text(date.formatted(date: .omitted, time: .shortened)) }
-    if calendar.isDate(date, equalTo: .now, toGranularity: .year) {
-        return Text(date.formatted(.dateTime.month().day().hour().minute()))
-    }
-    return Text(date.formatted(date: .numeric, time: .shortened))
-}
-
-func shortVersion(_ version: String?) -> String {
-    guard let version else { return "—" }
-    guard let separator = version.lastIndex(of: "+") else { return version }
-    let revision = version[version.index(after: separator)...]
-    guard revision.allSatisfy(\.isHexDigit) else { return version }
-    return String(version[...separator]) + revision.prefix(7)
-}
-
-func words(_ value: String) -> String {
-    value.replacingOccurrences(of: "_", with: " ")
 }

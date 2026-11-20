@@ -33,6 +33,16 @@ final class AppModel {
         }
     }
 
+    /// A model with fixed data, for SwiftUI previews and snapshot tests.
+    static func preview(status: CaptureStatus?, coverage: Coverage?, error: String? = nil) -> AppModel {
+        // Without a CLI the model never polls, so the fixed data stays.
+        let model = AppModel(arguments: ["--preview"], bundle: URL(fileURLWithPath: "/"))
+        model.status = status
+        model.coverage = coverage
+        model.statusError = error
+        return model
+    }
+
     var health: Health { status?.health ?? .unavailable }
     var hasLoadedCollectors: Bool { status?.anyLoaded == true }
     var startTitle: String { hasLoadedCollectors ? "Restart Capture" : "Start Capture" }

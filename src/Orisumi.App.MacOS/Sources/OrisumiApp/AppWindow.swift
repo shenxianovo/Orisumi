@@ -13,29 +13,49 @@ struct AppWindow: View {
     @Bindable var model: AppModel
     let startsInMenuBar: Bool
 
+    init(model: AppModel, startsInMenuBar: Bool, initialSelection source: String? = nil) {
+        self.model = model
+        self.startsInMenuBar = startsInMenuBar
+        _selection = State(initialValue: source.map(Screen.source) ?? .overview)
+    }
+
     var body: some View {
         Group {
             if let error = model.queryError {
                 ContentUnavailableView {
-                    Label("Status unavailable", systemImage: Health.unavailable.symbol)
+                    Label {
+                        Text("Can't Read Orisumi's Status")
+                    } icon: {
+                        AppIconView(size: 72).grayscale(1).opacity(0.6)
+                    }
                 } description: {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 6) {
                         Text(error)
-                        if let path = model.cliPath { Text(path).font(.caption) }
+                        if let path = model.cliPath {
+                            Text(path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
                     }
                     .textSelection(.enabled)
+                } actions: {
+                    Button("Try Again") { Task { await model.refresh() } }
+                        .disabled(model.busy)
                 }
             } else if let status = model.status {
                 if status.collectors.isEmpty {
-                    ContentUnavailableView("No collectors installed", systemImage: "tray")
+                    ContentUnavailableView {
+                        Label { Text("No Sources Installed") } icon: { AppIconView(size: 72) }
+                    } description: {
+                        Text("Deploy Orisumi with `orisumi-dev deploy`, then start capture.")
+                    }
                 } else {
                     splitView(status)
                 }
             } else {
-                ProgressView("Loading capture status…")
+                ProgressView("Reading capture status…")
             }
         }
         .frame(minWidth: 820, minHeight: 520)
+        .navigationSubtitle(model.status?.instance ?? "")
         .toolbar { toolbar }
         .background(WindowReference { attached in
             guard window.value !== attached else { return }
@@ -93,19 +113,18 @@ struct AppWindow: View {
                         Label {
                             Text(collector.displayName)
                         } icon: {
-                            Image(systemName: "circle.fill")
-                                .font(.system(size: 7))
-                                .foregroundStyle(collector.stateColor)
+                            StatusDot(color: collector.stateColor)
                         }
-                        .accessibilityValue(collector.stateLabel)
+                        .accessibilityValue(collector.sentence(now: status.generatedAt))
                         .tag(Screen.source(collector.id))
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 155, ideal: 175, max: 225)
+            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 230)
         } detail: {
             if case .source(let id) = selection, let collector = status.collectors.first(where: { $0.id == id }) {
-                SourceDetail(collector: collector, channels: model.coverage?.channels(for: id) ?? [], store: storeURL(status), now: status.generatedAt)
+                SourceDetail(collector: collector, status: status, channels: model.coverage?.channels(for: id) ?? [],
+                             store: storeURL(status))
                     .id(id)
             } else {
                 Overview(status: status, coverage: model.coverage) { selection = .source($0) }

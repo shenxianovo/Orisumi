@@ -8,7 +8,7 @@ final class AppTests: XCTestCase {
         XCTAssertEqual(status.instance, "app_fixture")
         XCTAssertEqual(status.health, .attention)
         XCTAssertTrue(status.anyLoaded)
-        XCTAssertEqual(shortVersion(status.hostVersion), "0.1.0+321c68f")
+        XCTAssertEqual(shortVersion(status.hostVersion), "0.1.0 (321c68f)")
         XCTAssertEqual(status.collectors.map(\.displayName), ["Browser", "Claude Code", "Codex", "macOS"])
         XCTAssertEqual(status.collectors[0].agent?.lastExitCode?.value, "terminated by signal")
         XCTAssertNil(status.collectors[2].agent?.lastExitCode)
@@ -38,7 +38,7 @@ final class AppTests: XCTestCase {
         let collector = try XCTUnwrap(status.collectors.last)
         let confirmed = try XCTUnwrap(collector.run?.confirmed)
         XCTAssertGreaterThan(confirmed, status.generatedAt)
-        XCTAssertEqual(collector.menuState(now: status.generatedAt), "confirmed now")
+        XCTAssertEqual(collector.sentence(now: status.generatedAt), "Confirmed now")
         XCTAssertEqual(relativeDate(status.generatedAt, to: status.generatedAt), "now")
     }
 
@@ -73,9 +73,9 @@ final class AppTests: XCTestCase {
 
         let channels = coverage.channels(for: "macos")
         XCTAssertEqual(channels.map(\.name), ["Input", "Microphone", "Windows"])
-        XCTAssertEqual(channels.first?.detail, "permission_denied")
+        XCTAssertEqual(channels.first?.detail, "Permission denied")
         XCTAssertEqual(channels.last?.status, "Available")
-        XCTAssertEqual(channels.last?.method, "snapshot")
+        XCTAssertEqual(channels.last?.method, "Snapshot")
     }
 
     func testInstalledDiscoveryResolvesApplicationSymlinkAndHonorsOverrides() throws {
@@ -115,4 +115,43 @@ final class AppTests: XCTestCase {
         let url = try XCTUnwrap(Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures"))
         return try Data(contentsOf: url)
     }
+
+    func testHeadlines() throws {
+        let status: CaptureStatus = try fixture("status")
+        XCTAssertEqual(status.headline, "Browser needs attention")
+        XCTAssertEqual(try withHealth(status, ["ok", "ok", "ok", "ok"]).headline, "All 4 sources capturing")
+        XCTAssertEqual(try withHealth(status, ["stopped", "stopped", "stopped", "stopped"]).headline, "Capture stopped")
+        XCTAssertEqual(try withHealth(status, ["ok", "stopped", "ok", "ok"]).headline, "Claude Code stopped")
+        XCTAssertEqual(try withHealth(status, ["stopped", "stopped", "ok", "ok"]).headline, "2 of 4 sources stopped")
+        XCTAssertEqual(try withHealth(status, ["attention", "stopped", "ok", "ok"]).headline, "2 sources need attention")
+    }
+
+    func testSentences() throws {
+        let status: CaptureStatus = try fixture("status")
+        let browser = status.collectors[0]
+        XCTAssertEqual(browser.problemSentences(now: status.generatedAt),
+                       ["Not running · terminated by signal", "Last run failed: Browser connection ended unexpectedly."])
+        XCTAssertEqual(browser.sentence(now: status.generatedAt), "Not running · terminated by signal")
+        XCTAssertEqual(browser.agentText, "Restarting · terminated by signal")
+        XCTAssertEqual(exitText(try decodeExit("1")), "exited with code 1")
+        XCTAssertEqual(humanized("permission_denied"), "Permission denied")
+        XCTAssertEqual(humanized("some_new_code"), "Some new code")
+        XCTAssertFalse(status.versionDiffers(status.collectors[3]))
+    }
+
+    private func withHealth(_ status: CaptureStatus, _ health: [String]) throws -> CaptureStatus {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: fixtureData("status")) as? [String: Any])
+        json["collectors"] = try XCTUnwrap(json["collectors"] as? [[String: Any]]).enumerated().map { index, collector in
+            var collector = collector
+            collector["health"] = health[index]
+            collector["problems"] = health[index] == "ok" ? [] : health[index] == "stopped" ? ["not_loaded"] : ["stale"]
+            return collector
+        }
+        return try decodeStatus(json)
+    }
+
+    private func decodeExit(_ number: String) throws -> ExitCode {
+        try JSONDecoder().decode(ExitCode.self, from: Data(number.utf8))
+    }
+
 }

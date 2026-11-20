@@ -29,8 +29,8 @@ struct Coverage: Decodable {
             let sorted = history.sorted { $0.started > $1.started }
             guard let latest = sorted.first else { return nil }
             let availability = sorted.first { $0.evidence != "method_selected" && $0.runId == latest.runId }
-            return Channel(id: latest.channelID, name: latest.channelName, method: latest.mode,
-                           status: availability?.channelStatus ?? "Method selected", detail: availability?.detail,
+            return Channel(id: latest.channelID, name: latest.channelName, method: humanized(latest.mode),
+                           status: availability?.channelStatus ?? "Method selected", detail: availability?.detail.map(humanized),
                            unavailable: availability?.channelStatus == "Unavailable")
         }.sorted {
             if $0.unavailable != $1.unavailable { return $0.unavailable }
@@ -72,9 +72,9 @@ struct Evidence: Decodable {
     var channelID: String { [browser, profileId, scope].compactMap { $0 }.joined(separator: "/") }
 
     var channelName: String {
-        let name = words(scope).capitalized
+        let name = humanized(scope)
         guard let profileId else { return name }
-        let profile = "Profile \(profileId)"
+        let profile = "Profile \(profileId.prefix(8))"
         return scope == "browser" ? profile : "\(name) · \(profile)"
     }
 
@@ -83,7 +83,7 @@ struct Evidence: Decodable {
         case "snapshot_timeout": stopped == nil ? "Unavailable" : "Snapshot timeout"
         case "unconfirmed": "Available"
         case "completed", "failed": "Unavailable"
-        default: words(evidence).capitalized
+        default: humanized(evidence)
         }
     }
 }

@@ -48,7 +48,7 @@ Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进
 
 ## GUI
 
-菜单栏图标显示整体健康；窗口里有今天各来源的运行时段、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `orisumi capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
+菜单栏图标是吉祥物：彩色表示都在采集，带黄点表示有来源需要注意，变灰表示已停止或读不到状态；窗口里有今天各来源的运行时段、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `orisumi capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
 
 开发时不用部署：
 
@@ -57,3 +57,5 @@ swift run --package-path src/Orisumi.App.MacOS OrisumiApp --cli "$(command -v or
 ```
 
 `--cli`、`--store` 指定要读的宿主和实例；Windows 的 GUI 以后读同一份 JSON。
+
+改界面时用 `ORISUMI_SNAPSHOTS=<目录> swift test --package-path src/Orisumi.App.MacOS --filter SnapshotTests` 把窗口（浅色、深色）和菜单栏图标渲染成 PNG 来看；不设这个变量时这组测试跳过。离屏渲染画不出侧栏和工具栏的材质。图标原图在仓库根目录 `assets/`，app 图标由 `src/Orisumi.App.MacOS/Icon/AppIcon.png` 在部署时生成。
