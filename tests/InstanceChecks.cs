@@ -270,6 +270,7 @@ async Task Deployment()
             File.ReadAllText(Path.Combine(prod.Collector("claude"), "version")) == version &&
             Directory.GetDirectories(prod.Collectors).Length == 1, "collector selection also installs the signed host");
         await CheckHost(prod);
+        await CheckAppIcon(prod);
         Check(File.ReadAllLines(events).SequenceEqual(["install", "start"]), "temporary host installs before installed host starts");
 
         Check(await Invoke("deploy", "--prod", all.Root) == 0, "deploy all components");
@@ -318,6 +319,31 @@ async Task Deployment()
                 default, errors: signature) == 0 && signature.ToString().Split('\n').Contains($"Authority={HostBundle.Authority}"),
                 $"the bundle also contains a signed {Path.GetFileName(executable)}");
         }
+    }
+
+    async Task CheckAppIcon(Store store)
+    {
+        var contents = Path.Combine(store.Host, HostBundle.Name, "Contents");
+        var fields = PlistFields(Path.Combine(contents, "Info.plist"));
+        Check(fields["CFBundleIconFile"].Value == "AppIcon.icns", "Info.plist points to the bundled app icon");
+        var iconset = Under("deployed.iconset");
+        var icon = Path.Combine(contents, "Resources", "AppIcon.icns");
+        Check(await RunProcess.Run("/usr/bin/iconutil", ["-c", "iconset", icon, "-o", iconset], null, default) == 0,
+            "extract the signed bundle's icon");
+        foreach (var points in new[] { 16, 32, 128, 256, 512 })
+        {
+            foreach (var scale in new[] { 1, 2 })
+            {
+                var name = $"icon_{points}x{points}{(scale == 2 ? "@2x" : "")}.png";
+                using var dimensions = new StringWriter();
+                Check(await RunProcess.Run("/usr/bin/sips",
+                    ["-g", "pixelWidth", "-g", "pixelHeight", Path.Combine(iconset, name)], dimensions, default) == 0 &&
+                    dimensions.ToString().Split('\n').Select(line => line.Trim()).Intersect(
+                        [$"pixelWidth: {points * scale}", $"pixelHeight: {points * scale}"]).Count() == 2,
+                    $"deployed icon includes {name} at {points * scale} pixels square");
+            }
+        }
+        Console.WriteLine("PASS: signed host app icon, CFBundleIconFile and all ten standard 1x/2x icon sizes");
     }
 
     Task<int> Invoke(params string[] arguments) => root.Parse(arguments)

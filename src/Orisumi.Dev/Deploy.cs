@@ -8,6 +8,7 @@ namespace Orisumi.Dev;
 internal static partial class Deploy
 {
     private const string CollectorPrefix = "Orisumi.Collectors.";
+    internal const string AppIconMaster = "src/Orisumi.App.MacOS/Icon/AppIcon.png";
 
     internal static void AddTo(RootCommand root, string dotnet)
     {
@@ -94,6 +95,7 @@ internal static partial class Deploy
         if (component == "host")
         {
             await BuildApp(checkout, directory, token);
+            await BuildAppIcon(checkout, directory, token);
             await SignHost(directory, publish, projectVersion, version, token);
         }
         if (component == "browser")
@@ -135,6 +137,25 @@ internal static partial class Deploy
         File.Copy(Path.Combine(bin, HostBundle.AppExecutableName), HostBundle.AppExecutable(directory));
     }
 
+    private static async Task BuildAppIcon(string checkout, string directory, CancellationToken token)
+    {
+        var resources = Directory.CreateDirectory(Path.Combine(directory, HostBundle.Name, "Contents", "Resources"));
+        var iconset = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(directory)!, "AppIcon.iconset"));
+        var master = Path.Combine(checkout, AppIconMaster);
+        foreach (var points in new[] { 16, 32, 128, 256, 512 })
+        {
+            foreach (var scale in new[] { 1, 2 })
+            {
+                var pixels = (points * scale).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var name = $"icon_{points}x{points}{(scale == 2 ? "@2x" : "")}.png";
+                await Query("/usr/bin/sips", checkout, token, "-z", pixels, pixels, master,
+                    "--out", Path.Combine(iconset.FullName, name));
+            }
+        }
+        await Query("/usr/bin/iconutil", checkout, token, "-c", "icns", iconset.FullName,
+            "-o", Path.Combine(resources.FullName, "AppIcon.icns"));
+    }
+
     private static async Task SignHost(string directory, string publish, string projectVersion, string version, CancellationToken token)
     {
         var bundle = Path.Combine(directory, HostBundle.Name);
@@ -145,6 +166,7 @@ internal static partial class Deploy
                 new XElement("key", "CFBundleName"), new XElement("string", "Orisumi"),
                 new XElement("key", "CFBundleDisplayName"), new XElement("string", "Orisumi"),
                 new XElement("key", "CFBundleExecutable"), new XElement("string", HostBundle.AppExecutableName),
+                new XElement("key", "CFBundleIconFile"), new XElement("string", "AppIcon.icns"),
                 new XElement("key", "CFBundlePackageType"), new XElement("string", "APPL"),
                 new XElement("key", "CFBundleShortVersionString"), new XElement("string", projectVersion),
                 new XElement("key", "CFBundleVersion"), new XElement("string", version),
