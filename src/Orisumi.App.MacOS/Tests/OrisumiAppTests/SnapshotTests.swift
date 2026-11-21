@@ -36,7 +36,16 @@ final class SnapshotTests: XCTestCase {
         }
         let coverage: Coverage = try decode(try shifted("coverage"))
 
-        for (name, status) in [("overview-ok", healthy), ("overview-attention", attention)] {
+        var stopped = attention
+        stopped["health"] = "stopped"
+        stopped["collectors"] = (attention["collectors"] as! [[String: Any]]).map { collector in
+            var collector = collector
+            collector["health"] = "stopped"
+            collector["problems"] = ["not_loaded"]
+            collector["agent"] = ["state": "not_loaded", "pid": NSNull(), "last_exit_code": NSNull()]
+            return collector
+        }
+        for (name, status) in [("overview-ok", healthy), ("overview-attention", attention), ("overview-stopped", stopped)] {
             let model = AppModel.preview(status: try decode(status), coverage: coverage)
             try render(AppWindow(model: model, startsInMenuBar: false), name: name)
         }
@@ -48,6 +57,24 @@ final class SnapshotTests: XCTestCase {
         let error = AppModel.preview(status: nil, coverage: nil,
                                      error: "The CLI exited with code 1: could not open the store.")
         try render(AppWindow(model: error, startsInMenuBar: false), name: "error", appearances: [.aqua])
+    }
+
+    /// Renders `status.json` and `coverage.json` saved from a real store, when ORISUMI_SNAPSHOT_DATA names their directory.
+    func testRealData() throws {
+        guard let path = ProcessInfo.processInfo.environment["ORISUMI_SNAPSHOT_DATA"] else {
+            throw XCTSkip("Set ORISUMI_SNAPSHOT_DATA to a directory with status.json and coverage.json.")
+        }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let status = try decoder.decode(CaptureStatus.self, from: Data(contentsOf: directory.appendingPathComponent("status.json")))
+        let coverage = try decoder.decode(Coverage.self, from: Data(contentsOf: directory.appendingPathComponent("coverage.json")))
+        let model = AppModel.preview(status: status, coverage: coverage)
+        try render(AppWindow(model: model, startsInMenuBar: false), name: "real-overview")
+        for collector in status.collectors {
+            try render(AppWindow(model: model, startsInMenuBar: false, initialSelection: collector.name),
+                       name: "real-\(collector.name)", size: NSSize(width: 940, height: 1300), appearances: [.aqua])
+        }
     }
 
     func testMenuBarIcon() throws {
@@ -108,15 +135,24 @@ final class SnapshotTests: XCTestCase {
             window.appearance = NSAppearance(named: appearance)
             window.contentView = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
             window.setFrame(NSRect(origin: .zero, size: size), display: true)
-            for _ in 0..<20 { RunLoop.main.run(until: .now.addingTimeInterval(0.05)) }
-            let content = try XCTUnwrap(window.contentView)
-            content.layoutSubtreeIfNeeded()
-            let bitmap = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
-            content.cacheDisplay(in: content.bounds, to: bitmap)
-            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            window.orderFrontRegardless()
+            for _ in 0..<30 { RunLoop.main.run(until: .now.addingTimeInterval(0.05)) }
+            let image = try XCTUnwrap(windowImage(window))
+            let data = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
             try data.write(to: directory.appendingPathComponent("\(name)-\(appearance == .aqua ? "light" : "dark").png"))
             window.close()
         }
+    }
+
+    /// A process may read its own windows without Screen Recording permission. The function is
+    /// obsoleted in the macOS 15 SDK but still exported, so it is looked up at run time.
+    private func windowImage(_ window: NSWindow) -> CGImage? {
+        typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        let create = unsafeBitCast(symbol, to: Create.self)
+        let options = CGWindowImageOption([.boundsIgnoreFraming, .bestResolution])
+        return create(.null, CGWindowListOption.optionIncludingWindow.rawValue, UInt32(window.windowNumber),
+                      options.rawValue)?.takeRetainedValue()
     }
 
     private func write(_ image: NSImage, scale: CGFloat, name: String) throws {

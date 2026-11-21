@@ -26,21 +26,72 @@ extension CaptureStatus {
         }
         return unhealthy.count == 1 ? "\(unhealthy[0].displayName) needs attention" : "\(unhealthy.count) sources need attention"
     }
+}
 
-    /// Collectors whose version differs from the host, which usually means a partial deploy.
-    func versionDiffers(_ collector: Collector) -> Bool {
-        guard let host = hostVersion, let version = collector.version else { return false }
-        return host != version
+/// How bad a source's state is, from its problems; decides its dot, symbol and colour everywhere.
+enum Severity: Comparable {
+    case ok, stopped, warning, failure
+
+    var color: Color {
+        switch self {
+        case .ok: .green
+        case .stopped: .secondary
+        case .warning: .orange
+        case .failure: .red
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .ok: "checkmark.circle.fill"
+        case .stopped: "pause.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .failure: "xmark.octagon.fill"
+        }
+    }
+}
+
+extension CaptureStatus {
+    var severity: Severity { collectors.map(\.severity).max() ?? .stopped }
+
+    /// The other version the collectors run, when they all differ from the host the same way.
+    /// `orisumi-dev deploy` can release the host alone, so this is information, not a problem.
+    var collectorVersionNote: String? {
+        let versions = Set(collectors.compactMap(\.version)).subtracting([hostVersion].compactMap { $0 })
+        guard !versions.isEmpty else { return nil }
+        return versions.count == 1 ? "collectors \(shortVersion(versions.first))" : "collectors on \(versions.count) other versions"
     }
 }
 
 extension Collector {
-    /// What the source is doing, in one short sentence ("Confirmed 3 s ago", "Not running · last exit 1").
-    func sentence(now: Date) -> String {
-        problemSentences(now: now).first ?? healthySentence(now: now)
+    var severity: Severity {
+        if problems.contains(where: { $0 == "run_failed" || $0 == "not_running" }) { return .failure }
+        if problems.isEmpty { return .ok }
+        return problems.allSatisfy { $0 == "not_loaded" } ? .stopped : .warning
     }
 
-    /// Every problem in words, for the attention callout.
+    /// What the source is doing in a few words, for its row and the menu ("Capturing", "Not running").
+    func summary(now: Date) -> String {
+        if let problem = problems.first {
+            switch problem {
+            case "not_loaded": return "Stopped"
+            case "not_installed": return "Not installed"
+            case "not_running": return "Not running"
+            case "run_failed": return "Last run failed"
+            case "stale":
+                guard let run else { return "No recent confirmation" }
+                return "No confirmation for \(elapsedText(from: run.confirmed ?? run.started, to: now))"
+            default: return humanized(problem)
+            }
+        }
+        guard let run, run.isOpen else {
+            // The browser has no open run while Chrome is closed; that is not a problem.
+            return name == "browser" ? "Waiting for Chrome" : "Idle"
+        }
+        return "Capturing"
+    }
+
+    /// Every problem in words, for the headline and the expanded row.
     func problemSentences(now: Date) -> [String] {
         problems.map { problem in
             switch problem {
@@ -58,25 +109,44 @@ extension Collector {
         }
     }
 
-    private func healthySentence(now: Date) -> String {
-        guard let run else { return "Running · no runs yet" }
-        if run.stopped == nil {
-            guard let confirmed = run.confirmed else { return "Started \(relativeDate(run.started, to: now))" }
-            return "Confirmed \(relativeDate(confirmed, to: now))"
+    /// Process and run facts for diagnosing, in one line.
+    func diagnostics(now: Date) -> String {
+        var parts = [agentText]
+        parts.append(shortVersion(version))
+        if let run {
+            if run.isOpen {
+                parts.append("run \(run.runId) since \(timeText(run.started, now: now))")
+                if let confirmed = run.confirmed { parts.append("confirmed \(relativeDate(confirmed, to: now))") }
+            } else if let stopped = run.stopped {
+                parts.append("last run ended \(timeText(stopped, now: now))")
+            }
         }
-        // The browser has no open run while Chrome is closed; that is not a problem.
-        return "Idle · last run ended \(relativeDate(run.stopped!, to: now))"
+        return parts.joined(separator: " · ")
     }
 
-    var stateColor: Color {
-        if problems.contains(where: { $0 == "run_failed" || $0 == "not_running" }) { return .red }
-        return health.color
+    /// Failed runs and read failures, newest first; a repeat of the one before it is counted, not listed again.
+    var recentIssues: [Issue] {
+        let runs = recentRuns.filter { $0.stopReason == "failed" }.map { run in
+            Issue(date: run.stopped ?? run.started, title: "Run failed", text: run.error ?? "No error recorded")
+        }
+        let reads = recentReadFailures.map { failure in
+            Issue(date: failure.observed, title: failure.scope.map(channelTitle) ?? "Read failed", text: failure.error)
+        }
+        var issues: [Issue] = []
+        for issue in (runs + reads).sorted(by: { $0.date > $1.date }) {
+            if let last = issues.last, last.title == issue.title, last.text == issue.text {
+                issues[issues.count - 1].count += 1
+            } else {
+                issues.append(issue)
+            }
+        }
+        return issues
     }
 
     var agentText: String {
         guard let agent else { return "—" }
         switch agent.state {
-        case "running": return agent.pid.map { "Running · PID \($0)" } ?? "Running"
+        case "running": return agent.pid.map { "PID \($0)" } ?? "Running"
         case "not_loaded": return "Not loaded"
         default:
             let state = humanized(agent.state)
@@ -85,22 +155,36 @@ extension Collector {
     }
 }
 
+struct Issue: Hashable {
+    /// The latest time it happened.
+    let date: Date
+    let title: String
+    let text: String
+    var count = 1
+}
+
+/// Order of channels in an expanded source: what you did first, then the devices around it.
+let channelOrder = ["applications", "windows", "window_title", "window_focus", "input", "afk",
+                    "audio_output", "microphone", "camera", "browser", "tabs", "history", "bookmarks", "downloads"]
+
+func channelTitle(_ scope: String) -> String {
+    let known = [
+        "applications": "Apps",
+        "windows": "Windows",
+        "window_title": "Window titles",
+        "window_focus": "Window focus",
+        "input": "Keyboard & mouse",
+        "afk": "Away from keyboard",
+        "audio_output": "Audio output",
+        "foreground": "Foreground",
+        "project_logs": "Project logs",
+        "rollout": "Session logs",
+    ]
+    return known[scope] ?? humanized(scope)
+}
+
 extension Run {
     var isOpen: Bool { stopped == nil }
-    var end: Date? { stopped ?? confirmed }
-
-    /// "13:29 – now", "Nov 19, 01:29 – 12:29"
-    func spanText(now: Date) -> String {
-        let start = timeText(started, now: now)
-        guard let stopped else { return "\(start) – now" }
-        let sameDay = Calendar.current.isDate(started, inSameDayAs: stopped)
-        return "\(start) – \(sameDay ? clockText(stopped) : timeText(stopped, now: now))"
-    }
-
-    func durationText(now: Date) -> String {
-        guard let end = stopped ?? confirmed.map({ max($0, now) }) ?? Optional(now), end >= started else { return "—" }
-        return elapsedText(from: started, to: end)
-    }
 }
 
 /// launchd reports a number or a phrase such as "terminated by signal".

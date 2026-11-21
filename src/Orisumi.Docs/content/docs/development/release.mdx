@@ -58,4 +58,4 @@ swift run --package-path src/Orisumi.App.MacOS OrisumiApp --cli "$(command -v or
 
 `--cli`、`--store` 指定要读的宿主和实例；Windows 的 GUI 以后读同一份 JSON。
 
-改界面时用 `ORISUMI_SNAPSHOTS=<目录> swift test --package-path src/Orisumi.App.MacOS --filter SnapshotTests` 把窗口（浅色、深色）和菜单栏图标渲染成 PNG 来看；不设这个变量时这组测试跳过。离屏渲染画不出侧栏和工具栏的材质。图标原图在仓库根目录 `assets/`，app 图标由 `src/Orisumi.App.MacOS/Icon/AppIcon.png` 在部署时生成。
+改界面时用 `ORISUMI_SNAPSHOTS=<目录> swift test --package-path src/Orisumi.App.MacOS --filter SnapshotTests` 把窗口（浅色、深色）和菜单栏图标渲染成 PNG 来看；不设这个变量时这组测试跳过。窗口会在屏幕上短暂出现，测试截的是它自己的窗口，不需要屏幕录制权限。再设 `ORISUMI_SNAPSHOT_DATA=<目录>` 会多渲染一组真实数据，目录里放 `orisumi capture status --json` 和 `orisumi capture coverage …` 的输出，分别存成 `status.json`、`coverage.json`。图标原图在仓库根目录 `assets/`，app 图标由 `src/Orisumi.App.MacOS/Icon/AppIcon.png` 在部署时生成。

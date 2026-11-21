@@ -10,7 +10,7 @@ struct OrisumiApp: App {
         Window("Orisumi", id: "main") {
             AppWindow(model: model, startsInMenuBar: delegate.startsInMenuBar)
         }
-        .defaultSize(width: 940, height: 610)
+        .defaultSize(width: 860, height: 600)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(after: .newItem) {
@@ -68,7 +68,7 @@ private struct AppMenu: View {
         Text(model.status?.headline ?? "Can't read Orisumi's status")
         if let status = model.status {
             ForEach(status.collectors) { collector in
-                Text("\(collector.displayName) — \(collector.sentence(now: status.generatedAt))")
+                Text("\(collector.displayName) — \(collector.summary(now: status.generatedAt))")
             }
         }
         Divider()

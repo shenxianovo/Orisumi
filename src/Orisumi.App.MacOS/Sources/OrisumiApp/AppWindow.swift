@@ -1,13 +1,9 @@
 import AppKit
 import SwiftUI
 
-private enum Screen: Hashable {
-    case overview
-    case source(String)
-}
-
 struct AppWindow: View {
-    @State private var selection: Screen? = .overview
+    /// Nil until the user opens or closes a row; until then the sources with problems are open, stopped ones aren't.
+    @State private var expanded: Set<String>?
     @State private var confirmingStop = false
     @State private var window = WindowIdentity()
     @Bindable var model: AppModel
@@ -16,7 +12,7 @@ struct AppWindow: View {
     init(model: AppModel, startsInMenuBar: Bool, initialSelection source: String? = nil) {
         self.model = model
         self.startsInMenuBar = startsInMenuBar
-        _selection = State(initialValue: source.map(Screen.source) ?? .overview)
+        _expanded = State(initialValue: source.map { [$0] })
     }
 
     var body: some View {
@@ -48,14 +44,18 @@ struct AppWindow: View {
                         Text("Deploy Orisumi with `orisumi-dev deploy`, then start capture.")
                     }
                 } else {
-                    splitView(status)
+                    Overview(status: status, coverage: model.coverage, expanded: Binding(
+                        get: { expanded ?? Set(status.collectors.filter { $0.severity > .stopped }.map(\.id)) },
+                        set: { expanded = $0 }
+                    ), busy: model.busy) {
+                        Task { await model.perform(.start) }
+                    }
                 }
             } else {
                 ProgressView("Reading capture status…")
             }
         }
-        .frame(minWidth: 820, minHeight: 520)
-        .navigationSubtitle(model.status?.instance ?? "")
+        .frame(minWidth: 680, minHeight: 440)
         .toolbar { toolbar }
         .background(WindowReference { attached in
             guard window.value !== attached else { return }
@@ -103,72 +103,24 @@ struct AppWindow: View {
         model.windowChanged(open: true, visible: !window.isMiniaturized)
     }
 
-    private func splitView(_ status: CaptureStatus) -> some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Label("Overview", systemImage: "square.grid.2x2")
-                    .tag(Screen.overview)
-                Section("Sources") {
-                    ForEach(status.collectors) { collector in
-                        Label {
-                            Text(collector.displayName)
-                        } icon: {
-                            StatusDot(color: collector.stateColor)
-                        }
-                        .accessibilityValue(collector.sentence(now: status.generatedAt))
-                        .tag(Screen.source(collector.id))
-                    }
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 230)
-        } detail: {
-            if case .source(let id) = selection, let collector = status.collectors.first(where: { $0.id == id }) {
-                SourceDetail(collector: collector, status: status, channels: model.coverage?.channels(for: id) ?? [],
-                             store: storeURL(status))
-                    .id(id)
-            } else {
-                Overview(status: status, coverage: model.coverage) { selection = .source($0) }
-            }
-        }
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button {
-                Task { await model.perform(.start) }
-            } label: {
-                Label(model.startTitle, systemImage: model.hasLoadedCollectors ? "arrow.triangle.2.circlepath" : "play.circle")
-            }
-            .help(model.startTitle)
-            .accessibilityLabel(model.startTitle)
-            .disabled(!model.mayStart)
-            Button {
-                confirmingStop = true
-            } label: {
-                Label("Stop Capture", systemImage: "stop.circle")
-            }
-            .help("Stop Capture")
-            .accessibilityLabel("Stop Capture")
-            .disabled(!model.mayStop)
-            Button {
-                if let status = model.status { NSWorkspace.shared.open(storeURL(status)) }
-            } label: {
-                Label("Open Store Folder", systemImage: "folder")
-            }
-            .help("Open Store Folder")
-            .accessibilityLabel("Open Store Folder")
-            .disabled(model.busy || model.status == nil)
             if model.busy {
                 ProgressView().controlSize(.small)
                     .help("Running capture command")
                     .accessibilityLabel("Running capture command")
             }
+            Menu {
+                Button(model.startTitle) { Task { await model.perform(.start) } }
+                    .disabled(!model.mayStart)
+                Button("Stop Capture…") { confirmingStop = true }
+                    .disabled(!model.mayStop)
+            } label: {
+                Label("Capture", systemImage: "ellipsis.circle")
+            }
+            .help("Start, restart or stop every collector")
         }
-    }
-
-    private func storeURL(_ status: CaptureStatus) -> URL {
-        URL(fileURLWithPath: status.store, isDirectory: true)
     }
 }
 

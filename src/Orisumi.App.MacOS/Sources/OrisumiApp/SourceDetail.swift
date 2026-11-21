@@ -1,107 +1,105 @@
 import AppKit
 import SwiftUI
 
+/// What opens under a source in Today: its channels on the same axis, what went wrong recently,
+/// and the process facts with the log and database a click away.
 struct SourceDetail: View {
     let collector: Collector
     let status: CaptureStatus
-    let channels: [Channel]
-    let store: URL
+    let day: DateInterval
+    let lanes: [Lane]
 
     private var now: Date { status.generatedAt }
+    private let indent: CGFloat = 30
 
     var body: some View {
-        Form {
-            Section {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(collector.displayName).font(.title2.weight(.semibold))
-                        HStack(spacing: 6) {
-                            StatusDot(color: collector.stateColor)
-                            Text(collector.sentence(now: now)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            if !lanes.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(lanes) { lane in
+                        HStack(spacing: 12) {
+                            Text(lane.name)
+                                .font(.callout)
+                                .foregroundStyle(lane.currentProblem != nil && collector.severity == .ok
+                                                 ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                                .lineLimit(1)
+                                .frame(width: Overview.labelWidth - indent, alignment: .leading)
+                            Track(day: day, now: now, marks: lane.marks, height: 6, tint: .accentColor.opacity(0.5))
                         }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(lane.name)
+                        .accessibilityValue(lane.currentProblem ?? "Available")
                     }
-                    Spacer(minLength: 12)
-                    Button("Show Log", systemImage: "doc.text", action: openLogs)
-                        .disabled(logs.isEmpty)
-                        .help(logs.isEmpty ? "No log files yet" : logs.map(\.lastPathComponent).joined(separator: ", "))
-                    Button("Reveal Database", systemImage: "folder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([database])
-                    }
-                    .disabled(!FileManager.default.fileExists(atPath: database.path))
                 }
-                .padding(.vertical, 4)
             }
 
-            if collector.problems.count > 1 {
-                Section("Needs Attention") {
-                    ForEach(Array(zip(collector.problems, collector.problemSentences(now: now))), id: \.0) { problem, sentence in
-                        let severe = problem == "not_running" || problem == "run_failed"
+            if !problems.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(problems, id: \.text) { problem in
                         Label {
-                            Text(sentence).textSelection(.enabled)
+                            Text(problem.text).textSelection(.enabled)
                         } icon: {
-                            Image(systemName: severe ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(severe ? Color.red : Color.orange)
+                            Image(systemName: problem.severity.symbol).foregroundStyle(problem.severity.color)
                         }
                     }
                 }
             }
 
-            Section("Status") {
-                LabeledContent("Agent") { Text(collector.agentText).textSelection(.enabled) }
-                LabeledContent("Version") {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(shortVersion(collector.version)).textSelection(.enabled).help(collector.version ?? "")
-                        if status.versionDiffers(collector) {
-                            Text("Host runs \(shortVersion(status.hostVersion))").font(.caption).foregroundStyle(.orange)
+            if !issues.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Recent Issues").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 5) {
+                        ForEach(issues, id: \.self) { issue in
+                            GridRow {
+                                Text(timeText(issue.date, now: now))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .help(absoluteDate(issue.date))
+                                Text(issue.count > 1 ? "\(issue.title) ×\(issue.count)" : issue.title)
+                                Text(issue.text)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
                     }
-                }
-                LabeledContent("Current run") { Text(currentRun) }
-                if let confirmed = collector.run?.confirmed, collector.run?.isOpen == true {
-                    LabeledContent("Last confirmed") {
-                        Text(relativeDate(confirmed, to: now)).help(absoluteDate(confirmed))
-                    }
-                }
-                LabeledContent("Read failures in the last hour") {
-                    Text((collector.readFailuresLastHour ?? 0).formatted())
+                    .font(.callout)
                 }
             }
 
-            Section("Channels") {
-                if channels.isEmpty {
-                    Text("No channel changes recorded today").foregroundStyle(.secondary)
-                } else {
-                    ForEach(channels) { ChannelRow(channel: $0) }
-                }
+            HStack(spacing: 14) {
+                Text(collector.diagnostics(now: now))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .help(collector.version ?? "")
+                Spacer(minLength: 12)
+                Button("Show Log", action: openLogs)
+                    .disabled(logs.isEmpty)
+                    .help(logs.isEmpty ? "No log files yet" : logs.map(\.lastPathComponent).joined(separator: ", "))
+                Button("Reveal Database") { NSWorkspace.shared.activateFileViewerSelecting([database]) }
+                    .disabled(!FileManager.default.fileExists(atPath: database.path))
             }
-
-            Section("Recent Runs") {
-                if collector.recentRuns.isEmpty {
-                    Text("No runs yet").foregroundStyle(.secondary)
-                } else {
-                    ForEach(collector.recentRuns) { RunRow(run: $0, now: now) }
-                }
-            }
-
-            Section("Recent Read Failures") {
-                if collector.recentReadFailures.isEmpty {
-                    Text("No read failures").foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(collector.recentReadFailures.enumerated()), id: \.offset) { _, failure in
-                        FailureRow(failure: failure, now: now)
-                    }
-                }
-            }
+            .buttonStyle(.link)
+            .font(.caption)
         }
-        .formStyle(.grouped)
+        .padding(.leading, indent)
     }
 
-    private var currentRun: String {
-        guard let run = collector.run else { return "No runs yet" }
-        if run.isOpen { return "Started \(timeText(run.started, now: now)) · \(run.durationText(now: now))" }
-        let reason = run.stopReason.map(humanized) ?? "Ended"
-        return "None · last ended \(timeText(run.stopped!, now: now)) (\(reason.lowercased()))"
+    /// Current problems and channels that are down. The row already says "Stopped", and a failed run
+    /// is listed under Recent Issues with its time. Channels are only known to be down while the source runs.
+    private var problems: [(text: String, severity: Severity)] {
+        let own = zip(collector.problems, collector.problemSentences(now: now)).compactMap { problem, sentence -> (String, Severity)? in
+            guard problem != "run_failed", problem != "not_loaded" else { return nil }
+            return (sentence, problem == "not_running" ? .failure : .warning)
+        }
+        let channels = collector.severity == .ok ? lanes.compactMap(\.currentProblem) : []
+        return own + channels.map { ($0, .warning) }
     }
+
+    private var issues: [Issue] { Array(collector.recentIssues.prefix(5)) }
+
+    private var store: URL { URL(fileURLWithPath: status.store, isDirectory: true) }
 
     private var database: URL {
         store.appendingPathComponent("observations", isDirectory: true)
@@ -116,92 +114,5 @@ struct SourceDetail: View {
 
     private func openLogs() {
         for log in logs { NSWorkspace.shared.open(log) }
-    }
-}
-
-private struct ChannelRow: View {
-    let channel: Channel
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol)
-                .foregroundStyle(color)
-                .frame(width: 18)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(channel.name)
-                Text(channel.method).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 12)
-            Text(trailing)
-                .foregroundStyle(channel.unavailable ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var available: Bool { channel.status == "Available" }
-    private var symbol: String {
-        channel.unavailable ? "exclamationmark.triangle.fill" : available ? "checkmark.circle.fill" : "minus.circle"
-    }
-    private var color: Color { channel.unavailable ? .orange : available ? .green : .secondary }
-    private var trailing: String {
-        if let detail = channel.detail { return channel.unavailable || available ? detail : "\(channel.status) · \(detail)" }
-        return channel.status
-    }
-}
-
-private struct RunRow: View {
-    let run: Run
-    let now: Date
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(run.spanText(now: now)).monospacedDigit()
-                Text(run.durationText(now: now)).foregroundStyle(.secondary)
-                Spacer(minLength: 12)
-                Text(state).foregroundStyle(stateStyle)
-            }
-            if let error = run.error {
-                Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
-            }
-        }
-        .help("Run \(run.runId) · \(run.collectorVersion ?? "unknown version")")
-        .accessibilityElement(children: .combine)
-    }
-
-    private var state: String {
-        run.isOpen ? "Running" : run.stopReason.map(humanized) ?? "Ended"
-    }
-
-    private var stateStyle: AnyShapeStyle {
-        if run.isOpen { return AnyShapeStyle(Color.accentColor) }
-        return run.stopReason == "failed" ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary)
-    }
-}
-
-private struct FailureRow: View {
-    let failure: ReadFailure
-    let now: Date
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(timeText(failure.observed, now: now))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 64, alignment: .leading)
-                .help(absoluteDate(failure.observed))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(failure.error)
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-                if let scope = failure.scope {
-                    Text(humanized(scope)).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
     }
 }

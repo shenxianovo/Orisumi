@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 enum Health: String, Decodable {
     case ok, attention, stopped, unavailable
@@ -19,14 +18,6 @@ enum Health: String, Decodable {
         case .attention: "Needs attention"
         case .stopped: "Capture stopped"
         case .unavailable: "Status unavailable"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .ok: .green
-        case .attention: .yellow
-        case .stopped, .unavailable: .secondary
         }
     }
 }

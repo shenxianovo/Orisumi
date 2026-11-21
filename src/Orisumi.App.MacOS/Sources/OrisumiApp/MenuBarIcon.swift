@@ -1,7 +1,7 @@
 import AppKit
 import CoreImage
 
-/// The mascot in the menu bar: full colour while capturing, with a yellow dot when something needs
+/// The mascot in the menu bar: full colour while capturing, with an orange dot when something needs
 /// attention, faded gray when capture is stopped or the status can't be read.
 enum MenuBarIcon {
     private static let size = NSSize(width: 18, height: 18)
@@ -31,7 +31,7 @@ enum MenuBarIcon {
                 let dot = NSRect(x: bounds.maxX - 7, y: bounds.minY, width: 7, height: 7)
                 NSColor.black.withAlphaComponent(0.35).setFill()
                 NSBezierPath(ovalIn: dot).fill()
-                NSColor.systemYellow.setFill()
+                NSColor.systemOrange.setFill()
                 NSBezierPath(ovalIn: dot.insetBy(dx: 1, dy: 1)).fill()
             }
             return true
