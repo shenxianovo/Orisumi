@@ -84,22 +84,23 @@ try
 
         var initializer = assembly.GetType("Orisumi.Collectors.Storage.SqliteSchema")!;
         var ensureCreated = initializer.GetMethod("EnsureCreated", BindingFlags.Static | BindingFlags.NonPublic)!
-            .CreateDelegate<Action<SqliteConnection, string>>();
+            .CreateDelegate<Action<SqliteConnection, string, string, string?>>();
         var newId = Guid.NewGuid().ToString("N");
         var path = Path.Combine(temporary.FullName, newId + ".sqlite");
-        string? databaseId = null;
+        const string platform = "macos";
+        const string hardwareUuid = "00000000-0000-0000-0000-000000000001";
+        const string identity = "SELECT database_id || ':' || platform || ':' || hardware_uuid FROM database_identity";
+        var expectedIdentity = $"{newId}:{platform}:{hardwareUuid}";
         using (var actual = Open(path))
         {
             // Compare the packaged initializer's result with the entire source schema.
-            ensureCreated(actual, newId);
+            ensureCreated(actual, newId, platform, hardwareUuid);
             const string objects = "SELECT type || ':' || name || ':' || sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name";
             Check(TextRows(actual, objects).SequenceEqual(TextRows(expected, objects)), source + " packaged schema differs from source");
             foreach (var view in TextRows(actual, "SELECT name FROM sqlite_schema WHERE type='view'"))
                 Execute(actual, $"SELECT * FROM \"{view}\" LIMIT 0");
             Check(TextRows(actual, "PRAGMA foreign_key_check").Count == 0, source + " foreign keys");
-            var identities = TextRows(actual, "SELECT database_id FROM database_identity");
-            Check(identities.SequenceEqual([newId]), source + " database identity is the given ID");
-            databaseId = identities[0];
+            Check(TextRows(actual, identity).SequenceEqual([expectedIdentity]), source + " database identity records the given ID and host");
             // Reopening must not recreate objects or lose an existing capture interval.
             Execute(actual, """
                 INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'macos','test');
@@ -108,10 +109,10 @@ try
         }
         using (var reopened = Open(path))
         {
-            ensureCreated(reopened, Guid.NewGuid().ToString("N"));
+            ensureCreated(reopened, Guid.NewGuid().ToString("N"), platform, null);
             Check(Number(reopened, "SELECT COUNT(*) FROM capture_runs WHERE collector_version IS NULL") == 1,
                 source + " an older run retains an unknown collector version on reopen");
-            Check(TextRows(reopened, "SELECT database_id FROM database_identity").SequenceEqual([databaseId!]), source + " database identity changed on reopen");
+            Check(TextRows(reopened, identity).SequenceEqual([expectedIdentity]), source + " database identity changed on reopen");
         }
         Console.WriteLine($"PASS: {source} complete schema, views and reopen");
     }

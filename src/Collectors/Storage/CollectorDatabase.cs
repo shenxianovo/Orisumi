@@ -8,7 +8,7 @@ internal static class CollectorDatabase
 {
     internal static SqliteConnection Open(string store, string source)
     {
-        var (path, databaseId) = new Store(store).WritableDatabase(source);
+        var (path, databaseId, platform, hardwareUuid) = new Store(store).WritableDatabase(source);
         // A file: data source enables URI filenames, so read-only sources can be attached with ?mode=ro.
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
@@ -17,7 +17,7 @@ internal static class CollectorDatabase
         try
         {
             connection.Open();
-            SqliteSchema.EnsureCreated(connection, databaseId);
+            SqliteSchema.EnsureCreated(connection, databaseId, platform, hardwareUuid);
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA journal_mode = WAL";
             command.ExecuteNonQuery();

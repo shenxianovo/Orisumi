@@ -7,26 +7,27 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 
 ## 身份
 
-采集时只记看得到的事实，“是哪台设备”事后读出。重装、迁移、换主板时，算不算同一台会变；写入时定死就改不回来。
+一个库只有一个写入方，所以“哪台主机写的”在建库时就确定，写进库里；“这台主机算哪台设备、叫什么”是读的时候查的规则。重装、迁移、换主板时，算不算同一台会变，所以库里只存原始标识，不存判断。
 
 | 概念 | 怎么来 | 状态 |
 | --- | --- | --- |
-| 库实例 | `database_identity`，建库时生成，即库文件名；库绑定建库的主机 | 已实现，见[存储](./storage.mdx) |
-| 主机观测 | `host_observations`，每次运行开始时读平台原始标识 | macOS 已实现，同上 |
-| 设备 | 由主机观测和少量人工合并规则读出，含显示名 | 未实现，在派生层做，可以改；做法见下 |
+| 库实例 | `database_identity.database_id`，建库时生成，即库文件名 | 已实现，见[存储](./storage.mdx) |
+| 建库主机 | `database_identity` 的 `platform` 和原始硬件标识，建库时随库写入，副本拷到哪里都带着 | macOS 已实现 |
+| 主机观测 | `host_observations`，每次运行开始时读主机名、系统版本、系统用户等会变的值 | macOS 已实现 |
+| 设备 | 主机键加 `rules/devices.json` 里的合并和命名 | 未实现，做法见下 |
 | 来源实例 | 浏览器扩展安装（`profile_id`）、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 等 | 已由各来源记录；浏览器是哪个 Chrome 配置在派生层判断 |
 
-- 迁移助理把用户目录拷到新 Mac：硬件 UUID 不同，读出两台设备。设备 ID 若存成本地文件，会被一起拷走，新机器冒充旧机器。
+- 迁移助理把用户目录拷到新 Mac：硬件 UUID 不同，新 Mac 建自己的库，读出两台设备。设备 ID 若存成本地文件，会被一起拷走，新机器冒充旧机器。
 - 一台机器上两个存储目录：两个库实例，硬件 UUID 相同，读出同一台设备。
 - 重装系统：硬件 UUID 不变，仍是同一台；换主板后加一条人工合并。
 
-各平台标识的稳定程度不同：macOS 的 `IOPlatformUUID` 重装不变；Windows 的 `MachineGuid` 重装会变，SMBIOS UUID 不变；Android 应用拿不到硬件标识，`ANDROID_ID` 随签名密钥和恢复出厂设置变化。所以主机观测按平台记原始值，不假定有通用的稳定 ID；新平台在 `HostIdentity` 和 `host_observations.platform` 加值，并补上自己的标识列。
+各平台标识的稳定程度不同：macOS 的 `IOPlatformUUID` 重装不变；Windows 的 `MachineGuid` 重装会变，SMBIOS UUID 不变，但有些主板出厂写的是多台共用的占位值；Android 应用拿不到硬件标识，`ANDROID_ID` 随签名密钥和恢复出厂设置变化。所以按平台记原始值，不假定有通用的稳定 ID；新平台在 `HostIdentity`、`database_identity.platform` 和 `host_observations.platform` 加值，并补上自己的标识列（Windows 两个都记）。
 
 ### 读出设备
 
-未实现，等第二台设备接入时做。
+未实现。
 
-- 每条主机观测算出主机键：macOS `macos:<IOPlatformUUID>`，Windows `windows:<SMBIOS UUID>`，Android `android:<ANDROID_ID>`；读不到硬件标识时用 `db:<database_id>`，让该库自成一台，等人工归类。不按主机名猜。
+- 主机键由建库主机算出，规则只在读的地方维护：macOS `macos:<IOPlatformUUID>`，Windows `windows:<SMBIOS UUID>`（占位值改用 `MachineGuid`），Android `android:<ANDROID_ID>`；读不到硬件标识时用 `db:<database_id>`，让该库自成一台，等人工归类。不按主机名猜。
 - `rules/devices.json` 把多个主机键归到一台设备并命名。未归类的主机键各自是一台；设备 ID 用规则里的 ID，否则用主机键；显示名用规则里的名字，否则用最近的主机名。
 - 系统用户不算进设备：同一台 Mac 上的两个账号是同一台设备、不同用户。
 - 机器转手需要给规则加生效区间，暂不做。

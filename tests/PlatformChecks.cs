@@ -21,7 +21,8 @@ try
     var store = new Store(temp.FullName);
     Check(store.CurrentDatabase("codex") is null && !Directory.Exists(store.State), "reading never starts a database");
 
-    var (path, id) = store.WritableDatabase("codex");
+    var (path, id, platform, hardwareUuid) = store.WritableDatabase("codex");
+    Check(platform == host.Platform && hardwareUuid == host.HardwareUuid, "the new database reports its bound host identity");
     Check(Path.GetFileName(path) == id + ".sqlite" && Path.GetDirectoryName(path) == store.Observations("codex") && new FileInfo(path).Length == 0,
         "a new database is an empty file named by its ID under observations/<source>/");
     Check((File.GetUnixFileMode(path) & (UnixFileMode.GroupRead | UnixFileMode.OtherRead)) == 0, "a new database is private");

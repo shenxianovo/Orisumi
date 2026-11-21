@@ -9,7 +9,7 @@ internal static class SqliteSchema
     private static readonly System.Reflection.Assembly Assembly = typeof(SqliteSchema).Assembly;
     private static readonly string Prefix = Assembly.GetName().Name + ".Schema.";
 
-    internal static void EnsureCreated(SqliteConnection connection, string databaseId)
+    internal static void EnsureCreated(SqliteConnection connection, string databaseId, string platform, string? hardwareUuid)
     {
         // Serialize the empty-database check with creation, including concurrent first opens.
         using var transaction = connection.BeginTransaction(deferred: false);
@@ -34,14 +34,16 @@ internal static class SqliteSchema
             }
             command.CommandText = DatabaseIdentity;
             command.Parameters.AddWithValue("$id", databaseId);
+            command.Parameters.AddWithValue("$platform", platform);
+            command.Parameters.AddWithValue("$hardware_uuid", (object?)hardwareUuid ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
         transaction.Commit();
     }
 
-    // The new database's identity is created with its structure and equals its file name.
+    // The new database records its file ID and host with its structure.
     internal const string DatabaseIdentity =
-        "INSERT INTO database_identity VALUES (1, $id, CAST(unixepoch('subsec') * 1000 AS INTEGER))";
+        "INSERT INTO database_identity VALUES (1, $id, CAST(unixepoch('subsec') * 1000 AS INTEGER), $platform, $hardware_uuid)";
 
     private static string Read(string resource)
     {

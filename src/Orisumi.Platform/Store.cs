@@ -42,13 +42,14 @@ public sealed partial class Store(string root)
     // The database the source writes on this host, as an existing or new empty file named by its database ID.
     // A new one starts when there is none, its file is gone, or the pointer was written on other hardware,
     // such as a store copied to a new Mac. Unknown hardware cannot prove a move, so it keeps the current one.
-    public (string Path, string DatabaseId) WritableDatabase(string source)
+    // Also returns the host the database is bound to, which the collector records when it creates the database.
+    public (string Path, string DatabaseId, string Platform, string? HardwareUuid) WritableDatabase(string source)
     {
         using var guard = WaitLock(LockFile(source));
-        var hardware = HostIdentity.Read().HardwareUuid;
+        var host = HostIdentity.Read();
         if (ReadPointer(source) is { } pointer && File.Exists(Database(source, pointer.DatabaseId)) &&
-            (hardware is null || pointer.HardwareUuid == hardware))
-            return (Database(source, pointer.DatabaseId), pointer.DatabaseId);
+            (host.HardwareUuid is null || pointer.HardwareUuid == host.HardwareUuid))
+            return (Database(source, pointer.DatabaseId), pointer.DatabaseId, host.Platform, pointer.HardwareUuid);
 
         var databaseId = Guid.NewGuid().ToString("N");
         var path = Database(source, databaseId);
@@ -58,9 +59,9 @@ public sealed partial class Store(string root)
                    UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite })) { }
         var pointerPath = PointerFile(source);
         Directory.CreateDirectory(Path.GetDirectoryName(pointerPath)!);
-        File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, hardware), PointerJson.Default.Pointer));
+        File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, host.HardwareUuid), PointerJson.Default.Pointer));
         File.Move(pointerPath + ".tmp", pointerPath, overwrite: true);
-        return (path, databaseId);
+        return (path, databaseId, host.Platform, host.HardwareUuid);
     }
 
     private string Database(string source, string databaseId) => Path.Combine(Observations(source), databaseId + ".sqlite");
