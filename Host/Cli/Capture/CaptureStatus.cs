@@ -19,9 +19,12 @@ internal static partial class CaptureStatus
         CancellationToken token, string? baseDirectory = null)
     {
         var store = instance.Store;
-        var programs = await CollectorPrograms.Read(store.Root, token, baseDirectory);
-        var versions = programs.ToDictionary(program => program.Description.Name, program => program.Description.Version,
-            StringComparer.Ordinal);
+        var manifest = ReleaseManifest.ReadInstalled(store);
+        var versions = manifest is null
+            ? (await CollectorPrograms.Read(store.Root, token, baseDirectory)).ToDictionary(
+                program => program.Description.Name, program => program.Description.Version, StringComparer.Ordinal)
+            : manifest.Components.Where(item => item.Key != "host").ToDictionary(
+                item => item.Key, item => item.Value.Version, StringComparer.Ordinal);
         var prefix = instance.CaptureAgentPrefix;
         var names = versions.Keys.Union(Launchd.CaptureAgentPlists(instance, locations)
             .Select(path => Path.GetFileNameWithoutExtension(path)[prefix.Length..]), StringComparer.Ordinal)
@@ -41,7 +44,10 @@ internal static partial class CaptureStatus
 
         var overallHealth = collectors.Count > 0 && collectors.All(collector => collector.Health == Stopped) ? Stopped
             : collectors.Any(collector => collector.Health != Ok) ? Attention : Ok;
-        var status = new Status(instance.Name, store.Root, Commands.HostVersion, collectors, now, overallHealth);
+        var source = manifest is { Version: null } ? manifest.Source : null;
+        var deployment = source is null ? null : new DeploymentSource(source.Branch, source.Commit[..Math.Min(7, source.Commit.Length)], source.Clean);
+        var hostVersion = manifest?.Components.GetValueOrDefault("host")?.Version ?? Commands.HostVersion;
+        var status = new Status(instance.Name, store.Root, hostVersion, collectors, now, overallHealth, manifest?.Version, deployment);
         if (json)
             output.WriteLine(JsonSerializer.Serialize(status, StatusJson.Default.Status));
         else
@@ -135,7 +141,9 @@ internal static partial class CaptureStatus
 
     private static void WriteText(Status status, TextWriter output)
     {
-        output.WriteLine($"{status.Instance} ({status.Store}) host {status.HostVersion}, health {status.Health}");
+        var version = status.Version is { } release ? $" {release}" :
+            status.Source is { } source ? $" {source.Branch ?? "(detached)"} {source.Commit} {(source.Clean ? "clean" : "dirty")}" : "";
+        output.WriteLine($"{status.Instance} ({status.Store}){version} host {status.HostVersion}, health {status.Health}");
         foreach (var collector in status.Collectors)
         {
             var agent = collector.Agent;
@@ -165,7 +173,8 @@ internal static partial class CaptureStatus
     }
 
     private sealed record Status(string Instance, string Store, string HostVersion, List<CollectorStatus> Collectors,
-        long GeneratedAtUtcMs, string Health);
+        long GeneratedAtUtcMs, string Health, string? Version, DeploymentSource? Source);
+    private sealed record DeploymentSource(string? Branch, string Commit, bool Clean);
     private sealed record CollectorStatus(string Name, string? Version, AgentStatus Agent, RunStatus? Run, long ReadFailuresLastHour,
         string Health, List<string> Problems, RunStatus[] RecentRuns, ReadFailure[] RecentReadFailures);
     private sealed record AgentStatus(string State, int? Pid, JsonValue? LastExitCode);

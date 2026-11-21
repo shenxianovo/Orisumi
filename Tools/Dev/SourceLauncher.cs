@@ -22,7 +22,7 @@ internal static class SourceLauncher
         return await RunProcess.WithCancellation(async token =>
         {
             // Build logs go to stderr so command stdout can carry structured output.
-            var build = await RunProcess.Run(RunProcess.Dotnet, ["msbuild", Path.Combine(root, "Orisumi.slnx"), "-restore", "-target:Build", "-property:Configuration=Debug",
+            var build = await RunProcess.Run(RunProcess.Dotnet, ["msbuild", project, "-restore", "-target:Build", "-property:Configuration=Debug",
                 "-nologo", "-verbosity:quiet", "-consoleLoggerParameters:NoSummary", "-tl:off"],
                 Console.Error, token);
             if (build != 0)

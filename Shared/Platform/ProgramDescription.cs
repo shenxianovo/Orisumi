@@ -6,10 +6,13 @@ namespace Orisumi.Platform;
 public sealed record ProgramDescription(string Name, string Version,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? Arguments = null)
 {
-    public static async Task<ProgramDescription> Read(string executable, string[] prefix, CancellationToken token)
+    public static Task<ProgramDescription> Read(string executable, string[] prefix, CancellationToken token) =>
+        Read(executable, prefix, token, RunProcess.RunCommand);
+
+    internal static async Task<ProgramDescription> Read(string executable, string[] prefix, CancellationToken token, CommandProcess run)
     {
         using var output = new StringWriter();
-        var code = await RunProcess.Run(executable, [.. prefix, "describe"], output, token);
+        var code = await run(executable, [.. prefix, "describe"], output, token);
         token.ThrowIfCancellationRequested();
         if (code != 0) throw new IOException($"{executable} {string.Join(' ', prefix)}: describe exited with code {code}");
         var description = JsonSerializer.Deserialize(output.ToString(), DescriptionJson.Default.ProgramDescription);

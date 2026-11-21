@@ -3,6 +3,7 @@ using System.CommandLine.Invocation;
 using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Orisumi.Capture.Storage;
 using Orisumi.Platform;
 
 namespace Orisumi.Capture.Hosting;
@@ -19,7 +20,9 @@ public static class CollectorCommand
     {
         var describe = new Command("describe", "输出采集器版本与启动参数。");
         describe.SetAction(_ => new ProgramDescription(collector.Source, collector.Version, arguments).Write(Console.Out));
-        var root = new RootCommand(description) { store, describe };
+        var schema = new Command("schema", "输出新建观测库的表与列。");
+        schema.SetAction(_ => SqliteSchema.Write(collector.Assembly, Console.Out));
+        var root = new RootCommand(description) { store, describe, schema };
         root.HelpName = "orisumi-" + collector.Source;
         return root;
     }

@@ -74,14 +74,14 @@ async Task ConfigurationChecks()
             var (name, _, command) = program.Description;
             var label = instance.CaptureAgentLabel(name);
             var path = Path.Combine(temp.FullName, name + ".plist");
-            CaptureStartup.LaunchAgent(label, program.Command(store.Root, command!), store, name).Save(path);
+            CaptureStartup.LaunchAgent(instance, label, program.Command(store.Root, command!), name).Save(path);
             var lint = await Process.RunAndCaptureTextAsync("/usr/bin/plutil", ["-lint", path], CancellationToken.None);
             Check(lint.ExitStatus.ExitCode == 0, lint.StandardError);
             var elements = XDocument.Load(path).Root!.Element("dict")!.Elements().ToArray();
             var fields = Enumerable.Range(0, elements.Length / 2).ToDictionary(i => elements[i * 2].Value, i => elements[i * 2 + 1]);
             string[] prefix = bundle ? [store.HostExecutable, "launch", "--"] : [];
             Check(fields["Label"].Value == label &&
-                fields["AssociatedBundleIdentifiers"].Elements().Select(item => item.Value).SequenceEqual([HostBundle.Identifier]),
+                fields["AssociatedBundleIdentifiers"].Elements().Select(item => item.Value).SequenceEqual([instance.BundleIdentifier]),
                 "collector uses its instance LaunchAgent label and is associated with Orisumi");
             Check(fields["ProgramArguments"].Elements().Select(item => item.Value)
                 .SequenceEqual([.. prefix, dotnet, program.Path, "--store", store.Root, .. command!]), "argv boundaries survive XML encoding");

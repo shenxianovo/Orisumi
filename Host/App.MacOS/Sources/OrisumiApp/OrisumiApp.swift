@@ -7,7 +7,7 @@ struct OrisumiApp: App {
     private var model: AppModel { delegate.model }
 
     var body: some Scene {
-        Window("Orisumi", id: "main") {
+        Window(DevBadge.isDevBuild ? "Orisumi Dev" : "Orisumi", id: "main") {
             AppWindow(model: model, startsInMenuBar: delegate.startsInMenuBar)
         }
         .defaultSize(width: 860, height: 600)
@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     override init() {
         var arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments.count == 3, arguments[0] == "--badge-icon" {
+            exit(DevBadge.writeIcon(from: arguments[1], to: arguments[2]))
+        }
         startsInMenuBar = arguments.first == "--menu-bar"
         if startsInMenuBar { arguments.removeFirst() }
         model = AppModel(arguments: arguments, bundle: Bundle.main.bundleURL)

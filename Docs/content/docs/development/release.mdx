@@ -1,61 +1,117 @@
 ---
-title: 实例与部署
-description: 生产和开发实例，以及部署、安装和启停。
+title: 实例、发布与更新
+description: 生产和开发实例，开发部署、正式发布与更新，以及安装、启停和签名。
 ---
 
-生产只运行装进它自己目录的 Native AOT 程序；开发用检出里的构建和自己的存储，所以开发不影响生产。
+生产只装正式发布；开发实例常驻运行工作树的构建，是生产前的验证。开发实例的数据随时可删，只有生产数据要保留。
+
+```mermaid
+flowchart TD
+  W["工作树（main 或 worktree）"] -->|"orisumi-dev deploy"| D["开发实例（常驻，带 DEV 角标）"]
+  D -->|"观察几小时到几天"| C["提交并推送"]
+  C -->|"orisumi-dev release"| R["tag + GitHub Release"]
+  R -->|"orisumi update（每台设备）"| P["生产实例"]
+```
+
+生产只在 `update` 时改变；`orisumi-dev` 的任何命令都不写生产。
 
 ## 实例
 
-实例是带 `instance.json`（如 `{"name":"prod"}`）的存储目录，数据、运行状态和装好的程序都在里面，结构见[存储](../overview/storage.mdx#目录)。
+实例是带 `instance.json`（如 `{"name":"prod"}`）的存储目录，数据、运行状态和装好的程序都在里面，结构见[存储](../overview/storage.mdx#目录)。每台机器两个：
 
-| 实例 | 目录 | 名字 | 命令 |
-| --- | --- | --- | --- |
-| 生产 | `~/Library/Application Support/Orisumi` | `prod` | `orisumi` |
-| 开发 | `<检出>/.local/store` | `dev_<检出目录名>` | `orisumi-dev` |
+| | 生产 | 开发 |
+| --- | --- | --- |
+| 目录 | `~/Library/Application Support/Orisumi` | `~/Library/Application Support/Orisumi-dev` |
+| 名字 | `prod` | `dev` |
+| 命令 | `orisumi`（链接在 `~/.local/bin`） | `orisumi-dev` |
+| app | `Orisumi`，bundle ID `dev.orisumi` | `Orisumi Dev`，bundle ID `dev.orisumi.canary`，带 DEV 角标 |
+| LaunchAgent | `dev.orisumi.prod.*` | `dev.orisumi.dev.*` |
+| 浏览器接收端端口 | 47810 | 47811 |
+| 程序来源 | `update` 装正式发布 | `deploy` 装工作树构建 |
 
-- 名字只含 `[a-z0-9_]`。每个用户级的全局名字都由它派生，生产也一样：LaunchAgent（采集器 `dev.orisumi.<名字>.capture.<来源>`，GUI `dev.orisumi.<名字>.app`），浏览器接收端端口（生产 47810，其他实例 47900 加名字的 FNV-1a 哈希模 100），命令链接 `~/.local/bin/orisumi`（生产）或 `~/.local/bin/orisumi-<名字>`。开发实例没有命令链接。
-- 程序没给 `--store` 时，从自己所在目录往上找 `instance.json`；找不到而处在检出里，就用这个检出的开发实例，首次使用时创建；都不是就报错。不回落到生产目录，也不读环境变量：LaunchAgent 拉起的进程不继承环境变量。
-- 每个检出各有一个开发实例，多个 worktree 可以同时开发。开发实例只做短时运行和测试，常驻采集留给生产。
+- LaunchAgent 是采集器 `dev.orisumi.<名字>.capture.<来源>` 和 GUI `dev.orisumi.<名字>.app`。测试用的其他名字，端口取 47900 加名字的 FNV-1a 哈希模 100，不建命令链接。
+- 程序没给 `--store` 时，从自己所在目录往上找 `instance.json`，找不到就报错。不回落到生产目录，也不读环境变量：LaunchAgent 拉起的进程不继承环境变量。
 
-## 部署
+## 组件与版本
+
+组件是宿主（`Orisumi.app`，含 CLI 和 GUI）和 `Collectors/` 下的每个目录，不用登记。组件的标识是它输入文件的 git tree 哈希：
+
+- 输入是组件目录（宿主是 `Host/`）、MSBuild 求值得到的递归项目引用所在目录、路径上的各级 `Directory.Build.props`；其中名为 `Tests`、`test` 的目录不算。
+- 用临时 index 对输入 `git add -A` 再 `git write-tree` 得出：包括未提交和未跟踪的文件，不碰暂存区，不建提交。同样的内容提交后标识不变，开发时验证的就是之后发布的那份。工具链不计入。
+- 程序版本是 `dev+<标识>` 或 `<发布版本>+<标识>`，即 `describe` 和运行记录里的 `collector_version`。组件没变就不重装，版本可以停在更早的发布。
+
+构建产出发布目录：`manifest.json`（版本、实例、平台、来源提交与分支和工作树是否干净、各组件的标识与版本与文件 SHA-256、各来源的库结构），`host/Orisumi.app` 和 `collectors/<来源>/`。要求零警告，并用 `describe` 核对版本；浏览器另含 `extension/`，macOS 采集器另含 Swift 助手。
+
+## 开发部署
 
 ```sh
 orisumi-dev deploy [组件…]
 ```
 
-只在工作树干净时运行。把宿主（`host`）和选中的采集器（不给就是全部）各自发布成 Native AOT 程序，放在临时目录，用新宿主 `orisumi install` 装进生产，再 `capture start`，最后删掉临时目录。版本是程序版本加提交号（如 `0.1.0+5bcfe4ea…`），也就是运行记录里的 `collector_version`。`--prod` 可改生产目录，供测试使用。
+构建工作树，装进开发实例；没有采集器在运行就 `capture start`。不要求提交。先算各组件标识，和开发实例装着的相同就不构建；都没变时只记下当前来源。实测：没有改动约 8 秒，改一个采集器约 20 秒，全部构建约 100 秒。两个检出先后部署，后者覆盖前者：开发实例只验证一份代码。
 
-- 组件就是宿主和 `Collectors/` 下的每个目录，不用登记。宿主总会一起部署，安装和启停都经过它。
-- 发布要求零警告，并用 `describe` 核对版本。浏览器的发布另含 `extension/`，macOS 的含 Swift 助手。
-- 宿主发布成 `Orisumi.app`（bundle ID `dev.orisumi`）：主程序是 Swift 写的 GUI `OrisumiApp`（源码 `Host/App.MacOS`），旁边是 AOT 的 CLI `orisumi`。整个 app 用钥匙串里名为 `Orisumi Development` 的代码签名证书签名；采集器不签名。没有这个证书就建一个：钥匙串访问 › 证书助理 › 创建证书，身份类型选「自签名根证书」，证书类型选「代码签名」。部署要求 `security find-identity -v -p codesigning` 能列出它；若只在去掉 `-v` 时出现并标着 `CSSMERR_TP_NOT_TRUSTED`，在钥匙串访问里打开这张证书，把「信任 › 代码签名」设为「始终信任」（要输登录密码，SSH 里做不了）。
-- 不要运行未用这个证书签名、bundle ID 又是 `dev.orisumi` 的程序：macOS 会作废已经给 Orisumi 的权限。开发构建不生成 app。
-- 不保留旧版本。回退就检出旧提交再部署；改过库结构的版本按[数据库结构](../capture/index.mdx#数据库结构)处理旧库。
+`orisumi-dev reset` 停掉开发采集，删掉它的 `observations/`、`state/`、`logs/`，保留装好的程序；只接受开发实例。
+
+## 发布
+
+```sh
+orisumi-dev release [版本]
+```
+
+1. 只在 `main`、工作树干净、`HEAD` 等于 `origin/main` 时运行：tag 建在 GitHub 上，提交要先推送。版本不给时取最新 `v5.*` tag 的第二位加一，没有时为 `5.0.0`；tag 已存在就拒绝。
+2. 构建全部组件。每个组件的标识必须等于开发实例装着的，否则拒绝：发出的代码一定在开发实例里跑过。打印开发实例的安装时间和 `capture status`，不设门槛，也没有强制开关。
+3. 和上一个发布清单比较库结构，规则见[数据库结构](../capture/index.mdx#数据库结构)。不兼容就列出每处并拒绝。
+4. 打包 `orisumi-<版本>-osx-arm64.tar.gz`，清单加上包名和 SHA-256 存成 `orisumi-<版本>-osx-arm64.json`，`gh release create` 上传两者，说明里列出各组件相对上一版是否改变。
+
+不用 CI：签名证书只在本机。
+
+## 更新
+
+```sh
+orisumi update [版本] [--from <目录>]
+```
+
+只用于生产。从 GitHub Release（不给版本取最新）或 `--from` 指定的本地目录读清单；各组件标识都和已装的相同就结束。否则下载包、核对 SHA-256 和包内清单，核对宿主签名证书的 SHA-256，用 `VACUUM INTO` 把生产库拍到 `backups/<旧版本>/`（v5 之前为 `pre-v5`，保留最近两份），再按[安装](#安装与启停)只替换和重启变了的组件。结构只增不改，所以装回旧版本也安全。不自动更新。
+
+v5 之前装的生产没有 `update`，第一次用新版宿主更新：
+
+```sh
+curl -LO https://github.com/shenxianovo/Orisumi/releases/download/v5.0.0/orisumi-5.0.0-osx-arm64.tar.gz
+curl -LO https://github.com/shenxianovo/Orisumi/releases/download/v5.0.0/orisumi-5.0.0-osx-arm64.json
+mkdir v5 && tar -xf orisumi-5.0.0-osx-arm64.tar.gz -C v5
+v5/host/Orisumi.app/Contents/MacOS/orisumi --store ~/Library/Application\ Support/Orisumi update 5.0.0 --from .
+```
 
 ## 安装与启停
 
-`orisumi install <发布目录>…` 把发布复制进实例的 `app/host/Orisumi.app` 或 `app/collectors/<来源>/`：先放进临时目录，再原子换入；宿主的签名对不上就拒绝安装，开发实例不装 app。实例相关的内容只在这一步写入：宿主的命令链接（指向 app 里的 `orisumi`），GUI 的 LaunchAgent（登录时以菜单栏启动，退出后不重启；重装时重启 GUI），浏览器扩展的 `config.json`（实例名和端口）和扩展名后缀 `(<名字>)`。
+`orisumi install <发布目录>` 先核对清单（平台、目标实例、文件 SHA-256、宿主签名和 bundle ID），已装的状态记在 `app/manifest.json`。只替换标识变了的组件：先放进临时目录再原子换入，失败就换回。变了的采集器若在运行就按新的 `describe` 参数重启；新加的采集器在实例有采集运行时启动；宿主变了只重启 GUI，采集器的 `launch` 代理运行到各自下次重启。实例相关的内容只在这一步写入：生产的命令链接，GUI 的 LaunchAgent（登录时以菜单栏启动，退出后不重启），浏览器扩展的 `config.json`（实例名和端口）和扩展名后缀 `(<名字>)`。
 
-`capture start` 用各采集器 `describe` 给出的参数，把它们装成 LaunchAgent `dev.orisumi.<名字>.capture.<来源>` 并启动；已在运行的先停掉。`capture` 命令只管这一组，不动 GUI。所有 LaunchAgent 都标明属于 `dev.orisumi`，系统设置的「登录项」里列在 Orisumi 下。LaunchAgent 在登录时启动，退出后 10 秒重启。`capture stop` 停掉并删除它们，每次运行以 `completed` 结束。日志在 `logs/<来源>.{out,err}.log`。
+`capture start` 用各采集器 `describe` 给出的参数，把它们装成 LaunchAgent 并启动；已在运行的先停掉。`capture` 命令只管采集器，不动 GUI。所有 LaunchAgent 都标明属于实例的 bundle ID，系统设置的「登录项」里列在对应 app 下。它们在登录时启动，退出后 10 秒重启。`capture stop` 停掉并删除它们，每次运行以 `completed` 结束。日志在 `logs/<来源>.{out,err}.log`。
 
-- 装好的实例里，LaunchAgent 运行的是 `Orisumi.app/Contents/MacOS/orisumi launch -- <采集器命令>`：它把采集器作为子进程拉起，转发停止信号，以采集器的退出码退出。macOS 按发起进程所属的 app 判断系统权限：`Contents/MacOS/` 下的任何程序都算 Orisumi.app，它拉起的采集器也继承，所以采集器换版本不用重新授权。嵌套在 app 里、自带 bundle ID 的助手 app 不继承，所以 CLI 和 GUI 放在同一个 `Contents/MacOS/`。
-- 首次安装后，在系统设置 › 隐私与安全性 › 辅助功能里加入 `<实例目录>/app/host/Orisumi.app` 并打开（列表不会自动出现它，把 app 拖进去）。macOS 27 上实测有辅助功能就能监听键盘和鼠标，「输入监控」里不需要条目。授权跟 bundle ID 和证书走，重装和升级宿主都保留。缺权限时 macOS 采集只停用对应通道。
-- 开发实例没有 Orisumi.app，LaunchAgent 直接运行采集器，macOS 采集拿不到权限；开发时在终端里运行 `orisumi-dev macos foreground`，用终端的权限。
-- 浏览器扩展连本实例的接收端端口，`capture start` 打印扩展路径和预期 ID。
-- `capture status [--json]` 给每个采集器一个健康状态：`stopped`（装了但没加载）、`attention`（有问题代码：`not_installed`、`not_running`、`run_failed`，或运行中却超过 5 分钟没确认的 `stale`）或 `ok`。读取失败只计数，不影响健康：AX 超时这类短暂失败每小时都有。`--json` 另含最近 5 次运行和最近 10 条读取失败。
+`capture status [--json]` 显示实例版本（发布版本，或开发的分支、提交和是否干净）和各组件版本，并给每个采集器一个健康状态：`stopped`（装了但没加载）、`attention`（有问题代码：`not_installed`、`not_running`、`run_failed`，或运行中却超过 5 分钟没确认的 `stale`）或 `ok`。读取失败只计数，不影响健康：AX 超时这类短暂失败每小时都有。`--json` 另含最近 5 次运行和最近 10 条读取失败。
 
-Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`。接收端因此按扩展所在路径算出 ID 来注册，不用手填。在 Chrome 中加载扩展仍需手动，`capture start` 会打印路径和预期 ID。扩展装在实例目录里的固定路径，重新部署后 Chrome 只需重载。
+## 签名与权限
+
+- 两个实例的 app 都用钥匙串里名为 `Orisumi Development` 的代码签名证书签名；发布用 Mac mini 上那张（SHA-256 `ABE1CF8B…`，导出 p12 备份，换构建机器时导入同一张），`update` 核对它的 SHA-256。采集器不签名。
+- 没有证书就建一个：钥匙串访问 › 证书助理 › 创建证书，身份类型选「自签名根证书」，证书类型选「代码签名」。构建要求 `security find-identity -v -p codesigning` 能列出它；若只在去掉 `-v` 时出现并标着 `CSSMERR_TP_NOT_TRUSTED`，在钥匙串访问里把这张证书的「信任 › 代码签名」设为「始终信任」（要输登录密码，SSH 里做不了，SSH 会话也用不了登录钥匙串签名）。
+- 这两个 bundle ID 的程序都不得 ad-hoc 签名：macOS 会作废已经给出的权限。不要运行 app 包里没有正确签名的程序，macOS 会弹出「已损坏」并拦下。
+- LaunchAgent 运行的是 `Orisumi.app/Contents/MacOS/orisumi launch -- <采集器命令>`：它把采集器作为子进程拉起，转发停止信号，以采集器的退出码退出。macOS 按发起进程所属的 app 判断系统权限：`Contents/MacOS/` 下的任何程序都算这个 app，它拉起的采集器也继承，所以采集器换版本不用重新授权。嵌套在 app 里、自带 bundle ID 的助手 app 不继承，所以 CLI 和 GUI 放在同一个 `Contents/MacOS/`。
+- 首次安装后，在系统设置 › 隐私与安全性 › 辅助功能里加入 `<实例目录>/app/host/Orisumi.app` 并打开（列表不会自动出现它，把 app 拖进去）。两个实例各授权一次；授权跟 bundle ID 和证书走，重装和重签都保留，两者互不影响（macOS 27 实测）。有辅助功能就能监听键盘和鼠标，「输入监控」里不需要条目。缺权限时 macOS 采集只停用对应通道。
+
+## Chrome 扩展
+
+两个实例的扩展各装在自己的 `app/collectors/browser/extension`，同一个 Chrome 里都要加载。Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`；接收端按路径算出 ID 来核对来源。路径固定，所以只在第一次手动加载：在 Chrome 扩展页打开开发者模式，加载这个目录；`orisumi-dev deploy` 第一次装上浏览器采集器时打印路径和预期 ID。之后扩展连上接收端时报告自己的版本，和接收端不同就自己重新加载，见[浏览器](../capture/sources/browser.mdx)。
 
 ## GUI
 
-菜单栏图标是吉祥物：彩色表示都在采集，带黄点表示有来源需要注意，变灰表示已停止或读不到状态；窗口里有今天各来源在本机的运行时段（其他设备的副本不画）、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `orisumi capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
+菜单栏图标是吉祥物：彩色表示都在采集，带黄点表示有来源需要注意，变灰表示已停止或读不到状态；开发 app 旁边多一个 DEV 标签。窗口里有今天各来源在本机的运行时段（其他设备的副本不画）、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
 
-开发时不用部署：
+改界面时可以不部署：
 
 ```sh
-swift run --package-path Host/App.MacOS OrisumiApp --cli "$(command -v orisumi)" --store "$HOME/Library/Application Support/Orisumi"
+swift run --package-path Host/App.MacOS OrisumiApp --cli "$HOME/Library/Application Support/Orisumi-dev/app/host/Orisumi.app/Contents/MacOS/orisumi" --store "$HOME/Library/Application Support/Orisumi-dev"
 ```
 
 `--cli`、`--store` 指定要读的宿主和实例；Windows 的 GUI 以后读同一份 JSON。
 
-改界面时用 `ORISUMI_SNAPSHOTS=<目录> swift test --package-path Host/App.MacOS --filter SnapshotTests` 把窗口（浅色、深色）和菜单栏图标渲染成 PNG 来看；不设这个变量时这组测试跳过。窗口会在屏幕上短暂出现，测试截的是它自己的窗口，不需要屏幕录制权限。再设 `ORISUMI_SNAPSHOT_DATA=<目录>` 会多渲染一组真实数据，目录里放 `orisumi capture status --json` 和 `orisumi capture coverage …` 的输出，分别存成 `status.json`、`coverage.json`。图标原图在仓库根目录 `Assets/`，app 图标由 `Host/App.MacOS/Icon/AppIcon.png` 在部署时生成。
+用 `ORISUMI_SNAPSHOTS=<目录> swift test --package-path Host/App.MacOS --filter SnapshotTests` 把窗口（浅色、深色）、菜单栏图标和开发 app 图标渲染成 PNG 来看；不设这个变量时这组测试跳过。窗口会在屏幕上短暂出现，测试截的是它自己的窗口，不需要屏幕录制权限。再设 `ORISUMI_SNAPSHOT_DATA=<目录>` 会多渲染一组真实数据，目录里放 `capture status --json` 和 `capture coverage …` 的输出，分别存成 `status.json`、`coverage.json`。图标原图在仓库根目录 `Assets/`；构建从 `Host/App.MacOS/Icon/AppIcon.png` 生成 app 图标和菜单栏用的 `Mascot.png`，开发 app 的图标由 `OrisumiApp --badge-icon` 加上角标。

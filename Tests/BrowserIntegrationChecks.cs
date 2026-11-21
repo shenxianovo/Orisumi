@@ -24,6 +24,8 @@ if (args.Length == 1) Fixture.Executable = Path.GetFullPath(args[0]);
 WriterFailure();
 WriterConnection();
 WriterCancellation();
+await ExtensionVersion();
+await UpgradePreviousBrowserSchema();
 await RejectedDelivery();
 await TabFocus();
 await Tabs();
@@ -92,6 +94,54 @@ static void WriterCancellation()
     Equal(0L, Value(db, "SELECT COUNT(*) FROM capture_read_failures"), "shutdown is not a read failure");
     Equal("completed", Value(db, "SELECT stop_reason FROM capture_runs"), "shutdown closes the run");
     Console.WriteLine("PASS: cancellation rolls back the round and closes the run as completed without a read failure");
+}
+
+static async Task ExtensionVersion()
+{
+    using var fixture = new Fixture();
+    var receiverVersion = BrowserDatabase.Collector.Version;
+    const string oldVersion = "dev+old";
+    foreach (var (version, reload) in new[] { (receiverVersion, false), (oldVersion, true), ((string?)null, false) })
+    {
+        await using var port = await fixture.Connect(profile: Guid.NewGuid(), extensionVersion: version);
+        Equal(receiverVersion, port.OpenReply["receiverVersion"]?.GetValue<string>(), "open reports the receiver version");
+        Equal(reload, port.OpenReply["reload"]?.GetValue<bool>(), "open requests reload only for a known mismatch");
+    }
+    using var db = fixture.Database();
+    Equal(receiverVersion, Value(db, "SELECT extension_version FROM browser_runs WHERE run_id=1"), "matching version is recorded");
+    Equal(oldVersion, Value(db, "SELECT extension_version FROM browser_runs WHERE run_id=2"), "mismatched version is recorded");
+    Equal(null, Value(db, "SELECT extension_version FROM browser_runs WHERE run_id=3"), "unlabelled extension is recorded as unknown");
+    Equal(1L, Value(db, "SELECT COUNT(*) FROM capture_coverage WHERE evidence='extension_version_mismatch'"),
+        "only the mismatched run has a coverage gap");
+    Equal(2L, Value(db, "SELECT run_id FROM capture_coverage WHERE evidence='extension_version_mismatch'"), "gap identifies the run");
+    Equal($"extension={oldVersion}, receiver={receiverVersion}",
+        Value(db, "SELECT detail FROM capture_coverage WHERE evidence='extension_version_mismatch'"), "gap explains both versions");
+    Console.WriteLine("PASS: extension version negotiation, run identity and mismatch coverage");
+}
+
+static async Task UpgradePreviousBrowserSchema()
+{
+    using var fixture = new Fixture();
+    using (var previous = CollectorDatabase.Open(fixture.Store, BrowserDatabase.Collector))
+    {
+        var coverage = (string)Value(previous, "SELECT sql FROM sqlite_schema WHERE name='capture_coverage'")!;
+        var start = coverage.IndexOf("SELECT 'browser','notification'", StringComparison.Ordinal);
+        var end = coverage.IndexOf("SELECT e.scope", start, StringComparison.Ordinal);
+        Execute(previous, "DROP VIEW capture_coverage; ALTER TABLE browser_runs DROP COLUMN extension_version;");
+        Execute(previous, coverage.Remove(start, end - start));
+        Execute(previous, """
+            INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'macos','test');
+            INSERT INTO capture_runs(run_id,started_at_utc_ms,host_observation_id) VALUES(1,1,1);
+            INSERT INTO browser_runs VALUES(1,'chrome','old-profile','old-session');
+            """);
+    }
+    var version = BrowserDatabase.Collector.Version;
+    await using (await fixture.Connect(extensionVersion: version)) { }
+    using var db = fixture.Database();
+    Equal("old-profile", Value(db, "SELECT profile_id FROM browser_runs WHERE run_id=1"), "previous browser run survives");
+    Equal(null, Value(db, "SELECT extension_version FROM browser_runs WHERE run_id=1"), "previous run has unknown extension version");
+    Equal(version, Value(db, "SELECT extension_version FROM browser_runs WHERE run_id=2"), "upgraded browser records the extension version");
+    Console.WriteLine("PASS: previous browser schema accepts a new run with an extension version");
 }
 
 static async Task RejectedDelivery()
@@ -545,7 +595,8 @@ sealed class Fixture(bool external = false) : IDisposable
         return System.Diagnostics.Process.Start(start)!;
     }
 
-    internal async Task<Connection> Connect(TimeSpan? interval = null, bool expectedOk = true, Guid? profile = null)
+    internal async Task<Connection> Connect(TimeSpan? interval = null, bool expectedOk = true, Guid? profile = null,
+        string? extensionVersion = null)
     {
         var address = Start(interval);
         if (server?.IsCompleted == true) await server;
@@ -560,8 +611,7 @@ sealed class Fixture(bool external = false) : IDisposable
             }
 
         var socket = new ClientWebSocket();
-        var checkout = external && Executable is null ? Environment.CurrentDirectory : null;
-        var origin = "chrome-extension://" + ChromeExtension.Id(ChromeExtension.DirectoryFor(Instance, checkout));
+        var origin = "chrome-extension://" + ChromeExtension.Id(ChromeExtension.DirectoryFor(Instance));
         socket.Options.SetRequestHeader("Origin", origin);
         try { await socket.ConnectAsync(address, deadline.Token); }
         catch { socket.Dispose(); throw; }
@@ -570,7 +620,10 @@ sealed class Fixture(bool external = false) : IDisposable
         var connection = new Connection(socket, session);
         try
         {
-            await connection.Exchange(new { type = "open", profileId = profile ?? profileId, queueId = queue, browserSession = session }, expectedOk);
+            connection.OpenReply = await connection.Exchange(new
+            {
+                type = "open", profileId = profile ?? profileId, queueId = queue, browserSession = session, extensionVersion,
+            }, expectedOk);
             return connection;
         }
         catch
@@ -628,6 +681,8 @@ sealed class Fixture(bool external = false) : IDisposable
 
 sealed class Connection(ClientWebSocket socket, Guid browserSession) : IAsyncDisposable
 {
+    internal JsonNode OpenReply { get; set; } = null!;
+
     internal async Task<JsonNode> Deliver(long sequence, string scope, string kind, JsonNode data, bool expectedOk = true,
         bool fragmented = false, long? observedAt = null)
     {

@@ -24,16 +24,21 @@ internal sealed class BrowserDatabase : IDisposable
         browserSession = hello.BrowserSession.ToString();
         writer = new CaptureWriter(store, Collector, (command, run) =>
         {
-            command.Execute("INSERT INTO browser_runs VALUES($p0,'chrome',$p1,$p2)", run, profile, browserSession);
+            command.Execute("""
+                INSERT INTO browser_runs(run_id,browser,profile_id,browser_session,extension_version)
+                VALUES($p0,'chrome',$p1,$p2,$p3)
+                """, run, profile, browserSession, hello.ExtensionVersion);
             command.Execute("INSERT OR IGNORE INTO _history_cursors VALUES($p0,$p1,$p1,$p1)", profile, now);
         }, lockIdentity: profile);
     }
 
-    internal sealed record Hello(Guid ProfileId, Guid QueueId, Guid BrowserSession);
+    internal sealed record Hello(Guid ProfileId, Guid QueueId, Guid BrowserSession, string? ExtensionVersion);
     internal sealed record Delivery(long Sequence, long ObservedAtUtcMs, Guid BrowserSession,
         string Scope, string Kind, JsonElement Data);
     internal sealed record Reply(bool Ok = true, long? Sequence = null, HistoryDatabase.Range? History = null, string? Error = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Rejected = false);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Rejected = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReceiverVersion = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Reload = null);
 
     internal Reply Receive(JsonElement payload, long now, out bool polledTabs)
     {

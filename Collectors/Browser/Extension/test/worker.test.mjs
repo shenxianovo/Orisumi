@@ -59,7 +59,8 @@ async function harness(t) {
       getTree: async () => [{ id: "0", title: "", children: [{ id: "1", parentId: "0", title: "A", index: 0 }] }] },
     history: { onVisitRemoved: event(), search: async () => [], getVisits: async () => [] },
   };
-  const harness = { ...base, ports: [], retries, controls: { hold: () => false, history: undefined, acceptOpen: true } };
+  const harness = { ...base, ports: [], retries,
+    controls: { hold: () => false, history: undefined, acceptOpen: true, manifest: {}, openReply: { ok: true } } };
   t.mock.method(globalThis, "fetch", async url => {
     assert.equal(url, "chrome-extension://fixture/config.json");
     return new Response(JSON.stringify({ instance: "dev_fixture", port: 47971 }));
@@ -89,7 +90,7 @@ async function harness(t) {
       const request = JSON.parse(value);
       this.messages.push(request);
       if (request.type === "open") {
-        if (harness.controls.acceptOpen) queueMicrotask(() => this.ack());
+        if (harness.controls.acceptOpen) queueMicrotask(() => this.reply(harness.controls.openReply));
       } else if (request.type === "history_poll") {
         const history = harness.controls.history;
         harness.controls.history = undefined;
@@ -100,7 +101,10 @@ async function harness(t) {
   const websocket = globalThis.WebSocket;
   globalThis.WebSocket = MockWebSocket;
   t.after(() => { globalThis.WebSocket = websocket; });
-  globalThis.chrome = { ...base, runtime: { getURL: path => `chrome-extension://fixture/${path}`, onInstalled: event(), onStartup: event() } };
+  const reload = t.mock.fn();
+  globalThis.chrome = { ...base, runtime: { getURL: path => `chrome-extension://fixture/${path}`,
+    getManifest: () => harness.controls.manifest, reload, onInstalled: event(), onStartup: event() } };
+  harness.reload = reload;
   harness.worker = () => import(`../bin/test-extension/worker.js?worker=${++workerNumber}`);
   harness.ready = async () => {
     await harness.worker();
@@ -114,6 +118,37 @@ async function harness(t) {
   return harness;
 }
 const deliveries = port => port.messages.filter(message => message.type === "delivery");
+
+test("open reports the build version and follows the receiver's reload decision", async t => {
+  const h = await harness(t);
+  h.controls.manifest = { version_name: "dev+old" };
+  h.controls.openReply = { ok: true, receiverVersion: "dev+new", reload: false };
+  const port = await h.ready();
+  assert.equal(port.messages[0].extensionVersion, "dev+old");
+  assert.equal(h.reload.mock.callCount(), 0);
+});
+
+test("a requested reload closes the socket and preserves the pending outbox for the next worker", async t => {
+  const h = await harness(t);
+  h.controls.manifest = { version_name: "dev+old" };
+  h.controls.openReply = { ok: true, receiverVersion: "dev+new", reload: true };
+  const outbox = await openOutbox();
+  await outbox.add({ scope: "tabs", kind: "tab_updated", data: { tabId: 7, change: { title: "Still pending" } },
+    observedAtUtcMs: 1000, browserSession: crypto.randomUUID() });
+  const pending = await outbox.first();
+
+  await h.worker();
+  await eventually(() => h.reload.mock.callCount() === 1);
+  assert.equal(h.ports[0].readyState, 3);
+  assert.deepEqual(h.ports[0].messages.map(message => message.type), ["open"]);
+  assert.deepEqual(await outbox.first(), pending);
+  assert.equal(h.retries.length, 0);
+
+  await h.worker();
+  const replay = await eventually(() => h.ports[1] && deliveries(h.ports[1])[0]);
+  assert.deepEqual(replay, { type: "delivery", ...pending });
+  assert.equal(h.reload.mock.callCount(), 1);
+});
 
 test("retryable delivery replies back off without dropping or skipping the queue head", async t => {
   const h = await harness(t);
@@ -143,7 +178,8 @@ test("retryable delivery replies back off without dropping or skipping the queue
 test("startup creates installation identity and forwards full snapshots and absolute events", async t => {
   const h = await harness(t);
   const port = await h.ready();
-  const { profileId } = port.messages[0];
+  const { profileId, extensionVersion } = port.messages[0];
+  assert.equal(extensionVersion, null);
   assert.match(profileId, /^[0-9a-f-]{36}$/);
   assert.deepEqual(h.storage.local.saved, { profileId });
   assert.deepEqual(h.storage.session.saved, { browserSession: port.messages[0].browserSession });
@@ -234,6 +270,7 @@ test("incognito data is filtered before entering the queue, including focus and 
   assert.doesNotMatch(transported, /private|\b(44|55|99)\b/);
   const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
   assert.equal(manifest.incognito, "not_allowed");
+  assert.ok(!("version_name" in manifest));
   assert.equal(manifest.minimum_chrome_version, "116");
   assert.ok(!manifest.permissions.includes("nativeMessaging") && !("host_permissions" in manifest));
 });

@@ -1,7 +1,7 @@
 import { readHistory, type Range } from "./history.js";
 import { openOutbox, type Scope } from "./outbox.js";
 
-type Reply = { ok: boolean; sequence?: number; history?: Range; error?: string };
+type Reply = { ok: boolean; sequence?: number; history?: Range; error?: string; receiverVersion?: string; reload?: boolean };
 
 export const report = (error: unknown) => console.error("Orisumi browser capture", error);
 
@@ -37,6 +37,7 @@ export function browserConnection(onReady: () => void) {
   let poll = true;
   let readingHistory = false;
   let retryDelay = 1000;
+  let reloading = false;
   async function enqueue(scope: Scope, kind: string, data: unknown, observedAtUtcMs = Date.now()) {
     const { outbox, browserSession } = await loadIdentity();
     await outbox.add({ scope, kind, data, observedAtUtcMs, browserSession });
@@ -93,7 +94,18 @@ export function browserConnection(onReady: () => void) {
     }
     try {
       await ready;
-      await request({ type: "open", browserSession, profileId, queueId });
+      const extensionVersion = chrome.runtime.getManifest().version_name ?? null;
+      const { receiverVersion, reload } = await request({ type: "open", browserSession, profileId, queueId, extensionVersion });
+      if (reload === true && typeof receiverVersion === "string") {
+        const key = `reload:${receiverVersion}`;
+        if (!(await chrome.storage.local.get(key))[key]) {
+          await chrome.storage.local.set({ [key]: true });
+          if (socket.readyState < WebSocket.CLOSING) socket.close();
+          chrome.runtime.reload();
+          reloading = true;
+          return;
+        }
+      }
       onReady();
       poll = true;
       while (!closed) {
@@ -122,6 +134,7 @@ export function browserConnection(onReady: () => void) {
   }
   function start() {
     void connect().catch(report).finally(() => {
+      if (reloading) return;
       setTimeout(start, retryDelay);
       retryDelay = Math.min(2 * retryDelay, 30_000);
     });

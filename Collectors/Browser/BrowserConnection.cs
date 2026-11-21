@@ -59,8 +59,11 @@ internal static class BrowserConnection
                 if (database is null)
                 {
                     if (type != "open") throw new InvalidDataException("expected browser connection identity");
-                    database = new BrowserDatabase(store, message.Deserialize(BrowserJson.Default.Hello)!, Now());
-                    await Write(new());
+                    var hello = message.Deserialize(BrowserJson.Default.Hello)!;
+                    database = new BrowserDatabase(store, hello, Now());
+                    var receiverVersion = BrowserDatabase.Collector.Version;
+                    await Write(new(ReceiverVersion: receiverVersion,
+                        Reload: hello.ExtensionVersion is not null && hello.ExtensionVersion != receiverVersion));
                     lastTick = clock.GetTimestamp();
                     lastSnapshot = Now();
                 }

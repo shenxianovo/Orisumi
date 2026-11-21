@@ -129,9 +129,13 @@ C# 采集器通过共享项目 `Shared/Capture` 的 `CaptureWriter` 写入：它
 - `database_identity`：建库时在同一事务里写一行，之后不变。`database_id` 是随机 32 位十六进制，等于库文件名，库在设备间合并时靠它区分；`platform`、`hardware_uuid` 是存储选库时绑定的建库主机，读不到硬件 UUID 时为空，含义见[多设备](../overview/devices.mdx#身份)。
 - `host_observations`：运行开始时由 `Orisumi.Platform.HostIdentity` 读到的主机原始标识，包括硬件 UUID、主机名、型号、系统版本、启动 ID、系统用户和存储目录；读不到的为空。和上一行完全相同时不写新行，所以重启开机或换了存储目录才会多一行。
 
-`capture_runs`、`capture_read_failures` 也是共享表。`capture_runs.host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；`collector_version` 记写这次运行的采集器版本（程序的版本号加提交号），加这一列之前的运行为 NULL。
+`capture_runs`、`capture_read_failures` 也是共享表。`capture_runs.host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；`collector_version` 记写这次运行的采集器版本（发布版本或 `dev`，加组件标识，见[组件与版本](../development/release.mdx#组件与版本)）；v5 之前的运行记的是程序版本加提交号，更早的为 NULL。
 
-结构没有版本号，代码里不做迁移；SQLite 文件自带建表语句，旧库按它自己的结构读。改结构时停掉对应采集器，能迁移的用一次性脚本迁移现有库，再启动：只增不改的变更（加表、加可为空的列）不影响已有数据，新加的部分在此前没有行，即未观测。开发期已有数据可以删：破坏性更改不必写迁移，删掉 `state/current/<来源>.json`，下次采集新建库，旧库留在原处只读，不要时整个删掉。旧库不会在打开时被拒绝，要到写入时才在 SQL 层报错。原地迁移保留库 ID；已拷到其他设备的副本，由再次导出的同 ID 快照替换。macOS 库总是建完整结构，选项只控制哪些通道采集和写入。
+结构没有版本号，也没有迁移脚本。采集器打开自己正在写的库时，按共享和自己的 `Schema/` 在内存里建出期望的结构来比较，在同一个事务里只做增加：缺表建表，缺列 `ALTER TABLE … ADD COLUMN`，视图全部按代码重建，索引缺的补、多的删、定义不同的重建；已经一致的库不写。有其他差异（删列、改类型、非空、默认值、主键或表约束）就不改并报出每一处。只读的旧库和其他设备的副本不改，按它自己的结构读。macOS 库总是建完整结构，选项只控制哪些通道采集和写入。
+
+- 开发实例：结构随便改。打开时报不兼容，就 `orisumi-dev reset`，下次采集新建库。
+- 生产：从 `v5.0.0` 起只增不改。已有的表和列原样保留（类型、非空、默认值、主键都不变），只能加表、加可为空或有默认值的列；视图和索引不存数据，可以随便改。要破坏性改动就换一个新表名，旧表留着。`orisumi-dev release` 用各采集器的 `schema` 输出和上一个发布清单比较，不满足就拒绝发布；所以更新后打开库时总能补齐。新加的部分在此前没有行，即未观测。
+- 读旧库和其他设备的副本时按列检查：缺表或缺列算未观测，不当成空。
 
 ## 开发与验证
 
@@ -147,7 +151,7 @@ C# 采集器通过共享项目 `Shared/Capture` 的 `CaptureWriter` 写入：它
 
 宿主 `orisumi` 不引用任何采集器，只通过 `describe` 认识它。`describe` 输出一个 JSON 对象：名字（即 `observations/` 下的目录名）、版本和常驻采集的参数。`capture start` 用这些参数把每个采集器装成 LaunchAgent，见[安装与启停](../development/release.mdx#安装与启停)。数据在别的程序里的来源（如 Chrome）由那边的插件连到常驻的采集器，采集器不由那个程序拉起。
 
-采集器之间、采集器与宿主之间的约定只有：存储布局、共享表、`capture_coverage` 的前六列和 `describe`。改这些要所有采集器跟着改，尽量不动。
+采集器之间、采集器与宿主之间的约定只有：存储布局、共享表、`capture_coverage` 的前六列、`describe` 和 `schema`（后两者由 `CollectorCommand` 提供，采集器不用自己写）。改这些要所有采集器跟着改，尽量不动。
 
 1. 建 `Collectors/<来源>/Orisumi.Collectors.<来源>.csproj`。`Collectors/Directory.Build.props` 把它构建成程序 `orisumi-<来源>`，并提供框架、SQLite、`Schema/` 打包、共享项目 `Shared/Capture`（写入和命令）和 AOT 设置；项目文件只写来源自己的依赖和 `Version`。代码要能 Native AOT 发布：JSON 用源码生成，不靠反射；`dotnet build` 报的 AOT 警告必须为零。
 2. 按上面的约定写 `Schema/`，包括 `capture_coverage`；运行表和读取失败表是共享的，不用写。

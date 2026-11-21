@@ -3,7 +3,7 @@ title: 存储
 description: 存储目录的位置与结构，以及每个来源写哪个库。
 ---
 
-每个存储目录是一个实例：生产在 `~/Library/Application Support/Orisumi`，开发实例见[实例与部署](../development/release.mdx#实例)；`--store` 可指定别处，测试用临时目录。Windows 计划用 `%LOCALAPPDATA%\Orisumi`，Android 用应用私有目录，尚未实现。路径只由 `Shared/Platform` 的 `Store` 拼出。
+每个存储目录是一个实例：生产在 `~/Library/Application Support/Orisumi`，开发实例在 `~/Library/Application Support/Orisumi-dev`，见[实例](../development/release.mdx#实例)；`--store` 可指定别处，测试用临时目录。Windows 计划用 `%LOCALAPPDATA%\Orisumi`，Android 用应用私有目录，尚未实现。路径只由 `Shared/Platform` 的 `Store` 拼出。
 
 正在写的库不放进 iCloud Drive、Dropbox 等同步盘：同步工具复制或覆盖写入中的 SQLite（尤其是 WAL）会损坏它。也不放 `~/Documents`、`~/Desktop`：这些目录受 macOS 隐私保护，后台 LaunchAgent 访问会被拦。
 
@@ -14,8 +14,9 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 | `observations/<来源>/<database_id>.sqlite` | 观测库：本机正在写的、以前写的、其他设备的副本 | 补不回来 | 要 |
 | `rules/` | 人写的规则，如设备合并（未实现） | 补不回来 | 要 |
 | `derived/` | 确定性派生，能从上两项原样重建（未实现） | 重建 | 不 |
-| `instance.json` | 实例名，见[实例与部署](../development/release.mdx#实例) | 程序找不到所属实例 | 不 |
-| `app/` | 装好的宿主和采集器 | 重新安装 | 不 |
+| `instance.json` | 实例名，见[实例](../development/release.mdx#实例) | 程序找不到所属实例 | 不 |
+| `app/` | 装好的宿主和采集器，`manifest.json` 记各组件的标识和版本 | 重新安装 | 不 |
+| `backups/` | 生产 `update` 前的库快照，保留最近两份，见[更新](../development/release.mdx#更新) | 无影响 | 不 |
 | `state/` | 本机运行状态：`current/<来源>.json`、`locks/` | 下次采集从新库开始 | 不 |
 | `logs/` | 采集器日志 | 无影响 | 不 |
 
@@ -23,7 +24,7 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 
 ## 导出
 
-`orisumi export <目标目录>` 把每个来源的所有库拍成快照，按同样的布局写到 `<目标目录>/observations/<来源>/<库 ID>.sqlite`，不含 `state/` 和 `logs/`。
+`orisumi export <目标目录>` 把每个来源的所有库拍成快照，按同样的布局写到 `<目标目录>/observations/<来源>/<库 ID>.sqlite`，不含 `state/`、`logs/` 和 `backups/`。
 
 - 快照用 `VACUUM INTO`：采集器照常写入，快照取同一时刻的已提交内容，包括还在 WAL 里的部分。每份是单个文件（DELETE 日志模式），通过完整性检查和库 ID 核对后才替换目标。
 - 存储里的库只读打开，内容不变；但打开一个没人在写的 WAL 库时，SQLite 仍可能建出 `-wal`、`-shm`。目标不能落在存储目录里。

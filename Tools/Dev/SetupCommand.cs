@@ -32,15 +32,12 @@ internal static class SetupCommand
             if (exitCode != 0)
                 return exitCode;
         }
-        var extensionCode = await ExtensionBuild.BuildDevelopment(root, token);
-        if (extensionCode != 0) return extensionCode;
         // A same-version tool update leaves the old launcher installed.
-        foreach (var package in new[] { "Orisumi.Cli", "Orisumi.Dev" })
-            if (await ToolInstalled(package, token))
-            {
-                var code = await Development.Run("dotnet", root, token, "tool", "uninstall", "--global", package);
-                if (code != 0) return code;
-            }
+        if (await ToolInstalled("Orisumi.Dev", token))
+        {
+            var code = await Development.Run("dotnet", root, token, "tool", "uninstall", "--global", "Orisumi.Dev");
+            if (code != 0) return code;
+        }
         return await Development.Run("dotnet", root, token, "tool", "install", "--global", "Orisumi.Dev", "--source", "bin/packages");
     }
 

@@ -24,7 +24,7 @@ orisumi capture coverage --from 2026-11-13T00:00:00+08:00 --to 2026-11-14T00:00:
 - **运行**：进程或浏览器连接的起止。结束未确认时 `evidence` 为 `unconfirmed`，`confirmed_until_utc_ms` 说明至少确认到了哪。
 - **读取失败**：`read_failed`，一个时点。这一轮的事实已回滚，下一轮重读。
 - **文件变化**：日志被移动、替换、截断、改写或缺失时的时点，Claude、Codex 有。
-- **缺口**：浏览器快照和库对不上（`reconciliation_changed`）、连接还在但约两分钟没收到快照（`snapshot_timeout`）、投递被拒（`delivery_rejected`）；macOS 通道不可用及原因。
+- **缺口**：浏览器快照和库对不上（`reconciliation_changed`）、连接还在但约两分钟没收到快照（`snapshot_timeout`）、投递被拒（`delivery_rejected`）、扩展版本和接收端不同（`extension_version_mismatch`）；macOS 通道不可用及原因。
 - **补读范围**：浏览器历史已读到的时间段（`range_read`）。
 
 这些记录合不成一个“全程完整”的布尔值。没有新事实只在链没断时说明状态没变；读现值只证明读的那一刻。补读完成的时间和日志覆盖的来源时间是两回事。

@@ -1,26 +1,21 @@
-using Orisumi.Platform;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Orisumi.Dev;
 
 internal static class ExtensionBuild
 {
-    internal static async Task<int> BuildDevelopment(string checkout, CancellationToken token)
-    {
-        var instance = Instance.Development(checkout);
-        var target = ChromeExtension.DirectoryFor(instance, checkout);
-        var code = await Build(checkout, target, token);
-        if (code != 0) return code;
-        ChromeExtension.Configure(target, instance);
-        Console.WriteLine($"Load unpacked Chrome extension: {target}");
-        Console.WriteLine($"Expected Chrome extension ID: {ChromeExtension.Id(target)}");
-        return 0;
-    }
-
-    internal static async Task<int> Build(string checkout, string target, CancellationToken token)
+    internal static async Task<int> Build(string checkout, string target, string version, CancellationToken token)
     {
         var source = Path.Combine(checkout, DevCommand.ExtensionDirectory);
         var code = await Development.Run("npm", source, token, "run", "build", "--", "--outDir", target);
-        if (code == 0) File.Copy(Path.Combine(source, "manifest.json"), Path.Combine(target, "manifest.json"), overwrite: true);
+        if (code == 0)
+        {
+            var manifest = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(source, "manifest.json"), token))!.AsObject();
+            manifest["version_name"] = version;
+            await File.WriteAllTextAsync(Path.Combine(target, "manifest.json"),
+                manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n", token);
+        }
         return code;
     }
 }

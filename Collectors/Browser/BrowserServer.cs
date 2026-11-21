@@ -10,17 +10,13 @@ internal static class BrowserServer
     private const int MaxMessageBytes = 64 * 1024 * 1024;
     private static readonly TimeSpan SocketTimeout = TimeSpan.FromSeconds(2);
 
-    internal static Task Run(Instance instance, CancellationToken stop)
-    {
-        var directory = AppContext.BaseDirectory;
-        var checkout = Instance.Find(directory) is null ? Instance.FindCheckout(directory) : null;
-        return Run(instance, instance.BrowserPort, TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(20), stop, checkout);
-    }
+    internal static Task Run(Instance instance, CancellationToken stop) =>
+        Run(instance, instance.BrowserPort, TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(20), stop);
 
     internal static async Task Run(Instance instance, int port, TimeSpan snapshotInterval, TimeSpan heartbeatInterval,
-        CancellationToken stop, string? checkout = null)
+        CancellationToken stop)
     {
-        var extension = ChromeExtension.DirectoryFor(instance, checkout);
+        var extension = ChromeExtension.DirectoryFor(instance);
         var origin = $"chrome-extension://{ChromeExtension.Id(extension)}";
         using var listener = new HttpListener();
         listener.Prefixes.Add(FormattableString.Invariant($"http://127.0.0.1:{port}/"));

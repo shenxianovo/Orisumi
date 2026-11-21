@@ -117,13 +117,14 @@ try
         Check(result.RootElement.GetProperty("cwd").GetString()!.EndsWith(Path.Combine("nested", "working directory"), StringComparison.Ordinal), "working directory changed");
     }
     Check(first.Error.Contains("fixture build diagnostic"), "build diagnostic did not go to stderr");
-    Check(File.Exists(Path.Combine(collector, "bin/Debug/net11.0/orisumi-fixture.dll")), "source launcher builds collectors in the solution");
+    Check(!Directory.Exists(Path.Combine(collector, "bin")), "source launcher builds only the development project");
     Console.WriteLine("PASS: nested checkout, spaces, Git directory-file marker, args, cwd, stderr");
 
     await File.WriteAllTextAsync(source, program.Replace("VERSION", "v2"));
+    await File.AppendAllTextAsync(collectorSource, "\ninvalid C# source");
     var second = await Run(tool, nested, []);
     Check(second.Code == 0 && second.Output.Contains("v2"), second.Error);
-    await File.AppendAllTextAsync(collectorSource, "\ninvalid C# source");
+    await File.AppendAllTextAsync(source, "\ninvalid C# source");
     var broken = await Run(tool, nested, []);
     Check(broken.Code != 0 && broken.Output.Length == 0 && broken.Error.Contains("CS"), $"build failure: code={broken.Code}, stdout={broken.Output}, stderr={broken.Error}");
     await File.WriteAllTextAsync(collectorSource, fixture);
@@ -175,12 +176,16 @@ try
     if (!OperatingSystem.IsWindows())
         Console.WriteLine("PASS: termination reaches source process and waits for it to flush");
 
+    var collectorBuild = await Run("dotnet", root, ["build", Path.Combine(collector, "Orisumi.Collectors.Fixture.csproj")]);
+    Check(collectorBuild.Code == 0, collectorBuild.Output + collectorBuild.Error);
     var relativeOutput = Path.Combine("fixture-output", "custom-config", "custom-framework");
     var hostOutput = Path.Combine(project, relativeOutput);
     CopyOutput(hostBuild, hostOutput);
     CopyOutput(Path.Combine(collector, "bin/Debug/net11.0"), Path.Combine(collector, relativeOutput));
     var host = Path.Combine(hostOutput, "orisumi");
     var store = Path.Combine(temp.FullName, "custom store ' 引号");
+    Directory.CreateDirectory(store);
+    File.WriteAllText(Path.Combine(store, "instance.json"), """{"name":"test_launcher"}""");
     var forwarded = await Run(host, nested, ["--store", store, "forwarded", "args", .. arguments]);
     Check(forwarded.Code == 0, forwarded.Error);
     Check(JsonSerializer.Deserialize<string[]>(forwarded.Output)!.SequenceEqual(["--store", store, "args", .. arguments]),

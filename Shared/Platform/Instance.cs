@@ -15,18 +15,22 @@ public sealed class Instance
 
     public Store Store { get; }
     public string Name { get; }
-    private string AgentPrefix => $"{HostBundle.Identifier}.{Name}";
-    internal bool IsDevelopment => Name.StartsWith("dev_", StringComparison.Ordinal);
+    private string AgentPrefix => $"dev.orisumi.{Name}";
+    internal string BundleIdentifier => BundleIdentifierFor(Name);
+    internal static string BundleIdentifierFor(string name) => name == "prod" ? "dev.orisumi" : "dev.orisumi.canary";
+    // System Settings lists apps by name, so the dev app must not read as production.
+    internal static string AppNameFor(string name) => name == "prod" ? "Orisumi" : "Orisumi Dev";
     internal string AppAgentLabel => $"{AgentPrefix}.app";
     internal string CaptureAgentPrefix => $"{AgentPrefix}.capture.";
     public string CaptureAgentLabel(string source) => CaptureAgentPrefix + source;
     public int BrowserPort => Name switch
     {
         "prod" => 47810,
+        "dev" => 47811,
         _ => 47900 + (int)(Name.Aggregate(2166136261u,
             (hash, character) => unchecked((hash ^ character) * 16777619u)) % 100),
     };
-    public string CommandName => Name == "prod" ? "orisumi" : "orisumi-" + Name;
+    internal string? CommandName => Name == "prod" ? "orisumi" : null;
 
     public static Instance Open(string root)
     {
@@ -70,32 +74,14 @@ public sealed class Instance
 
     public static string DefaultRoot() => Resolve(AppContext.BaseDirectory).Store.Root;
 
-    public static Instance Resolve(string baseDirectory) => Resolve(baseDirectory, createDevelopment: true);
+    public static Instance Resolve(string baseDirectory) => Find(baseDirectory) ??
+        throw new DirectoryNotFoundException("找不到 instance.json。请使用 --store 指定存储目录。");
 
-    internal static Instance Resolve(string baseDirectory, bool createDevelopment)
-    {
-        if (Find(baseDirectory) is { } instance) return instance;
-        if (FindCheckout(baseDirectory) is { } checkout)
-            return createDevelopment ? Development(checkout) : Open(DevelopmentRoot(checkout));
-        throw new DirectoryNotFoundException("找不到 instance.json 或 Orisumi.slnx。请使用 --store 指定存储目录。");
-    }
+    public static string ProductionRoot() => ApplicationSupport("Orisumi");
+    public static string DevelopmentRoot() => ApplicationSupport("Orisumi-dev");
 
-    internal static string? FindCheckout(string start)
-    {
-        for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
-            if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")))
-                return directory.FullName;
-        return null;
-    }
-
-    public static Instance Development(string checkout)
-    {
-        var folder = new DirectoryInfo(checkout).Name.ToLowerInvariant();
-        var name = "dev_" + string.Concat(folder.Select(character => IsNameCharacter(character) ? character : '_'));
-        return Create(DevelopmentRoot(checkout), name);
-    }
-
-    private static string DevelopmentRoot(string checkout) => Path.Combine(checkout, ".local", "store");
+    private static string ApplicationSupport(string folder) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", folder);
 
     internal static bool IsName(string name) => name.Length > 0 && name.All(IsNameCharacter);
     private static bool IsNameCharacter(char character) => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_';

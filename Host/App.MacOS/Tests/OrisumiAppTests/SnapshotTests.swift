@@ -80,17 +80,25 @@ final class SnapshotTests: XCTestCase {
     func testMenuBarIcon() throws {
         let icon = try XCTUnwrap(NSImage(contentsOf: packageRoot.appendingPathComponent("Icon/AppIcon.png")))
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-            let images = [Health.ok, .attention, .stopped].map { MenuBarIcon.render(icon, health: $0) }
-            let strip = NSImage(size: NSSize(width: 44 * images.count + 8, height: 30), flipped: false) { bounds in
+            let images = [false, true].flatMap { dev in
+                [Health.ok, .attention, .stopped].map { MenuBarIcon.render(icon, health: $0, dev: dev) }
+            }
+            let strip = NSImage(size: NSSize(width: 64 * images.count + 8, height: 30), flipped: false) { bounds in
                 (appearance == .aqua ? NSColor(white: 0.93, alpha: 1) : NSColor(white: 0.16, alpha: 1)).setFill()
                 bounds.fill()
                 for (index, image) in images.enumerated() {
-                    image.draw(in: NSRect(x: 8 + index * 44, y: 6, width: 18, height: 18))
+                    image.draw(in: NSRect(x: 8 + CGFloat(index) * 64, y: 6, width: image.size.width, height: 18))
                 }
                 return true
             }
             try write(strip, scale: 4, name: "menubar-\(appearance == .aqua ? "light" : "dark")")
         }
+    }
+
+    func testDevIcon() throws {
+        let icon = try XCTUnwrap(NSImage(contentsOf: packageRoot.appendingPathComponent("Icon/AppIcon.png")))
+        let png = try XCTUnwrap(DevBadge.icon(from: icon, pixels: 1024).representation(using: .png, properties: [:]))
+        try png.write(to: directory.appendingPathComponent("dev-icon.png"))
     }
 
     // MARK: - Helpers

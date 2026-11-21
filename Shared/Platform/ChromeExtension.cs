@@ -11,9 +11,15 @@ internal static class ChromeExtension
         string.Concat(SHA256.HashData(Encoding.UTF8.GetBytes(absolutePath)).Take(16)
             .SelectMany(value => new[] { (char)('a' + (value >> 4)), (char)('a' + (value & 15)) }));
 
-    internal static string DirectoryFor(Instance instance, string? checkout) => DirectoryPaths.Resolve(checkout is null
-        ? Path.Combine(instance.Store.Collector("browser"), "extension")
-        : Path.Combine(checkout, ".local", "extension"));
+    internal static string DirectoryFor(Instance instance) =>
+        DirectoryPaths.Resolve(Path.Combine(instance.Store.Collector("browser"), "extension"));
+
+    internal static void PrintLocation(Instance instance, TextWriter output)
+    {
+        var directory = DirectoryFor(instance);
+        output.WriteLine($"Load unpacked Chrome extension: {directory}");
+        output.WriteLine($"Expected Chrome extension ID: {Id(directory)}");
+    }
 
     internal static void Configure(string directory, Instance instance)
     {
@@ -28,7 +34,7 @@ internal static class ChromeExtension
     internal static void CheckConfiguration(string directory, Instance instance)
     {
         var config = Path.Combine(directory, "config.json");
-        if (!File.Exists(config)) throw new FileNotFoundException($"找不到扩展配置：{config}。请安装或构建 Chrome 扩展。");
+        if (!File.Exists(config)) throw new FileNotFoundException($"找不到扩展配置：{config}。请安装包含 Chrome 扩展的浏览器采集器。");
         using var json = JsonDocument.Parse(File.ReadAllText(config));
         if (json.RootElement.ValueKind != JsonValueKind.Object ||
             !json.RootElement.TryGetProperty("instance", out var name) || name.ValueKind != JsonValueKind.String ||

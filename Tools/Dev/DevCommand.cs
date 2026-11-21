@@ -29,16 +29,6 @@ internal static class DevCommand
         return new Command("dev", "环境安装、构建、文档站与行数统计。") { SetupCommand.Create(), build, docs, Loc.LocCommand.Create() };
     }
 
-    internal static Command Extension()
-    {
-        var extension = new Command("extension", "构建 Chrome 扩展。");
-        AddNpmCommand(extension, "install", "安装锁定版本的扩展开发依赖。", ExtensionDirectory, "ci");
-        var build = new Command("build", "构建当前开发实例的扩展。");
-        build.SetAction((_, token) => ExtensionBuild.BuildDevelopment(Repository.Require(), token));
-        extension.Add(build);
-        return extension;
-    }
-
     private static void AddNpmCommand(Command parent, string name, string description, string directory, params string[] arguments)
     {
         var command = new Command(name, description);

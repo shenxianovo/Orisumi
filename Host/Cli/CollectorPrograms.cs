@@ -12,12 +12,13 @@ internal sealed record CollectorProgram(string Path, bool Managed, ProgramDescri
 
 internal static class CollectorPrograms
 {
-    internal static string? Checkout(string baseDirectory)
+    private static string? Checkout(string baseDirectory)
     {
         if (Instance.Find(baseDirectory) is not null) return null;
-        var checkout = Instance.FindCheckout(baseDirectory);
-        return checkout is not null && DirectoryPaths.Contains(Path.Combine(checkout, "Host", "Cli"), baseDirectory)
-            ? checkout : null;
+        for (var directory = new DirectoryInfo(baseDirectory); directory is not null; directory = directory.Parent)
+            if (File.Exists(Path.Combine(directory.FullName, "Orisumi.slnx")))
+                return DirectoryPaths.Contains(Path.Combine(directory.FullName, "Host", "Cli"), baseDirectory) ? directory.FullName : null;
+        return null;
     }
 
     internal static async Task<CollectorProgram[]> Read(string store, CancellationToken token, string? baseDirectory = null)

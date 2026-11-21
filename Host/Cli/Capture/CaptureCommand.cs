@@ -18,7 +18,7 @@ internal static class CaptureCommand
         status.SetAction((result, token) =>
         {
             var instance = result.GetValue(store) is { } location ? Instance.Open(location)
-                : Instance.Resolve(baseDirectory ?? AppContext.BaseDirectory, createDevelopment: false);
+                : Instance.Resolve(baseDirectory ?? AppContext.BaseDirectory);
             return CaptureStatus.Write(instance, locations, result.GetValue(json), output, token, baseDirectory);
         });
         var from = TimestampOption.Create("--from", "查询起点（含），必须带 Z 或 UTC 偏移。");

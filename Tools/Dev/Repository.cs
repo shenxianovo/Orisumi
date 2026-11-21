@@ -1,3 +1,5 @@
+using Orisumi.Platform;
+
 namespace Orisumi.Dev;
 
 internal static class Repository
@@ -23,4 +25,15 @@ internal static class Repository
 
     internal static string Require() => Find(Environment.CurrentDirectory) ??
         throw new DirectoryNotFoundException("请在 Orisumi 仓库或其子目录中运行 orisumi-dev。");
+
+    internal static async Task<string> Query(string executable, string directory, CancellationToken token, string[] arguments,
+        IReadOnlyDictionary<string, string>? environment = null)
+    {
+        using var output = new StringWriter();
+        using var errors = new StringWriter();
+        var code = await RunProcess.Run(executable, arguments, output, token, directory: directory, errors: errors, environment: environment);
+        token.ThrowIfCancellationRequested();
+        if (code != 0) throw new IOException($"{executable} {string.Join(' ', arguments)} 退出码 {code}：{errors.ToString().Trim()}");
+        return output.ToString();
+    }
 }

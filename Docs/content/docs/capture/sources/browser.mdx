@@ -7,6 +7,8 @@ description: Chrome 的访问记录、标签和窗口、下载和书签。
 
 `profile_id` 是这次扩展安装生成的随机 ID，卸载重装会变。扩展拿不到 Chrome 配置本身的身份，是不是同一个配置在派生层判断。`browser_session` 区分 Chrome 的一次启动，标签和窗口 ID 只在其中有效。
 
+扩展和接收端是同一个组件，构建时把组件版本写进扩展的 `version_name`。扩展连上时在 `open` 里报告它，接收端记进 `browser_runs.extension_version`，并回复自己的版本；两者不同时让扩展 `chrome.runtime.reload()`，Chrome 从磁盘重新加载新文件。扩展在 `chrome.storage.local` 里记下已为哪个接收端版本重载过，同一版本只重载一次；仍不一致就照常连接，覆盖里记为 `extension_version_mismatch`。没有 `version_name` 的构建（测试）不报版本，也不会被要求重载。
+
 ## 访问记录
 
 | 事实或视图 | 含义 |

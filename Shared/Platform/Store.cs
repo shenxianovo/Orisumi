@@ -13,12 +13,15 @@ public sealed partial class Store(string root)
     public string Logs => Path.Combine(Root, "logs");
 
     public string App => Path.Combine(Root, "app");
+    internal string AppLock => Path.Combine(App, ".lock");
+    internal string Manifest => Path.Combine(App, ReleaseManifest.FileName);
     public string Host => Path.Combine(App, "host");
     internal string HostExecutable => HostBundle.Executable(Host);
     public string Collectors => Path.Combine(App, "collectors");
     public string Collector(string name) => Path.Combine(Collectors, name);
 
-    private string ObservationsRoot => Path.Combine(Root, "observations");
+    internal string ObservationsRoot => Path.Combine(Root, "observations");
+    internal string Backups => Path.Combine(Root, "backups");
 
     public string Observations(string source) => Path.Combine(ObservationsRoot, source);
 

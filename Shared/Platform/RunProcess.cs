@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace Orisumi.Platform;
 
+internal delegate Task<int> CommandProcess(string executable, string[] arguments, TextWriter? output, CancellationToken token);
+
 public static class RunProcess
 {
     public static string Dotnet => Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(),
@@ -29,8 +31,12 @@ public static class RunProcess
         }
     }
 
+    internal static Task<int> RunCommand(string executable, string[] arguments, TextWriter? output, CancellationToken token) =>
+        Run(executable, arguments, output, token);
+
     public static async Task<int> Run(string executable, string[] arguments, TextWriter? output, CancellationToken token,
-        bool preserveExitCode = false, string? directory = null, TextWriter? errors = null)
+        bool preserveExitCode = false, string? directory = null, TextWriter? errors = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         token.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable, arguments)
@@ -41,6 +47,10 @@ public static class RunProcess
             RedirectStandardError = errors is not null,
             RedirectStandardInput = output is not null,
         };
+
+        if (environment is not null)
+            foreach (var (name, value) in environment)
+                start.Environment[name] = value;
 
         using var process = Process.Start(start) ?? throw new IOException($"无法启动 {executable}。");
         if (start.RedirectStandardInput)

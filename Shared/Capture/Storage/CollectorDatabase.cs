@@ -18,7 +18,7 @@ public static class CollectorDatabase
         try
         {
             connection.Open();
-            SqliteSchema.EnsureCreated(connection, collector.Assembly, databaseId, platform, hardwareUuid);
+            SqliteSchema.EnsureCreated(connection, collector.Assembly, databaseId, platform, hardwareUuid, store);
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA journal_mode = WAL";
             command.ExecuteNonQuery();

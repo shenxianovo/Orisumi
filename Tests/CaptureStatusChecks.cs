@@ -148,7 +148,9 @@ try
     var generated = status.GetProperty("generated_at_utc_ms").GetInt64();
     Check(generated >= beforeJson && generated <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), "JSON reports its generation time in UTC milliseconds");
     Check(status.GetProperty("health").GetString() == "attention", "mixed collector health is attention");
-    CheckProperties(status, "instance", "store", "host_version", "collectors", "generated_at_utc_ms", "health");
+    CheckProperties(status, "instance", "store", "host_version", "collectors", "generated_at_utc_ms", "health", "version", "source");
+    Check(status.GetProperty("version").ValueKind == JsonValueKind.Null && status.GetProperty("source").ValueKind == JsonValueKind.Null,
+        "status without an installed manifest has no release version or deployment source");
     var collectors = status.GetProperty("collectors").EnumerateArray().ToArray();
     Check(collectors.Select(collector => collector.GetProperty("name").GetString())
         .SequenceEqual(["archived", "collecting", "idle", "queued", "signaled", "source_only", "unloaded"]), "collector union is ordered and scoped to the instance");
@@ -233,8 +235,8 @@ try
     await Expect<IOException>("print failed", ["capture", "status", "--store", store.Root]);
     var checkout = Path.GetDirectoryName(baseDirectory)!;
     File.WriteAllText(Path.Combine(checkout, "Orisumi.slnx"), "<Solution />");
-    await Expect<FileNotFoundException>("instance.json", ["capture", "status"]);
-    Check(!Directory.Exists(Path.Combine(checkout, ".local")), "implicit status does not initialize a checkout store");
+    await Expect<DirectoryNotFoundException>("instance.json", ["capture", "status"]);
+    Check(!Directory.Exists(Path.Combine(checkout, "app")), "implicit status does not initialize a checkout store");
     Console.WriteLine("PASS: unexpected launchctl errors propagate and status stays read-only");
 
     JsonElement Agent(int index) => collectors[index].GetProperty("agent");

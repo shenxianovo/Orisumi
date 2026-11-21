@@ -32,11 +32,12 @@ internal static class Commands
         describe.SetAction(_ => new ProgramDescription("host", HostVersion).Write(output));
         root.Add(describe);
 
-        var releases = new Argument<string[]>("release-dir") { Arity = ArgumentArity.OneOrMore };
-        var install = new Command("install", "将发布目录安装到实例。") { releases };
+        var release = new Argument<string>("release-dir");
+        var install = new Command("install", "将发布目录安装到实例。") { release };
         install.SetAction((result, token) => InstallCommand.Run(Instance.Open(result.GetValue(store) ?? Instance.DefaultRoot()),
-            result.GetRequiredValue(releases), locations, output, token));
+            result.GetRequiredValue(release), locations, output, token));
         root.Add(install);
+        root.Add(UpdateCommand.Create(store, locations, output, baseDirectory));
         return root;
     }
 }

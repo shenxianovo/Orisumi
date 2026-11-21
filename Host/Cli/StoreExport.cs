@@ -45,7 +45,21 @@ internal static partial class StoreExport
         }
     }
 
-    private static long Snapshot(SqliteConnection source, string database, string final)
+    internal static void Backup(Store source, Store destination, CancellationToken token)
+    {
+        foreach (var name in source.Sources().Order(StringComparer.Ordinal))
+        {
+            foreach (var path in source.Databases(name))
+            {
+                token.ThrowIfCancellationRequested();
+                using var connection = Open(path, SqliteOpenMode.ReadOnly);
+                var directory = Directory.CreateDirectory(destination.Observations(name));
+                Snapshot(connection, null, Path.Combine(directory.FullName, Path.GetFileName(path)));
+            }
+        }
+    }
+
+    private static long Snapshot(SqliteConnection source, string? database, string final)
     {
         // A partial file left by an interrupted export is replaced.
         var partial = final + ".partial";
@@ -59,7 +73,7 @@ internal static partial class StoreExport
             {
                 // Only an earlier snapshot of the same database is replaced.
                 using var previous = Open(final, SqliteOpenMode.ReadOnly);
-                CheckIdentity(ReadIdentity(previous), database);
+                if (database is not null) CheckIdentity(ReadIdentity(previous), database);
             }
 
             using (var command = source.CreateCommand())
@@ -76,7 +90,7 @@ internal static partial class StoreExport
                 if (command.ExecuteScalar() is not "delete") throw new InvalidDataException("快照无法切换到 DELETE 日志模式。");
                 command.CommandText = "PRAGMA integrity_check";
                 if (command.ExecuteScalar() is not "ok") throw new InvalidDataException("快照未通过 SQLite 完整性检查。");
-                CheckIdentity(ReadIdentity(copy), database);
+                if (database is not null) CheckIdentity(ReadIdentity(copy), database);
             }
 
             var bytes = new FileInfo(partial).Length;

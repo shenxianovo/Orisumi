@@ -4,6 +4,12 @@ SELECT 'browser' AS scope,'notification' AS mode,r.started_at_utc_ms,r.stopped_a
        b.browser,b.profile_id,r.run_id,r.confirmed_until_utc_ms
 FROM capture_runs r JOIN browser_runs b USING(run_id)
 UNION ALL
+SELECT 'browser','notification',r.started_at_utc_ms,r.stopped_at_utc_ms,'extension_version_mismatch',
+       'extension=' || b.extension_version || ', receiver=' || r.collector_version,
+       b.browser,b.profile_id,r.run_id,NULL
+FROM capture_runs r JOIN browser_runs b USING(run_id)
+WHERE b.extension_version IS NOT NULL AND b.extension_version <> r.collector_version
+UNION ALL
 SELECT e.scope,e.mode,e.started_at_utc_ms,e.stopped_at_utc_ms,e.evidence,e.detail,
        b.browser,b.profile_id,e.run_id,NULL
 FROM capture_channel_events e JOIN browser_runs b USING(run_id)
