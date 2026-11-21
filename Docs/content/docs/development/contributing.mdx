@@ -1,0 +1,30 @@
+---
+title: 文档维护
+description: 内容约定、预览、检查与页面历史。
+---
+
+文档集中在 `Docs/content/docs`，使用 Markdown/MDX；frontmatter 声明 `title`、`description`，页面间用相对文件链接。
+
+顶层每个文件夹是一个标签（`meta.json` 里 `"root": true`）：`overview` 概览、`capture` 采集、`development` 开发。新页面放进所属标签的文件夹，并加进该文件夹 `meta.json` 的 `pages`。`/docs` 跳到概览。
+
+流程和结构用 ` ```mermaid ` 代码块画，构建时转成图，跟随深浅色主题。图只画文字说不清的部分，同一件事不在多处画。
+
+写当前有效结论，简短准确；保留必要语义、操作和限制，删除重复解释。规则只在一处维护，其他页面引用；实现可直接查到的字段和参数按需链接，优先说明代码不能表达的含义。计划与现状明确区分，完成改动后更新正文。
+
+## 运行与检查
+
+在仓库根目录运行：
+
+```sh
+orisumi-dev dev docs install
+orisumi-dev dev docs
+orisumi-dev dev docs check
+orisumi-dev dev docs build
+orisumi-dev dev docs start
+```
+
+预览地址为 [127.0.0.1:3020/docs](http://127.0.0.1:3020/docs)，Ctrl+C 停止。`start` 运行生产构建，先停止占用相同端口的开发服务。
+
+## 页面历史
+
+`fumadocs-page-history` 构建时读取 Git 历史，在页尾显示贡献者和默认展开的提交列表。未提交的新页没有历史；仅新增提交而正文不变时，重启开发服务刷新。构建需完整历史，GitHub Actions checkout 使用 `fetch-depth: 0`。

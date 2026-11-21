@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Schema/ holds the tables every source database has; each collector embeds its own Schema/ the same way. -->
+  <ItemGroup>
+    <ProjectReference Include="../Platform/Orisumi.Platform.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="System.CommandLine" Version="3.0.0" />
+    <EmbeddedResource Include="Schema/*/*.sql"
+                      LogicalName="Schema.$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(Identity)')))).%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
