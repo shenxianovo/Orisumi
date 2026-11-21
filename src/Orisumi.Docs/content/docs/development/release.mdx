@@ -28,7 +28,7 @@ orisumi-dev deploy [组件…]
 
 - 组件就是宿主和 `src/Collectors/` 下的每个项目，不用登记。宿主总会一起部署，安装和启停都经过它。
 - 发布要求零警告，并用 `describe` 核对版本。浏览器的发布另含 `extension/`，macOS 的含 Swift 助手。
-- 宿主发布成 `Orisumi.app`（bundle ID `dev.orisumi`）：主程序是 Swift 写的 GUI `OrisumiApp`（源码 `src/Orisumi.App.MacOS`），旁边是 AOT 的 CLI `orisumi`。整个 app 用钥匙串里名为 `Orisumi Development` 的代码签名证书签名；采集器不签名。没有这个证书就建一个：钥匙串访问 › 证书助理 › 创建证书，身份类型选「自签名根证书」，证书类型选「代码签名」，`security find-identity -v -p codesigning` 能列出即可。
+- 宿主发布成 `Orisumi.app`（bundle ID `dev.orisumi`）：主程序是 Swift 写的 GUI `OrisumiApp`（源码 `src/Orisumi.App.MacOS`），旁边是 AOT 的 CLI `orisumi`。整个 app 用钥匙串里名为 `Orisumi Development` 的代码签名证书签名；采集器不签名。没有这个证书就建一个：钥匙串访问 › 证书助理 › 创建证书，身份类型选「自签名根证书」，证书类型选「代码签名」。部署要求 `security find-identity -v -p codesigning` 能列出它；若只在去掉 `-v` 时出现并标着 `CSSMERR_TP_NOT_TRUSTED`，在钥匙串访问里打开这张证书，把「信任 › 代码签名」设为「始终信任」（要输登录密码，SSH 里做不了）。
 - 不要运行未用这个证书签名、bundle ID 又是 `dev.orisumi` 的程序：macOS 会作废已经给 Orisumi 的权限。开发构建不生成 app。
 - 不保留旧版本。回退就检出旧提交再部署；改过库结构的版本按[数据库结构](../capture/index.mdx#数据库结构)处理旧库。
 
@@ -48,7 +48,7 @@ Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进
 
 ## GUI
 
-菜单栏图标是吉祥物：彩色表示都在采集，带黄点表示有来源需要注意，变灰表示已停止或读不到状态；窗口里有今天各来源的运行时段、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `orisumi capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
+菜单栏图标是吉祥物：彩色表示都在采集，带黄点表示有来源需要注意，变灰表示已停止或读不到状态；窗口里有今天各来源在本机的运行时段（其他设备的副本不画）、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `orisumi capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
 
 开发时不用部署：
 

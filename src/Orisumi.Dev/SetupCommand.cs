@@ -47,8 +47,10 @@ internal static class SetupCommand
     private static async Task CheckPrerequisites(string root, CancellationToken token)
     {
         var missing = new List<string>();
-        if (await Output("xcode-select", token, "-p") is null)
-            missing.Add("Xcode Command Line Tools：运行 xcode-select --install。");
+        // Command Line Tools lack SwiftUI's macro plugins, so the GUI only builds with Xcode selected.
+        var developer = await Output("xcode-select", token, "-p");
+        if (developer is null || !developer.Trim().EndsWith(".app/Contents/Developer", StringComparison.Ordinal))
+            missing.Add($"Xcode：安装后运行 sudo xcode-select -s /Applications/Xcode.app（当前 {developer?.Trim() ?? "未安装"}）。");
 
         var required = RequiredNode(root);
         var node = await Output("node", token, "--version");

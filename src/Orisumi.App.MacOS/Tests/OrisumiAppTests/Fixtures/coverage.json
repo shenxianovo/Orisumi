@@ -6,6 +6,9 @@
       "source": "browser",
       "database": "00000000000000000000000000000001",
       "status": "queried",
+      "platform": "macos",
+      "hardware_uuid": "00000000-0000-0000-0000-00000000000A",
+      "this_host": true,
       "evidence": [
         {
           "scope": "browser",
@@ -49,6 +52,9 @@
       "source": "claude",
       "database": "00000000000000000000000000000002",
       "status": "queried",
+      "platform": "macos",
+      "hardware_uuid": "00000000-0000-0000-0000-00000000000A",
+      "this_host": true,
       "evidence": [
         {
           "scope": "project_logs",
@@ -76,6 +82,9 @@
       "source": "codex",
       "database": "00000000000000000000000000000003",
       "status": "queried",
+      "platform": "macos",
+      "hardware_uuid": "00000000-0000-0000-0000-00000000000A",
+      "this_host": true,
       "evidence": [
         {
           "scope": "import",
@@ -113,6 +122,9 @@
       "source": "macos",
       "database": "00000000000000000000000000000004",
       "status": "queried",
+      "platform": "macos",
+      "hardware_uuid": "00000000-0000-0000-0000-00000000000A",
+      "this_host": true,
       "evidence": [
         {
           "scope": "foreground",
@@ -182,6 +194,46 @@
           "evidence": "read_failed",
           "detail": "Read interrupted. Retrying from last confirmation.",
           "run_id": 2,
+          "confirmed_until_utc_ms": null
+        }
+      ]
+    },
+    {
+      "source": "macos",
+      "database": "00000000000000000000000000000005",
+      "status": "queried",
+      "platform": "macos",
+      "hardware_uuid": "00000000-0000-0000-0000-00000000000B",
+      "this_host": false,
+      "evidence": [
+        {
+          "scope": "foreground",
+          "mode": "notification",
+          "started_at_utc_ms": 1795096800000,
+          "stopped_at_utc_ms": null,
+          "evidence": "unconfirmed",
+          "detail": null,
+          "run_id": 1,
+          "confirmed_until_utc_ms": 1795110000000
+        },
+        {
+          "scope": "microphone",
+          "mode": "snapshot",
+          "started_at_utc_ms": 1795096800000,
+          "stopped_at_utc_ms": null,
+          "evidence": "unavailable",
+          "detail": "permission_denied",
+          "run_id": 1,
+          "confirmed_until_utc_ms": null
+        },
+        {
+          "scope": "foreground",
+          "mode": "notification",
+          "started_at_utc_ms": 1795100000000,
+          "stopped_at_utc_ms": 1795100000000,
+          "evidence": "read_failed",
+          "detail": null,
+          "run_id": 1,
           "confirmed_until_utc_ms": null
         }
       ]

@@ -100,11 +100,20 @@ try
             {RunTables}
             INSERT INTO capture_runs VALUES (1, {started}, NULL, NULL, {now - 1000}, 'failed', 'failed before unloading');
             """);
+    // A copy from another Mac with a newer failed run must not stand in for the collector here.
+    using (var copied = OpenDatabase("collecting", "copied"))
+        Execute(copied, $"""
+            {RunTables}
+            {Identity("other-hardware")}
+            INSERT INTO capture_runs VALUES (1, {now - 2000}, NULL, NULL, {now - 1000}, 'failed', 'copied failure');
+            INSERT INTO capture_read_failures VALUES (1, 1, {now - 1000}, 'copied read', NULL);
+            """);
     using var live = OpenDatabase("collecting", "live");
     Execute(live, $"""
         PRAGMA journal_mode=WAL;
         PRAGMA wal_autocheckpoint=0;
         {RunTables}
+        {Identity(HostIdentity.Read().HardwareUuid)}
         INSERT INTO capture_runs VALUES (1, {started}, '0.2.0+fixture', {confirmed}, NULL, NULL, NULL);
         """);
 
@@ -186,6 +195,8 @@ try
         "read failures include their timestamps, run IDs and nullable scopes");
     Check(collectors[5].GetProperty("recent_runs").GetArrayLength() == 0 &&
         collectors[5].GetProperty("recent_read_failures").GetArrayLength() == 0, "empty histories serialize as arrays");
+    Check(collectors[1].GetProperty("recent_runs").EnumerateArray().All(item => item.GetProperty("database").GetString() == "live") &&
+        collectors[1].GetProperty("recent_read_failures").GetArrayLength() == 0, "copies from other hardware are not this host's history");
     CheckHealth(collectors[0], "attention", "not_installed", "run_failed");
     CheckHealth(collectors[1], "ok");
     CheckHealth(collectors[2], "attention", "not_installed", "not_running");
@@ -284,6 +295,12 @@ static void Install(Store store, string name)
         printf '%s\n' '{"name":"{{name}}","version":"0.2.0+fixture","arguments":["capture"]}'
         """);
 }
+
+static string Identity(string? hardwareUuid) => $"""
+    CREATE TABLE database_identity (singleton INTEGER PRIMARY KEY, database_id TEXT, created_at_utc_ms INTEGER,
+        platform TEXT, hardware_uuid TEXT);
+    INSERT INTO database_identity VALUES (1, '{new string('0', 32)}', 0, 'macos', {(hardwareUuid is null ? "NULL" : $"'{hardwareUuid}'")});
+    """;
 
 static void Execute(SqliteConnection db, string sql)
 {

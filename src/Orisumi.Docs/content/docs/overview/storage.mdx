@@ -38,6 +38,7 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 - 一个库只有一个写入方：创建它的主机上的采集器。其他设备只保存只读副本，所以同步只是复制文件。
 - `state/current/<来源>.json` 记当前写的库 ID 和建库时的硬件 UUID；同一个值随库写进 `database_identity`，副本靠它说明自己来自哪台主机。写入前由 `Store.WritableDatabase` 取库：没有指针、库文件不在，或硬件 UUID 与指针不同（如用迁移助理把存储拷到新 Mac），就新建一个库并改指针，旧库留在原处只读。读不到硬件 UUID 时无法证明换了机器，沿用当前库。
 - 新库在锁内建成空文件，同一来源的并发写入方（如多个 Chrome 配置各自的连接）使用同一个库。
-- 只读命令不建库。`capture coverage` 和 `export` 读每个来源的所有库，来源按 `observations/` 下的目录认，本机没装对应采集器的（如从其他设备拷来的库）也读；`macos timeline` 只读本机当前的 macOS 库。
+- 只读命令不建库。`capture coverage` 和 `export` 读每个来源的所有库，来源按 `observations/` 下的目录认，本机没装对应采集器的（如从其他设备拷来的库）也读；`capture status` 只读本机建的库；`macos timeline` 只读本机当前的 macOS 库。
+- 本机建的库：`database_identity` 的平台与本机相同，且硬件 UUID 相同或本机读不到硬件 UUID（同 `Store.WritableDatabase`）。还没有 `database_identity` 的半成品也算本机的，只有写入方会建它。
 
 改结构的规则见[数据库结构](../capture/index.mdx#数据库结构)。

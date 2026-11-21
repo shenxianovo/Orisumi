@@ -3,8 +3,11 @@ import Foundation
 struct Coverage: Decodable {
     let sources: [SourceEvidence]
 
+    /// Copies from other devices sit in the same store, but the window shows this Mac's capture.
+    private var thisHost: [SourceEvidence] { sources.filter(\.thisHost) }
+
     func runs(in interval: Range<Date>) -> [RunSpan] {
-        sources.flatMap { source in
+        thisHost.flatMap { source in
             source.evidence.compactMap { row in
                 guard row.isRun(for: source.source), let runID = row.runId else { return nil }
                 let start = max(interval.lowerBound, row.started)
@@ -64,7 +67,7 @@ struct Coverage: Decodable {
     private static let gaps: Set<String> = ["delivery_rejected", "reconciliation_changed"]
 
     private func rows(of source: String) -> [Evidence] {
-        sources.filter { $0.source == source }.flatMap(\.evidence)
+        thisHost.filter { $0.source == source }.flatMap(\.evidence)
     }
 
     /// Coverage is read once a minute; a run confirmed within the stale limit is drawn up to now.
@@ -96,6 +99,7 @@ struct Coverage: Decodable {
 struct SourceEvidence: Decodable {
     let source: String
     let database: String?
+    let thisHost: Bool
     let evidence: [Evidence]
 }
 

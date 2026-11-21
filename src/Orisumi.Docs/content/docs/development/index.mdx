@@ -5,7 +5,7 @@ description: 安装开发入口、命令一览、浏览器扩展、验证和行�
 
 ## 安装
 
-只支持 macOS。需要 .NET 11 SDK、Xcode Command Line Tools、Node.js（版本下限见文档站 `package.json` 的 `engines.node`），`PATH` 里要有 `~/.dotnet/tools` 和 `~/.local/bin`。首次在仓库根目录运行：
+只支持 macOS。需要 .NET 11 SDK、Xcode（只装 Command Line Tools 编不了 GUI：SwiftUI 的 `@State` 等是宏，插件只随 Xcode 提供）、Node.js（版本下限见文档站 `package.json` 的 `engines.node`），`PATH` 里要有 `~/.dotnet/tools` 和 `~/.local/bin`。首次在仓库根目录运行：
 
 ```sh
 dotnet run --project src/Orisumi.Dev -- dev setup

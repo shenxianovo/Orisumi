@@ -27,11 +27,12 @@ internal static partial class CaptureStatus
             .Select(path => Path.GetFileNameWithoutExtension(path)[prefix.Length..]), StringComparer.Ordinal)
             .Union(store.Sources(), StringComparer.Ordinal).Order(StringComparer.Ordinal);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var host = HostIdentity.Read();
         var collectors = new List<CollectorStatus>();
         foreach (var name in names)
         {
             var agent = await ReadAgent(locations, instance.CaptureAgentLabel(name), token);
-            var (runs, failures, recentFailures) = ReadHistory(store.Databases(name), now - 3_600_000);
+            var (runs, failures, recentFailures) = ReadHistory(store.Databases(name), host, now - 3_600_000);
             var run = runs.FirstOrDefault() is { } latest ? latest with { Database = null } : null;
             var version = versions.GetValueOrDefault(name);
             var (health, problems) = Assess(version, agent, run, now);
@@ -80,7 +81,7 @@ internal static partial class CaptureStatus
         return new(state, null, lastExitCode);
     }
 
-    private static (RunStatus[] Runs, long Failures, ReadFailure[] RecentFailures) ReadHistory(IReadOnlyList<string> paths, long after)
+    private static (RunStatus[] Runs, long Failures, ReadFailure[] RecentFailures) ReadHistory(IReadOnlyList<string> paths, HostIdentity host, long after)
     {
         var runs = new List<RunStatus>();
         var recentFailures = new List<ReadFailure>();
@@ -92,6 +93,8 @@ internal static partial class CaptureStatus
                 DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false, DefaultTimeout = 3,
             }.ToString());
             database.Open();
+            // Status is about the collectors here; copies from other devices would pass for their runs.
+            if (!DatabaseHost.Read(database).IsThisHost(host)) continue;
             var name = Path.GetFileNameWithoutExtension(path);
             using var command = database.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name='capture_runs'";

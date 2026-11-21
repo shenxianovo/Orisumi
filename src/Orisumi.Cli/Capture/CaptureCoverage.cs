@@ -17,6 +17,7 @@ internal static class CaptureCoverage
         json.WriteString("to", to);
         json.WriteStartArray("sources");
         var location = new Store(store);
+        var host = HostIdentity.Read();
         foreach (var source in location.Sources().Union(installed).Order(StringComparer.Ordinal))
         {
             var paths = location.Databases(source);
@@ -30,24 +31,28 @@ internal static class CaptureCoverage
 
         void WriteSource(string source, string? path)
         {
+            using var database = path is null ? null : new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false,
+            }.ToString());
+            database?.Open();
+            var databaseHost = database is null ? null : DatabaseHost.Read(database);
             json.WriteStartObject();
             json.WriteString("source", source);
             json.WriteString("database", Path.GetFileNameWithoutExtension(path));
             json.WriteString("status", path is null ? "no_database" : "queried");
+            json.WriteString("platform", databaseHost?.Platform);
+            json.WriteString("hardware_uuid", databaseHost?.HardwareUuid);
+            json.WriteBoolean("this_host", databaseHost?.IsThisHost(host) ?? true);
             json.WriteStartArray("evidence");
-            if (path is not null) Query(json, path, from, to);
+            if (database is not null) Query(json, database, from, to);
             json.WriteEndArray();
             json.WriteEndObject();
         }
     }
 
-    private static void Query(Utf8JsonWriter json, string path, DateTimeOffset from, DateTimeOffset to)
+    private static void Query(Utf8JsonWriter json, SqliteConnection database, DateTimeOffset from, DateTimeOffset to)
     {
-        using var database = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false,
-        }.ToString());
-        database.Open();
         using var command = database.CreateCommand();
         command.CommandText = """
             SELECT *
