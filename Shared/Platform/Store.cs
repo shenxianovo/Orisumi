@@ -21,6 +21,7 @@ public sealed partial class Store(string root)
     public string Collector(string name) => Path.Combine(Collectors, name);
 
     internal string ObservationsRoot => Path.Combine(Root, "observations");
+    internal string TitleRules => Path.Combine(Root, "rules", "titles.json");
     internal string Backups => Path.Combine(Root, "backups");
 
     public string Observations(string source) => Path.Combine(ObservationsRoot, source);

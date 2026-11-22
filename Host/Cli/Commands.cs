@@ -22,6 +22,7 @@ internal static class Commands
         root.HelpName = "orisumi";
 
         root.Add(Capture.CaptureCommand.Create(store, locations, output, baseDirectory));
+        root.Add(Day.DayCommand.Create(store, output));
 
         var destination = new Argument<string>("destination") { Description = "观测库快照的目标目录。" };
         var export = new Command("export", "导出所有观测库的 SQLite 快照。") { destination };

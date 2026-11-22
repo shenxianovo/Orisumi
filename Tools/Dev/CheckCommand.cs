@@ -31,6 +31,7 @@ internal static class CheckCommand
                 FileCheck("CaptureIntegration"),
                 FileCheck("BrowserIntegration"),
                 FileCheck("CaptureCoverage"),
+                FileCheck("Day"),
                 FileCheck("Export"),
                 FileCheck("ClaudeIncremental"),
                 FileCheck("CodexIncremental"),

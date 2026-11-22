@@ -25,6 +25,7 @@
     <InternalsVisibleTo Include="CaptureStatusChecks" />
     <InternalsVisibleTo Include="CaptureCoverageChecks" />
     <InternalsVisibleTo Include="ExportChecks" />
+    <InternalsVisibleTo Include="DayChecks" />
     <InternalsVisibleTo Include="SchemaChecks" />
   </ItemGroup>
 </Project>
