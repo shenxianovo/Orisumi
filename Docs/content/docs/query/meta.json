@@ -1,0 +1,7 @@
+{
+  "title": "查询",
+  "description": "从观测库派生出能读的结果",
+  "icon": "Telescope",
+  "root": true,
+  "pages": ["index", "day"]
+}

@@ -3,7 +3,7 @@ title: 架构
 description: 采集进程、数据怎么流进库，以及各来源共享什么。
 ---
 
-每个来源由自己的程序 `orisumi-<来源>` 采集、自己决定记什么，写进自己的 SQLite 库。宿主 `orisumi` 不引用任何采集器：它按各采集器 `describe` 给出的参数把它们装成 LaunchAgent，把 `orisumi <来源> …` 转给对应程序，并直接读各库做覆盖查询和导出；约定见[新增采集器](../capture/index.mdx#新增采集器)。各来源共享的只有“怎么安全地写”：单写入、运行记录、事务和进度，由共享项目 `Shared/Capture` 的 `CaptureWriter` 负责。写库只在 C# 里做；状态放在能可靠持有它的一方，见下文[各来源怎么走](#各来源怎么走)。
+每个来源由自己的程序 `orisumi-<来源>` 采集、自己决定记什么，写进自己的 SQLite 库。宿主 `orisumi` 不引用任何采集器：它按各采集器 `describe` 给出的参数把它们装成 LaunchAgent，把 `orisumi <来源> …` 转给对应程序，并直接读各库做覆盖查询、导出和[派生读出](../query/index.mdx)；约定见[新增采集器](../capture/index.mdx#新增采集器)。各来源共享的只有“怎么安全地写”：单写入、运行记录、事务和进度，由共享项目 `Shared/Capture` 的 `CaptureWriter` 负责。写库只在 C# 里做；状态放在能可靠持有它的一方，见下文[各来源怎么走](#各来源怎么走)。
 
 ```mermaid
 flowchart LR
@@ -24,7 +24,7 @@ flowchart LR
   end
   W[["CaptureWriter"]]
   DB[("observations/来源/库 ID.sqlite")]
-  Q["orisumi：capture coverage · export · Agent 查询"]
+  Q["orisumi：capture coverage · export · day"]
   CJ --> CL
   CR --> CX
   CS -. 现值 .-> CX

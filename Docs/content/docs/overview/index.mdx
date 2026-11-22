@@ -5,8 +5,9 @@ description: 采集个人信息，供 Agent 理解和使用，也供人查看。
 
 Orisumi 把浏览器、Agent 会话和系统活动等来源的个人信息采集到本地，供 Agent 查询分析，也供人查看。
 
-文档分三块，在顶部切换：
+文档分四块，在顶部切换：
 
 - **概览**：[架构](./architecture.mdx)讲进程和数据流，[存储](./storage.mdx)讲库放在哪、每个来源写哪个库，[多设备](./devices.mdx)讲设备身份和跨设备合并。
 - **采集**：[采集开发](../capture/index.mdx)是原则和数据库约定，[覆盖与恢复](../capture/recovery.mdx)讲怎么查观测依据，再往下是每个来源记了什么。
+- **查询**：[派生与规则](../query/index.mdx)讲怎么把观测读成时间段、按设备合并、用规则整理，[一天](../query/day.mdx)是第一个读出。
 - **开发**：[开发入口与命令](../development/index.mdx)，[实例、发布与更新](../development/release.mdx)讲生产和开发怎么隔开、怎么部署、发布和更新，以及[文档维护](../development/contributing.mdx)。

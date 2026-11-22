@@ -25,7 +25,7 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 
 ### 读出设备
 
-未实现。
+主机键已由[查询](../query/index.mdx#设备)读出；`rules/devices.json` 未实现。
 
 - 主机键由建库主机算出，规则只在读的地方维护：macOS `macos:<IOPlatformUUID>`，Windows `windows:<SMBIOS UUID>`（占位值改用 `MachineGuid`），Android `android:<ANDROID_ID>`；读不到硬件标识时用 `db:<database_id>`，让该库自成一台，等人工归类。不按主机名猜。
 - `rules/devices.json` 把多个主机键归到一台设备并命名。未归类的主机键各自是一台；设备 ID 用规则里的 ID，否则用主机键；显示名用规则里的名字，否则用最近的主机名。
@@ -50,7 +50,7 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 
 ## 查询与可视化
 
-未实现。
+第一个读出见[一天](../query/day.mdx)：每次直接只读打开各库，在内存里按设备派生，不用 ATTACH（SQLite 默认最多挂 10 个）。还没做的：
 
-- 跨设备查询读汇总库：把各库合并进一个可随时重建的库，补上设备、`corrected_at` 和当时所在时区。不用 ATTACH 直接挂各库，SQLite 默认最多挂 10 个。
+- 汇总库：查询变慢或要反复查时，把派生结果放进 `derived/` 里一个可随时重建的库，补上 `corrected_at` 和当时所在时区。
 - 查询和图表统一用 `corrected_at`；显示本地时间时，用人当时所在的时区，由设备的时区事件读出。

@@ -1,0 +1,55 @@
+---
+title: 一天
+description: orisumi day 按设备读出一天在不在、注意力在哪、做了什么。
+---
+
+```sh
+orisumi day [--date YYYY-MM-DD] [--time-zone <IANA 时区>]
+```
+
+读存储里所有来源的所有库（本机的和其他设备的副本），按[派生与规则](./index.mdx)读成时间段，每台设备输出一份，本机排第一。默认是本机时区的今天。一天从当地零点到下一个零点，夏令时那天是 23 或 25 小时；今天截到现在。时间都带查询时区的偏移，时长单位是毫秒。
+
+## 每台设备
+
+| 字段 | 含义 |
+| --- | --- |
+| `device` / `name` / `this_host` | 设备键、主机名、是否本机 |
+| `time_zones` | 这天设备上生效过的时区；可能和查询时区不同 |
+| `databases` | 读了哪些库，各自缺哪些表或列 |
+| `summary` | `observed_ms`、`active_ms`；`apps` 按活跃时长排的应用；`titles` 按应用和标题汇总，只列前台满 1 分钟的 |
+| `presence` | 在不在，见下 |
+| `attention` | 前台在看什么，见下 |
+| `agent_sessions` | 这天有事件的 Claude、Codex 会话 |
+| `visits` / `downloads` | 本机产生的网页访问（标题是读取时的最新标题）／这天开始的下载 |
+
+先读 `summary` 和 `agent_sessions`，要细节再看 `presence` 和 `attention`。`attention` 一天能有上千段，大多是切换时几十毫秒的过渡。
+
+### presence
+
+整天连续不重叠，相邻同状态合并。同一时刻按优先级取最高的：
+
+`unobserved`（没有 macOS 运行）> `asleep`（系统休眠）> `session_inactive`（用户会话切出）> `locked` > `active` / `idle`（离开判定）> `unknown`（离开通道不可用）。锁屏状态未知时往下落。
+
+### attention
+
+前台应用加上它聚焦窗口的标题（经过标题规则）；前台是 Chrome 时再加 `tab`，即那一刻前台标签的 URL 和标题。任何一项变了就分段，`active_ms` 是这段里 `active` 的部分。`unobserved` 和 `asleep` 时没有段。
+
+- 标题 `null` 是读不到，`""` 是明确没有聚焦窗口。前台切换后标题要过几十毫秒才读到，这一小段是 `null`。
+- `tab: null` 是前台标签未知，比如扩展当时没连上。
+
+### agent_sessions
+
+| 字段 | 含义 |
+| --- | --- |
+| `title` | Claude 取自定义标题，没有就取 AI 标题；Codex 取会话名 |
+| `cwd` / `git_branch` | 这天最后一次记录的值；Codex 用会话创建时的值 |
+| `start` / `end` | 这天第一个和最后一个事件，中间可能空闲很久 |
+| `prompts` | 人输入的提示数 |
+| `subagents` | 并进来的子会话数：子 Agent 的事件计入根会话的起止，提示不计 |
+
+## 尚未做
+
+- 终端窗口和 Agent 会话的对应：标题里有会话名，还没关联。
+- 屏幕共享：看的是另一台设备，这一段在本机只记成一个应用，要合并另一台设备的读出才知道在做什么。
+- 设备间同步：其他设备的库现在要手动 `export` 再拷进 `observations/`。
+- GUI。

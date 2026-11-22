@@ -12,8 +12,8 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 | 路径 | 内容 | 丢失后 | 同步 |
 | --- | --- | --- | --- |
 | `observations/<来源>/<database_id>.sqlite` | 观测库：本机正在写的、以前写的、其他设备的副本 | 补不回来 | 要 |
-| `rules/` | 人写的规则，如设备合并（未实现） | 补不回来 | 要 |
-| `derived/` | 确定性派生，能从上两项原样重建（未实现） | 重建 | 不 |
+| `rules/` | 人或 Agent 写的规则，如[标题规则](../query/index.mdx#规则)；设备合并未实现 | 补不回来 | 要 |
+| `derived/` | 确定性派生的缓存，能从上两项原样重建（未实现，[查询](../query/index.mdx)现在直接读各库） | 重建 | 不 |
 | `instance.json` | 实例名，见[实例](../development/release.mdx#实例) | 程序找不到所属实例 | 不 |
 | `app/` | 装好的宿主和采集器，`manifest.json` 记各组件的标识和版本 | 重新安装 | 不 |
 | `backups/` | 生产 `update` 前的库快照，保留最近两份，见[更新](../development/release.mdx#更新) | 无影响 | 不 |
