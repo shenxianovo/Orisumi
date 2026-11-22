@@ -63,7 +63,7 @@ orisumi-dev release [版本]
 3. 和上一个发布清单比较库结构，规则见[数据库结构](../capture/index.mdx#数据库结构)。不兼容就列出每处并拒绝。
 4. 打包 `orisumi-<版本>-osx-arm64.tar.gz`，清单加上包名和 SHA-256 存成 `orisumi-<版本>-osx-arm64.json`，`gh release create` 上传两者，说明里列出各组件相对上一版是否改变。
 
-不用 CI：签名证书只在本机。
+不用 CI：签名证书只在本机。签名和 `gh` 的登录都在登录钥匙串里，SSH 会话读不到；远程运行 `deploy`、`release` 要放进图形会话（如一次性的 LaunchAgent）。
 
 ## 更新
 
