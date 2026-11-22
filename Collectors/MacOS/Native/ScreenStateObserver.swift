@@ -25,8 +25,10 @@ struct ScreenStateSource {
     }
 
     static func lockState(_ session: [String: Any]?) -> Bool? {
-        // A missing private key is ambiguous without a verified locked/unlocked comparison.
-        guard let value = session?["CGSSessionScreenIsLocked"] as? NSNumber else { return nil }
+        // The private key is present only while locked (checked on macOS 27): a readable session without it is unlocked.
+        guard let session else { return nil }
+        guard let raw = session["CGSSessionScreenIsLocked"] else { return false }
+        guard let value = raw as? NSNumber else { return nil }
         if value == 0 { return false }
         if value == 1 { return true }
         return nil

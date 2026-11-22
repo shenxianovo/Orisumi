@@ -38,7 +38,7 @@ Swift 助手观测、在内存里比较，把变化连同观测时间以 JSONL �
 | `time_zone_events` | 时区的初值和变化 |
 | `clock_events` | 墙钟和 `mach_continuous_time` 同时读的初值，以及时钟被调后的变化；两者之差变了说明调过时钟，NTP 微调看不出 |
 
-锁屏取分布式通知，初值读 `CGSessionCopyCurrentDictionary()` 的未公开键 `CGSSessionScreenIsLocked`，读不到记 NULL。显示器休眠取 `NSWorkspace` 通知。
+锁屏取分布式通知，初值读 `CGSessionCopyCurrentDictionary()` 的未公开键 `CGSSessionScreenIsLocked`：这个键只在锁屏时出现，字典读得到而没有这个键就是未锁，字典读不到记 NULL。显示器休眠取 `NSWorkspace` 通知。
 
 系统休眠和会话切出会中断应用、窗口、输入、时区、时钟和音视频通道；恢复后各自重新记初值。锁屏和显示器休眠不中断其他通道。
 

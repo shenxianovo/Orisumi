@@ -203,7 +203,7 @@ try
             && NumberOn(db, "SELECT COUNT(*) FROM pragma_foreign_key_check") == 0,
             "known focus snapshots and changes alone have valid focus identities");
         Check(ValuesOn(db, "SELECT event_kind || ':' || COALESCE(is_locked,'?') FROM screen_lock_events ORDER BY run_sequence")
-            == "snapshot:?,transition:1,transition:0,snapshot:1", "screen lock uses current session values at start and resume");
+            == "snapshot:0,transition:1,transition:0,snapshot:1", "screen lock uses current session values at start and resume");
         Check(ValuesOn(db, "SELECT event_kind || ':' || COALESCE(is_asleep,'?') FROM display_sleep_events ORDER BY run_sequence")
             == "snapshot:0,transition:1,transition:0,snapshot:?", "display sleep and wake with independently read initial state");
     }

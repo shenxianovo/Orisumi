@@ -210,7 +210,8 @@ check(matching("process") { ["fixture.helper", "fixture.successor"].contains($0[
 
 let lockKey = "CGSSessionScreenIsLocked"
 check(ScreenStateSource.lockState(nil) == nil, "unreadable session gives an unknown lock state")
-check(ScreenStateSource.lockState([:]) == nil, "an absent private key is unknown without a verified fallback")
+check(ScreenStateSource.lockState([:]) == false, "a readable session without the private key is unlocked")
+check(ScreenStateSource.lockState([lockKey: "yes"]) == nil, "an unexpected private value gives an unknown lock state")
 check(ScreenStateSource.lockState([lockKey: true]) == true, "a true private key gives a locked state")
 check(ScreenStateSource.lockState([lockKey: false]) == false, "a false private key gives an unlocked state")
 var lockSession: [String: Any]? = [:]
