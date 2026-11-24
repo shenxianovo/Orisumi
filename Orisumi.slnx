@@ -5,6 +5,7 @@
   <Project Path="Collectors/MacOS/Orisumi.Collectors.MacOS.csproj" />
   <Project Path="Host/Cli/Orisumi.Cli.csproj" />
   <Project Path="Shared/Capture/Orisumi.Capture.csproj" />
+  <Project Path="Shared/Desktop/Orisumi.Desktop.csproj" />
   <Project Path="Shared/Platform/Orisumi.Platform.csproj" />
   <Project Path="Tools/Dev/Orisumi.Dev.csproj" />
 </Solution>

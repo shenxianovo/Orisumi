@@ -34,7 +34,7 @@ public static partial class SqliteSchema
     }
 
     public static void EnsureCreated(SqliteConnection connection, Assembly source, string databaseId, string platform, string? hardwareUuid,
-        string? store = null)
+        string? store = null, string? machineGuid = null)
     {
         // Serialize the schema check and any changes with other collector opens.
         using var transaction = connection.BeginTransaction(deferred: false);
@@ -48,6 +48,7 @@ public static partial class SqliteSchema
             command.Parameters.AddWithValue("$id", databaseId);
             command.Parameters.AddWithValue("$platform", platform);
             command.Parameters.AddWithValue("$hardware_uuid", (object?)hardwareUuid ?? DBNull.Value);
+            command.Parameters.AddWithValue("$machine_guid", (object?)machineGuid ?? DBNull.Value);
             command.ExecuteNonQuery();
         }
         else
@@ -255,13 +256,14 @@ public static partial class SqliteSchema
 
     // The new database records its file ID and host with its structure.
     public const string DatabaseIdentity =
-        "INSERT INTO database_identity VALUES (1, $id, CAST(unixepoch('subsec') * 1000 AS INTEGER), $platform, $hardware_uuid)";
+        "INSERT INTO database_identity (singleton,database_id,created_at_utc_ms,platform,hardware_uuid,machine_guid) VALUES (1, $id, CAST(unixepoch('subsec') * 1000 AS INTEGER), $platform, $hardware_uuid, $machine_guid)";
 
     private static string Read(Assembly assembly, string resource)
     {
         using var stream = assembly.GetManifestResourceStream(resource)
             ?? throw new InvalidOperationException($"Missing schema resource: {resource}");
         using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
+        var sql = reader.ReadToEnd();
+        return assembly == typeof(SqliteSchema).Assembly ? sql.Replace("'{platform}'", $"'{Platforms.Current}'", StringComparison.Ordinal) : sql;
     }
 }

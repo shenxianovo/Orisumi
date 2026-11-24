@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Orisumi.Platform;
 
-public sealed class Instance
+public sealed partial class Instance
 {
     private const string FileName = "instance.json";
 
@@ -15,14 +15,6 @@ public sealed class Instance
 
     public Store Store { get; }
     public string Name { get; }
-    private string AgentPrefix => $"dev.orisumi.{Name}";
-    internal string BundleIdentifier => BundleIdentifierFor(Name);
-    internal static string BundleIdentifierFor(string name) => name == "prod" ? "dev.orisumi" : "dev.orisumi.canary";
-    // System Settings lists apps by name, so the dev app must not read as production.
-    internal static string AppNameFor(string name) => name == "prod" ? "Orisumi" : "Orisumi Dev";
-    internal string AppAgentLabel => $"{AgentPrefix}.app";
-    internal string CaptureAgentPrefix => $"{AgentPrefix}.capture.";
-    public string CaptureAgentLabel(string source) => CaptureAgentPrefix + source;
     public int BrowserPort => Name switch
     {
         "prod" => 47810,
@@ -30,7 +22,6 @@ public sealed class Instance
         _ => 47900 + (int)(Name.Aggregate(2166136261u,
             (hash, character) => unchecked((hash ^ character) * 16777619u)) % 100),
     };
-    internal string? CommandName => Name == "prod" ? "orisumi" : null;
 
     public static Instance Open(string root)
     {
@@ -80,8 +71,7 @@ public sealed class Instance
     public static string ProductionRoot() => ApplicationSupport("Orisumi");
     public static string DevelopmentRoot() => ApplicationSupport("Orisumi-dev");
 
-    private static string ApplicationSupport(string folder) => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", folder);
+    private static partial string ApplicationSupport(string folder);
 
     internal static bool IsName(string name) => name.Length > 0 && name.All(IsNameCharacter);
     private static bool IsNameCharacter(char character) => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '_';

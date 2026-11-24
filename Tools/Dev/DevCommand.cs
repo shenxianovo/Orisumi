@@ -15,9 +15,18 @@ internal static class DevCommand
             DefaultValueFactory = _ => "Debug",
         };
         configuration.AcceptOnlyFromAmong("Debug", "Release");
-        var build = new Command("build", "构建 .NET 解决方案（包含 macOS 原生采集器）。") { configuration };
-        build.SetAction((result, token) => Development.Run("dotnet", Repository.Require(), token,
-            "build", "Orisumi.slnx", "--configuration", result.GetRequiredValue(configuration)));
+        var build = new Command("build", "构建当前平台的宿主、开发工具与采集器。") { configuration };
+        build.SetAction(async (result, token) =>
+        {
+            var root = Repository.Require();
+            foreach (var target in DevPlatform.BuildTargets(root))
+            {
+                var code = await Development.Run("dotnet", root, token, "build", target,
+                    "--configuration", result.GetRequiredValue(configuration));
+                if (code != 0) return code;
+            }
+            return 0;
+        });
 
         var docs = new Command("docs", "启动本地文档站 http://127.0.0.1:3020/docs，或管理文档站。");
         docs.SetAction((_, token) => Development.Run("npm", Path.Combine(Repository.Require(), DocsDirectory), token, "run", "dev"));

@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using System.Xml.Linq;
 using Orisumi.Platform;
 
-namespace Orisumi.Cli;
+namespace Orisumi.Desktop;
 
+[SupportedOSPlatform("macos")]
 internal static class AppStartup
 {
     internal static async Task Install(Instance instance, SystemLocations locations, bool loaded, CancellationToken token)

@@ -25,7 +25,8 @@ public sealed record ProgramDescription(string Name, string Version,
 
     public void Write(TextWriter output) => output.WriteLine(JsonSerializer.Serialize(this, DescriptionJson.Default.ProgramDescription));
 
-    public static string ExecutableName(string component) => component == "host" ? "orisumi" : "orisumi-" + component;
+    public static string ExecutableName(string component, string rid) =>
+        (component == "host" ? "orisumi" : "orisumi-" + component) + (Platforms.Name(rid) == "windows" ? ".exe" : "");
 }
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]

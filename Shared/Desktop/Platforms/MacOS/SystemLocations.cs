@@ -1,5 +1,8 @@
+using System.Runtime.Versioning;
+
 namespace Orisumi.Platform;
 
+[SupportedOSPlatform("macos")]
 internal sealed record SystemLocations(string Agents, string Commands, string Launchctl)
 {
     internal static SystemLocations Current { get; } = ForUser(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));

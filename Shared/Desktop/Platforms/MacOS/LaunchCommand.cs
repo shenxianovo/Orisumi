@@ -1,13 +1,15 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
-namespace Orisumi.Cli;
+namespace Orisumi.Desktop;
 
 internal static class LaunchCommand
 {
     internal const string Name = "launch";
     internal const string Usage = "Usage: orisumi launch -- <executable> [args…]";
 
+    [SupportedOSPlatform("macos")]
     internal static async Task<int> Run(string[] arguments)
     {
         if (arguments is not ["--", { Length: > 0 } executable, .. var childArguments])

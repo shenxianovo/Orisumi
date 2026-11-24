@@ -12,8 +12,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(OrisumiPlatform)' == 'MacOS'">
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>macos</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <ItemGroup>
-    <ProjectReference Include="../../Shared/Platform/Orisumi.Platform.csproj" />
+    <ProjectReference Include="../../Shared/Desktop/Orisumi.Desktop.csproj" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="System.CommandLine" Version="3.0.0" />
     <InternalsVisibleTo Include="InstanceChecks" />

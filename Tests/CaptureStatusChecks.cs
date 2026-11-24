@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 [assembly: SupportedOSPlatform("macos")]
@@ -118,7 +119,13 @@ try
         """);
 
     using var output = new StringWriter();
-    var command = Commands.Create(locations, output, baseDirectory);
+    var command = Commands.Create(new DesktopServices(
+        current => current.Name == "test_status_overall" ? new StatusJobs() : new MacCollectorJobs(current, locations),
+        current => new MacInstallation(current, locations, HostBundle.Tools.Current)), output, baseDirectory);
+    var queries = Commands.Create(null, output, baseDirectory);
+    Check(queries.Subcommands.Select(c => c.Name).Order().SequenceEqual(["capture", "day", "describe", "export"]) &&
+        queries.Subcommands.Single(c => c.Name == "capture").Subcommands.Select(c => c.Name).SequenceEqual(["coverage"]),
+        "a desktop without supervision exposes the available query commands");
     var before = Entries(store.Root);
     var agentsBefore = Entries(locations.Agents);
     Check(await Invoke("describe") == 0, "describe succeeds");
@@ -325,4 +332,16 @@ static string[] Entries(string path) => Directory.GetFileSystemEntries(path, "*"
 static void Check(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
+}
+
+
+sealed class StatusJobs : ICollectorJobs
+{
+    public Task<IReadOnlyDictionary<string, SavedJob>> Inspect(IEnumerable<string> sources, CancellationToken token) =>
+        Task.FromResult<IReadOnlyDictionary<string, SavedJob>>(sources.Distinct().ToDictionary(name => name,
+            name => name == "collecting" ? new SavedJob(name, true, true, "running", 1234, null)
+                : new SavedJob(name, false, false, "not_loaded", null, null)));
+
+    public Task<string> Set(string source, JobSpec? desired, CancellationToken token) => throw new Exception("Status modified a job");
+    public Task Restore(SavedJob previous, CancellationToken token) => throw new Exception("Status restored a job");
 }

@@ -5,10 +5,13 @@ namespace Orisumi.Platform;
 
 internal delegate Task<int> CommandProcess(string executable, string[] arguments, TextWriter? output, CancellationToken token);
 
-public static class RunProcess
+public static partial class RunProcess
 {
     public static string Dotnet => Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(),
-        "..", "..", "..", "dotnet"));
+        "..", "..", "..", DotnetFileName));
+
+    internal static partial IDisposable RegisterTermination(CancellationTokenSource cancellation);
+    private static partial Task WaitForChildShutdown(Process process, Task exited);
 
     public static async Task<T> WithCancellation<T>(Func<CancellationToken, Task<T>> run)
     {
@@ -18,11 +21,7 @@ public static class RunProcess
             signal.Cancel = true;
             cancellation.Cancel();
         };
-        using var termination = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
-        {
-            signal.Cancel = true;
-            cancellation.Cancel();
-        });
+        using var termination = RegisterTermination(cancellation);
         Console.CancelKeyPress += onInterrupt;
         try { return await run(cancellation.Token); }
         finally
@@ -68,8 +67,7 @@ public static class RunProcess
             if (!process.HasExited)
             {
                 // Let collectors flush and record the end of their capture run before escalating.
-                process.Signal(PosixSignal.SIGTERM);
-                await Task.WhenAny(exited, Task.Delay(TimeSpan.FromSeconds(5)));
+                await WaitForChildShutdown(process, exited);
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }

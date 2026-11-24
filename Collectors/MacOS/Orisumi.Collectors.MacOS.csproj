@@ -1,13 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Version>0.1.0</Version>
+    <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+  <Target Name="CheckMacOSCollectorTarget" BeforeTargets="PrepareForBuild" Condition="'$(OrisumiPlatform)' != 'MacOS'">
+    <Error Text="The macOS collector requires the osx-arm64 target." />
+  </Target>
+
+  <ItemGroup Condition="'$(OrisumiPlatform)' == 'MacOS' and $([MSBuild]::IsOSPlatform('OSX'))">
     <MacOSForegroundSource Include="Native/*.swift" />
   </ItemGroup>
 
-  <Target Name="CompileMacOSForeground" Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+  <Target Name="CompileMacOSForeground" Condition="'@(MacOSForegroundSource)' != ''"
           Inputs="@(MacOSForegroundSource);$(MSBuildProjectFullPath)"
           Outputs="$(IntermediateOutputPath)orisumi-macos-foreground">
     <MakeDir Directories="$(IntermediateOutputPath)" />
@@ -18,7 +23,7 @@
   </Target>
 
   <Target Name="IncludeMacOSForeground" BeforeTargets="AssignTargetPaths" DependsOnTargets="CompileMacOSForeground"
-          Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+          Condition="'@(MacOSForegroundSource)' != ''">
     <ItemGroup>
       <Content Include="$(IntermediateOutputPath)orisumi-macos-foreground"
                Link="orisumi-macos-foreground"

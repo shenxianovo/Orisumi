@@ -1,21 +1,20 @@
 using System.ComponentModel;
-using System.Runtime.InteropServices;
-using Orisumi.Cli.Capture;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 namespace Orisumi.Cli;
 
 internal static class InstallCommand
 {
-    internal static async Task Run(Instance instance, string directory, SystemLocations locations, TextWriter output,
-        CancellationToken token, HostBundle.Tools? host = null)
+    internal static async Task Run(Instance instance, string directory, ICollectorJobs jobs, IDesktopInstallation platform,
+        TextWriter output, CancellationToken token)
     {
         using var guard = Store.WaitLock(instance.Store.AppLock);
-        await RunLocked(instance, directory, locations, output, token, host ?? HostBundle.Tools.Current);
+        await RunLocked(instance, directory, jobs, platform, output, token);
     }
 
-    internal static async Task RunLocked(Instance instance, string directory, SystemLocations locations, TextWriter output,
-        CancellationToken token, HostBundle.Tools host)
+    internal static async Task RunLocked(Instance instance, string directory, ICollectorJobs jobs, IDesktopInstallation platform,
+        TextWriter output, CancellationToken token)
     {
         var store = instance.Store;
         var source = DirectoryPaths.Resolve(directory);
@@ -24,7 +23,7 @@ internal static class InstallCommand
             throw new ArgumentException($"发布目录必须位于实例的 app 之外：{source}");
 
         var release = ReleaseManifest.Read(Path.Combine(source, ReleaseManifest.FileName));
-        release.VerifyFor(instance);
+        release.VerifyFor(instance, Platforms.CurrentRid);
         var installed = ReleaseManifest.ReadInstalled(store);
         var components = new Dictionary<string, ReleaseComponent>(installed?.Components ?? [], StringComparer.Ordinal);
         var schema = new Dictionary<string, SchemaTable[]>(installed?.Schema ?? [], StringComparer.Ordinal);
@@ -53,16 +52,16 @@ internal static class InstallCommand
                 }
                 if (release.Schema.TryGetValue(name, out var tables)) schema[name] = tables;
                 component.VerifyFiles(candidate);
-                if (name == "host") await HostBundle.Verify(candidate, instance.Name, token, host);
+                if (name == "host") await platform.VerifyHost(candidate, requireReleaseCertificate: false, token);
                 var status = !changed ? "unchanged" : previous is null ? "new" : "installed";
                 results.Add($"{name}: {status} {components[name].Version}");
             }
 
             foreach (var (name, staged, _) in changes)
             {
-                var executable = name == "host" ? HostBundle.Executable(staged) :
-                    Path.Combine(staged, ProgramDescription.ExecutableName(name));
-                var description = await ProgramDescription.Read(executable, [], token, name == "host" ? host.Run : RunProcess.RunCommand);
+                var executable = name == "host" ? platform.HostExecutable(staged) :
+                    Path.Combine(staged, ProgramDescription.ExecutableName(name, Platforms.CurrentRid));
+                var description = await ProgramDescription.Read(executable, [], token, name == "host" ? platform.RunHost : RunProcess.RunCommand);
                 if (description.Name != name || description.Version != components[name].Version)
                     throw new InvalidDataException($"{executable} 的 describe 与发布清单不符。");
                 descriptions.Add(name, description);
@@ -76,86 +75,57 @@ internal static class InstallCommand
                 Schema = schema,
                 InstalledAtUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             }).Write(manifest);
-            var installedNames = installed?.Components.Keys.AsEnumerable() ?? [];
-            var loaded = changes.Any(change => change.Name != "host")
-                ? await Launchd.LoadedCaptureAgents(instance, locations, token, release.Components.Keys) : [];
-            var swapped = new Stack<(string Staged, string Destination, bool Replaced)>();
-            var agents = new Stack<(string Plist, byte[]? Content, bool Loaded)>();
+            var changedCollectors = changes.Where(change => change.Name != "host").Select(change => change.Name).ToArray();
+            var previousJobs = changedCollectors.Length == 0 ? null : await jobs.Inspect(changedCollectors, token);
+            var captureEnabled = previousJobs?.Values.Any(job => job.Supervised) == true;
+            var payloads = new Stack<Action>();
+            var registrations = new Stack<(string Name, Func<CancellationToken, Task> Restore)>();
             try
             {
                 foreach (var (_, staged, destination) in changes)
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                    var replaced = Directory.Exists(destination);
-                    if (replaced) Exchange(staged, destination);
-                    else Directory.Move(staged, destination);
-                    swapped.Push((staged, destination, replaced));
-                }
+                    payloads.Push(platform.ActivateDirectory(staged, destination));
 
                 foreach (var (name, _, destination) in changes)
                 {
                     if (name == "host")
                     {
-                        var label = instance.AppAgentLabel;
-                        var plist = Path.Combine(locations.Agents, label + ".plist");
-                        var running = await Launchd.Print(locations, Launchd.Service(label), token) is not null;
-                        Remember(plist, running);
-                        await AppStartup.Install(instance, locations, running, token);
+                        var login = await platform.PrepareLogin(token);
+                        registrations.Push((name, login.Restore));
+                        await login.Apply(token);
                     }
-                    else if (loaded.Contains(name) || (loaded.Count > 0 && !installedNames.Contains(name)))
+                    else
                     {
-                        var plist = Launchd.CaptureAgentPlist(instance, locations, name);
-                        Remember(plist, loaded.Contains(name));
-                        await Launchd.StopAgent(plist, locations, token);
-                        var program = new CollectorProgram(Path.Combine(destination, ProgramDescription.ExecutableName(name)), false, descriptions[name]);
-                        await CaptureStartup.StartAgent(instance, program, locations, token);
+                        var previous = previousJobs![name];
+                        if (!previous.Supervised && (!captureEnabled || installed?.Components.ContainsKey(name) == true)) continue;
+                        registrations.Push((name, ct => jobs.Restore(previous, ct)));
+                        var program = new CollectorProgram(Path.Combine(destination, ProgramDescription.ExecutableName(name, Platforms.CurrentRid)),
+                            false, descriptions[name]);
+                        await jobs.Set(name, program.Job(store), token);
                     }
                 }
                 File.Move(manifest, store.Manifest, overwrite: true);
             }
             catch
             {
-                foreach (var (staged, destination, replaced) in swapped)
-                    if (replaced) Exchange(staged, destination);
-                    else Directory.Move(destination, staged);
-                foreach (var (plist, content, wasLoaded) in agents)
+                foreach (var restore in payloads) restore();
+                foreach (var (name, restore) in registrations)
                 {
-                    try
-                    {
-                        await Launchd.StopAgent(plist, locations, CancellationToken.None);
-                        if (content is not null)
-                        {
-                            File.WriteAllBytes(plist, content);
-                            File.SetUnixFileMode(plist, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                            if (wasLoaded) await Launchd.Bootstrap(locations, plist, CancellationToken.None);
-                        }
-                    }
+                    try { await restore(CancellationToken.None); }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception)
                     {
-                        output.WriteLine($"无法恢复 LaunchAgent {plist}：{error.Message}");
+                        output.WriteLine($"无法恢复 {name} 的启动配置：{error.Message}");
                     }
                 }
                 throw;
             }
 
-            if (components.ContainsKey("host") && instance.CommandName is { } command)
-                Link(locations.Commands, command, store.HostExecutable);
+            if (components.ContainsKey("host")) platform.LinkCommand();
             foreach (var result in results) output.WriteLine(result);
-
-            void Remember(string plist, bool running) =>
-                agents.Push((plist, File.Exists(plist) ? File.ReadAllBytes(plist) : null, running));
         }
         finally
         {
             if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
         }
-    }
-
-    internal static void Exchange(string from, string to)
-    {
-        // Darwin can exchange two nonempty directories without a gap at the installed path.
-        if (renamex_np(from, to, 2) != 0)
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"无法替换 {to}");
     }
 
     private static void Copy(string source, string destination)
@@ -169,22 +139,4 @@ internal static class InstallCommand
             else File.Copy(entry.FullName, path);
         }
     }
-
-    private static void Link(string directory, string name, string target)
-    {
-        Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, name);
-        if (new FileInfo(path).LinkTarget == target) return;
-        var temporary = path + "." + Guid.NewGuid().ToString("N");
-        try
-        {
-            File.CreateSymbolicLink(temporary, target);
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally { File.Delete(temporary); }
-    }
-
-    [DllImport("/usr/lib/libSystem.B.dylib", SetLastError = true)]
-    private static extern int renamex_np([MarshalAs(UnmanagedType.LPUTF8Str)] string from,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string to, uint flags);
 }

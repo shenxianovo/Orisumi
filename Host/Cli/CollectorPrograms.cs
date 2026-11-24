@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Orisumi.Platform;
+using Orisumi.Desktop;
 
 namespace Orisumi.Cli;
 
@@ -8,6 +9,9 @@ internal sealed record CollectorProgram(string Path, bool Managed, ProgramDescri
     internal string Executable => Managed ? RunProcess.Dotnet : Path;
     internal string[] Arguments(string[] arguments) => Managed ? [Path, .. arguments] : arguments;
     internal string[] Command(string store, string[] arguments) => [Executable, .. Arguments(["--store", store, .. arguments])];
+    internal JobSpec Job(Store store) => new(Command(store.Root, Description.Arguments!), store.Root,
+        System.IO.Path.Combine(store.Logs, Description.Name + ".out.log"),
+        System.IO.Path.Combine(store.Logs, Description.Name + ".err.log"));
 }
 
 internal static class CollectorPrograms
@@ -29,12 +33,14 @@ internal static class CollectorPrograms
         var directory = managed ? Path.Combine(checkout!, "Collectors") : new Store(store).Collectors;
         if (!Directory.Exists(directory)) return [];
         var output = managed ? Path.GetRelativePath(Path.Combine(checkout!, "Host", "Cli"), baseDirectory) : "";
+        var rid = Platforms.CurrentRid;
         var files = Directory.EnumerateDirectories(directory)
             .Where(project => managed || Instance.IsName(Path.GetFileName(project)))
+            .Where(project => Platforms.Runs(Path.GetFileName(project).ToLowerInvariant(), rid))
             .Select(project => Path.Combine(project, output))
             .Where(Directory.Exists)
             .SelectMany(project => managed ? Directory.EnumerateFiles(project, "orisumi-*.dll")
-                : [Path.Combine(project, ProgramDescription.ExecutableName(Path.GetFileName(project)))])
+                : [Path.Combine(project, ProgramDescription.ExecutableName(Path.GetFileName(project), rid))])
             .Where(File.Exists);
         return await Task.WhenAll(files.Order(StringComparer.Ordinal).Select(Describe));
 

@@ -16,7 +16,8 @@ public sealed partial class Store(string root)
     internal string AppLock => Path.Combine(App, ".lock");
     internal string Manifest => Path.Combine(App, ReleaseManifest.FileName);
     public string Host => Path.Combine(App, "host");
-    internal string HostExecutable => HostBundle.Executable(Host);
+    internal string HostExecutable => HostExecutableIn(Host);
+    internal static partial string HostExecutableIn(string release);
     public string Collectors => Path.Combine(App, "collectors");
     public string Collector(string name) => Path.Combine(Collectors, name);
 
@@ -47,26 +48,27 @@ public sealed partial class Store(string root)
     // A new one starts when there is none, its file is gone, or the pointer was written on other hardware,
     // such as a store copied to a new Mac. Unknown hardware cannot prove a move, so it keeps the current one.
     // Also returns the host the database is bound to, which the collector records when it creates the database.
-    public (string Path, string DatabaseId, string Platform, string? HardwareUuid) WritableDatabase(string source)
+    public (string Path, string DatabaseId, string Platform, string? HardwareUuid, string? MachineGuid) WritableDatabase(string source)
     {
         using var guard = WaitLock(LockFile(source));
         var host = HostIdentity.Read();
         if (ReadPointer(source) is { } pointer && File.Exists(Database(source, pointer.DatabaseId)) &&
-            (host.HardwareUuid is null || pointer.HardwareUuid == host.HardwareUuid))
-            return (Database(source, pointer.DatabaseId), pointer.DatabaseId, host.Platform, pointer.HardwareUuid);
+            host.MatchesDatabase(pointer.Platform ?? "macos", pointer.HardwareUuid, pointer.MachineGuid))
+            return (Database(source, pointer.DatabaseId), pointer.DatabaseId, host.Platform, pointer.HardwareUuid, pointer.MachineGuid);
 
         var databaseId = Guid.NewGuid().ToString("N");
         var path = Database(source, databaseId);
         Directory.CreateDirectory(Observations(source));
         // Created under the lock, so a concurrent caller sees the file and does not start another database.
-        using (File.Open(path, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write,
-                   UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite })) { }
+        CreateDatabaseFile(path);
         var pointerPath = PointerFile(source);
         Directory.CreateDirectory(Path.GetDirectoryName(pointerPath)!);
-        File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, host.HardwareUuid), PointerJson.Default.Pointer));
+        File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, host.HardwareUuid, host.Platform, host.MachineGuid), PointerJson.Default.Pointer));
         File.Move(pointerPath + ".tmp", pointerPath, overwrite: true);
-        return (path, databaseId, host.Platform, host.HardwareUuid);
+        return (path, databaseId, host.Platform, host.HardwareUuid, host.MachineGuid);
     }
+
+    private static partial void CreateDatabaseFile(string path);
 
     private string Database(string source, string databaseId) => Path.Combine(Observations(source), databaseId + ".sqlite");
 
@@ -77,7 +79,8 @@ public sealed partial class Store(string root)
         try
         {
             var pointer = JsonSerializer.Deserialize(File.ReadAllText(PointerFile(source)), PointerJson.Default.Pointer);
-            return pointer is { DatabaseId: { Length: 32 } id } && Guid.TryParseExact(id, "N", out _) ? pointer : null;
+            return pointer is { DatabaseId: { Length: 32 } id } && Guid.TryParseExact(id, "N", out _) &&
+                (pointer.Platform ?? "macos") == Platforms.Current ? pointer : null;
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException or JsonException) { return null; }
     }
@@ -93,7 +96,7 @@ public sealed partial class Store(string root)
         }
     }
 
-    private sealed record Pointer(string DatabaseId, string? HardwareUuid);
+    private sealed record Pointer(string DatabaseId, string? HardwareUuid, string? Platform, string? MachineGuid);
 
     [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
     [JsonSerializable(typeof(Pointer))]

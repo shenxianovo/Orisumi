@@ -1,45 +1,22 @@
-using System.Runtime.InteropServices;
-using System.Text;
-
 namespace Orisumi.Platform;
 
 // Host identifiers as the platform reports them; unreadable values are null. Which device they belong to is
 // read out later (overview/devices.mdx). Native helpers receive these values instead of reading them again.
-public sealed record HostIdentity(string Platform, string? HardwareUuid, string? HostName, string? Model,
-    string? OsVersion, string? OsBuild, string? BootId, long UserId, string UserName)
+public sealed partial record HostIdentity(string Platform, string? HardwareUuid, string? HostName, string? Model,
+    string? OsVersion, string? OsBuild, string? BootId, long? UserId, string? UserName, string? MachineGuid = null, string? UserSid = null)
 {
-    public static HostIdentity Read()
+    public static partial HostIdentity Read();
+
+    // Compare the raw host keys available on this platform when selecting a writable database.
+    public bool MatchesDatabase(string platform, string? hardwareUuid, string? machineGuid)
     {
-        if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Only macOS host identity is implemented.");
-        return new("macos", ReadHardwareUuid(), Sysctl("kern.hostname"), Sysctl("hw.model"), Sysctl("kern.osproductversion"),
-            Sysctl("kern.osversion"), Sysctl("kern.bootsessionuuid"), getuid(), Environment.UserName);
+        if (Platform != platform) return false;
+        var hardware = DeviceUuid(Platform, HardwareUuid);
+        if (hardware is not null) return string.Equals(hardware, DeviceUuid(platform, hardwareUuid), StringComparison.OrdinalIgnoreCase);
+        return Platform != "windows" || MachineGuid is null || string.Equals(MachineGuid, machineGuid, StringComparison.OrdinalIgnoreCase);
     }
 
-    // gethostuuid returns IOPlatformUUID, formatted the way the system shows it.
-    private static string? ReadHardwareUuid()
-    {
-        var bytes = new byte[16];
-        var wait = new Timespec { Seconds = 1 };
-        if (gethostuuid(bytes, ref wait) != 0) return null;
-        var hex = Convert.ToHexString(bytes);
-        return $"{hex[..8]}-{hex[8..12]}-{hex[12..16]}-{hex[16..20]}-{hex[20..]}";
-    }
-
-    private static string? Sysctl(string name)
-    {
-        nint length = 0;
-        if (sysctlbyname(name, null, ref length, 0, 0) != 0 || length == 0) return null;
-        var value = new byte[length];
-        if (sysctlbyname(name, value, ref length, 0, 0) != 0) return null;
-        return Encoding.UTF8.GetString(value, 0, (int)length).TrimEnd('\0');
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Timespec { internal long Seconds; internal long Nanoseconds; }
-    [DllImport("/usr/lib/libSystem.B.dylib")]
-    private static extern int gethostuuid(byte[] uuid, ref Timespec wait);
-    [DllImport("/usr/lib/libSystem.B.dylib")]
-    private static extern uint getuid();
-    [DllImport("/usr/lib/libSystem.B.dylib")]
-    private static extern int sysctlbyname(string name, byte[]? value, ref nint length, nint newValue, nint newLength);
+    public static string? DeviceUuid(string platform, string? uuid) =>
+        platform == "windows" && (uuid == "00000000-0000-0000-0000-000000000000" ||
+            string.Equals(uuid, "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", StringComparison.OrdinalIgnoreCase)) ? null : uuid;
 }

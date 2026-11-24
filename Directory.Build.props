@@ -1,8 +1,22 @@
 <Project>
-  <!-- Orisumi runs on macOS only; this replaces per-call platform checks. -->
-  <ItemGroup>
+  <PropertyGroup>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1416</WarningsAsErrors>
+    <RuntimeIdentifiers>osx-arm64;win-x64</RuntimeIdentifiers>
+    <OrisumiRuntimeIdentifier>$(RuntimeIdentifier)</OrisumiRuntimeIdentifier>
+    <OrisumiRuntimeIdentifier Condition="'$(OrisumiRuntimeIdentifier)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</OrisumiRuntimeIdentifier>
+    <OrisumiPlatform Condition="'$(OrisumiRuntimeIdentifier)' == 'osx-arm64'">MacOS</OrisumiPlatform>
+    <OrisumiPlatform Condition="'$(OrisumiRuntimeIdentifier)' == 'win-x64'">Windows</OrisumiPlatform>
+    <DefaultItemExcludes Condition="'$(OrisumiPlatform)' != 'MacOS'">$(DefaultItemExcludes);**/Platforms/MacOS/**</DefaultItemExcludes>
+    <DefaultItemExcludes Condition="'$(OrisumiPlatform)' != 'Windows'">$(DefaultItemExcludes);**/Platforms/Windows/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(OrisumiPlatform)' != '' and '$(MSBuildProjectExtension)' == '.csproj'">
     <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
-      <_Parameter1>macos</_Parameter1>
+      <_Parameter1>$(OrisumiPlatform.ToLowerInvariant())</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
+
+  <Target Name="CheckOrisumiPlatform" BeforeTargets="PrepareForBuild" Condition="'$(OrisumiPlatform)' == ''">
+    <Error Text="Unsupported Orisumi target '$(OrisumiRuntimeIdentifier)'. Choose osx-arm64 or win-x64." />
+  </Target>
 </Project>

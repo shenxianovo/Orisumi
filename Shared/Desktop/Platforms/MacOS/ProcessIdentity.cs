@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace Orisumi.Platform;
 
+[SupportedOSPlatform("macos")]
 internal sealed record ProcessIdentity(int Pid, long Started)
 {
     internal static ProcessIdentity? Of(int pid)

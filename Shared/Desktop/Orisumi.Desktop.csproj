@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Platform/Orisumi.Platform.csproj" />
+    <InternalsVisibleTo Include="orisumi" />
+    <InternalsVisibleTo Include="orisumi-dev" />
+    <InternalsVisibleTo Include="InstanceChecks" />
+    <InternalsVisibleTo Include="CaptureStartupChecks" />
+    <InternalsVisibleTo Include="CaptureStatusChecks" />
+  </ItemGroup>
+</Project>

@@ -7,7 +7,7 @@ namespace Orisumi.Dev;
 
 internal static class ReleaseCommand
 {
-    internal static Command Create()
+    internal static Command Create(string rid, IHostBuilder host)
     {
         var version = new Argument<string?>("version") { Arity = ArgumentArity.ZeroOrOne };
         var store = new Option<string>("--dev-store")
@@ -17,12 +17,12 @@ internal static class ReleaseCommand
         };
         var command = new Command("release", "构建并发布已在开发实例验证的版本。") { version, store };
         command.SetAction((result, token) => Run(Repository.Require(), result.GetValue(version), result.GetRequiredValue(store),
-            RunProcess.Dotnet, Console.Out, token, HostBundle.Tools.Current));
+            rid, RunProcess.Dotnet, Console.Out, token, host));
         return command;
     }
 
-    internal static async Task Run(string checkout, string? requested, string devRoot, string dotnet, TextWriter output,
-        CancellationToken token, HostBundle.Tools host)
+    internal static async Task Run(string checkout, string? requested, string devRoot, string rid, string dotnet, TextWriter output,
+        CancellationToken token, IHostBuilder host)
     {
         var source = await ReleaseBuild.Source(checkout, token);
         if (source.Branch != "main") throw new InvalidDataException("只能在 main 分支发布。");
@@ -44,7 +44,7 @@ internal static class ReleaseCommand
         try
         {
             var directory = Directory.CreateDirectory(Path.Combine(temporary.FullName, "release")).FullName;
-            var release = await ReleaseBuild.Build(checkout, directory, "prod", version.ToString(), [], dotnet, token, host);
+            var release = await ReleaseBuild.Build(checkout, directory, "prod", version.ToString(), [], rid, dotnet, token, host);
             if (release.Source != source || await ReleaseBuild.Source(checkout, token) != source)
                 throw new InvalidDataException("构建期间工作树或 HEAD 发生变化，请重新运行 release。");
 
@@ -53,7 +53,8 @@ internal static class ReleaseCommand
             catch (FileNotFoundException) { throw DevMismatch(release.Components.Keys.Order(StringComparer.Ordinal)); }
             var installed = ReleaseManifest.ReadInstalled(dev.Store);
             var differences = release.Components.Keys.Union(installed?.Components.Keys.AsEnumerable() ?? [], StringComparer.Ordinal)
-                .Where(name => release.Components.GetValueOrDefault(name)?.Identity != installed?.Components.GetValueOrDefault(name)?.Identity)
+                .Where(name => installed?.Platform != rid ||
+                    release.Components.GetValueOrDefault(name)?.Identity != installed.Components.GetValueOrDefault(name)?.Identity)
                 .Order(StringComparer.Ordinal).ToArray();
             if (differences.Length > 0) throw DevMismatch(differences);
             await WriteDevStatus(dev.Store, installed!, output, token, host);
@@ -61,7 +62,7 @@ internal static class ReleaseCommand
             ReleaseManifest? previous = null;
             if (previousVersion is not null)
             {
-                var name = ReleaseVersion.AssetPrefix(previousVersion) + ".json";
+                var name = ReleaseVersion.AssetPrefix(previousVersion, rid) + ".json";
                 var download = Directory.CreateDirectory(Path.Combine(temporary.FullName, "previous")).FullName;
                 await Gh("release", "download", $"v{previousVersion}", "--pattern", name, "--dir", download);
                 previous = ReleaseManifest.Read(Path.Combine(download, name));
@@ -72,10 +73,10 @@ internal static class ReleaseCommand
                     throw new InvalidDataException("数据库结构有不兼容的改动：\n" + string.Join('\n', violations));
             }
 
-            var prefix = ReleaseVersion.AssetPrefix(version);
+            var prefix = ReleaseVersion.AssetPrefix(version, rid);
             var package = Path.Combine(temporary.FullName, prefix + ".tar.gz");
             var manifest = Path.Combine(temporary.FullName, prefix + ".json");
-            await Repository.Query("/usr/bin/tar", checkout, token, ["-czf", package, "-C", directory, "."]);
+            await Repository.Query("tar", checkout, token, ["-czf", package, "-C", directory, "."]);
             (release with { Package = new(Path.GetFileName(package), ReleaseManifest.HashFile(package)) }).Write(manifest);
 
             var notes = string.Join('\n', release.Components.OrderBy(item => item.Key, StringComparer.Ordinal)
@@ -93,7 +94,7 @@ internal static class ReleaseCommand
         new($"开发实例的组件标识不匹配：{string.Join(", ", components)}。请先运行 orisumi-dev deploy。");
 
     private static async Task WriteDevStatus(Store store, ReleaseManifest installed, TextWriter output,
-        CancellationToken token, HostBundle.Tools host)
+        CancellationToken token, IHostBuilder host)
     {
         output.WriteLine($"dev installed_at_utc_ms: {installed.InstalledAtUtcMs?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
         try

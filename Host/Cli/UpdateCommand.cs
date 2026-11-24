@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Orisumi.Desktop;
 using System.Text.Json;
 using Orisumi.Platform;
 
@@ -6,23 +7,23 @@ namespace Orisumi.Cli;
 
 internal static class UpdateCommand
 {
-    internal static Command Create(Option<string?> store, SystemLocations locations, TextWriter output, string? baseDirectory)
+    internal static Command Create(Option<string?> store, DesktopServices desktop, TextWriter output, string? baseDirectory)
     {
         var version = new Argument<string?>("version") { Arity = ArgumentArity.ZeroOrOne };
         var from = new Option<string?>("--from") { Description = "从本地目录读取发布文件。" };
         var command = new Command("update", "将生产实例更新到指定版本或最新版本。") { version, from };
-        command.SetAction((result, token) => Run(
-            Instance.Open(result.GetValue(store) ?? Instance.Resolve(baseDirectory ?? AppContext.BaseDirectory).Store.Root),
-            result.GetValue(version), result.GetValue(from), locations, output, token));
+        command.SetAction((result, token) =>
+        {
+            var instance = Instance.Open(result.GetValue(store) ?? Instance.Resolve(baseDirectory ?? AppContext.BaseDirectory).Store.Root);
+            return Run(instance, result.GetValue(version), result.GetValue(from), desktop.Jobs(instance), desktop.Installation(instance), output, token);
+        });
         return command;
     }
 
-    internal static async Task Run(Instance instance, string? requested, string? from, SystemLocations locations,
-        TextWriter output, CancellationToken token, HostBundle.Tools? host = null,
-        string certificate = HostBundle.ReleaseCertificateSha256)
+    internal static async Task Run(Instance instance, string? requested, string? from, ICollectorJobs jobs,
+        IDesktopInstallation platform, TextWriter output, CancellationToken token)
     {
         if (instance.Name != "prod") throw new ArgumentException("update 只用于 prod 实例。请用 orisumi-dev deploy 更新开发实例。");
-        host ??= HostBundle.Tools.Current;
         var store = instance.Store;
         var requestedVersion = requested is null ? null : ReleaseVersion.Require(requested);
         using var client = from is null ? new HttpClient() : null;
@@ -33,10 +34,10 @@ internal static class UpdateCommand
         var temporary = Directory.CreateTempSubdirectory("orisumi-update-");
         try
         {
-            var prefix = ReleaseVersion.AssetPrefix(version);
+            var prefix = ReleaseVersion.AssetPrefix(version, Platforms.CurrentRid);
             var manifestPath = await GetAsset(prefix + ".json");
             var release = ReleaseManifest.Read(manifestPath);
-            release.VerifyFor(instance);
+            release.VerifyFor(instance, Platforms.CurrentRid);
             if (release.Version is null || ReleaseVersion.Parse(release.Version) != version || !release.Components.ContainsKey("host"))
                 throw new InvalidDataException($"发布清单与版本 {version} 不符，或缺少宿主组件。");
 
@@ -51,23 +52,20 @@ internal static class UpdateCommand
                 throw new InvalidDataException($"{packageName}: 安装包 SHA-256 不匹配。");
 
             var extracted = Directory.CreateDirectory(Path.Combine(temporary.FullName, "release")).FullName;
-            using var errors = new StringWriter();
-            var exit = await RunProcess.Run("/usr/bin/tar", ["-xf", archive, "-C", extracted], TextWriter.Null, token, errors: errors);
-            token.ThrowIfCancellationRequested();
-            if (exit != 0) throw new InvalidDataException($"{packageName}: 无法解包：{errors.ToString().Trim()}");
+            await platform.ExtractPackage(archive, extracted, token);
             var packaged = ReleaseManifest.Read(Path.Combine(extracted, ReleaseManifest.FileName));
             if (!JsonElement.DeepEquals(JsonSerializer.SerializeToElement(packaged, ReleaseJson.Default.ReleaseManifest),
                     JsonSerializer.SerializeToElement(release with { Package = null }, ReleaseJson.Default.ReleaseManifest)))
                 throw new InvalidDataException("安装包中的清单与发布清单不符。");
-            await HostBundle.VerifyCertificate(ReleaseManifest.ComponentDirectory(extracted, "host"), instance.Name, certificate, token, host);
+            await platform.VerifyHost(ReleaseManifest.ComponentDirectory(extracted, "host"), requireReleaseCertificate: true, token);
 
             using var guard = Store.WaitLock(store.AppLock);
             var installed = ReleaseManifest.ReadInstalled(store);
             if (IsCurrent(release, installed)) return;
             var previous = installed?.Version ?? "pre-v5";
             if (installed?.Version is { } installedVersion) ReleaseVersion.Require(installedVersion);
-            Backup(store, previous, token);
-            await InstallCommand.RunLocked(instance, extracted, locations, output, token, host);
+            Backup(store, previous, platform, token);
+            await InstallCommand.RunLocked(instance, extracted, jobs, platform, output, token);
             output.WriteLine($"Updated {previous} -> {version}.");
         }
         catch (HttpRequestException error)
@@ -115,14 +113,14 @@ internal static class UpdateCommand
     private static Version LocalVersion(string directory)
     {
         const string prefix = "orisumi-";
-        const string suffix = "-" + ReleaseManifest.MacOSArm64 + ".json";
+        var suffix = "-" + Platforms.CurrentRid + ".json";
         return Directory.EnumerateFiles(directory, prefix + "*" + suffix)
             .Select(path => Path.GetFileName(path)[prefix.Length..^suffix.Length])
             .Select(ReleaseVersion.Parse).Max() ??
-            throw new FileNotFoundException($"找不到 {ReleaseManifest.MacOSArm64} 发布清单：{directory}");
+            throw new FileNotFoundException($"找不到 {Platforms.CurrentRid} 发布清单：{directory}");
     }
 
-    private static void Backup(Store store, string version, CancellationToken token)
+    private static void Backup(Store store, string version, IDesktopInstallation platform, CancellationToken token)
     {
         var root = DirectoryPaths.Resolve(store.Root);
         if (DirectoryPaths.Resolve(store.Backups) != Path.Combine(root, "backups"))
@@ -137,8 +135,7 @@ internal static class UpdateCommand
             var destination = Path.Combine(store.Backups, version);
             if (new DirectoryInfo(destination).LinkTarget is not null)
                 throw new InvalidDataException($"备份目录是符号链接：{destination}");
-            if (Directory.Exists(destination)) InstallCommand.Exchange(staging.Root, destination);
-            else Directory.Move(staging.Root, destination);
+            platform.ActivateDirectory(staging.Root, destination);
 
             foreach (var old in new DirectoryInfo(store.Backups).EnumerateDirectories()
                 .Where(directory => directory.LinkTarget is null && (directory.Name == "pre-v5" || ReleaseVersion.Parse(directory.Name) is not null))

@@ -1,5 +1,8 @@
+using System.Runtime.Versioning;
+
 namespace Orisumi.Platform;
 
+[SupportedOSPlatform("macos")]
 internal static class HostBundle
 {
     internal const string Name = "Orisumi.app";
@@ -12,7 +15,7 @@ internal static class HostBundle
     }
 
     internal static string Executable(string release) =>
-        Path.Combine(release, Name, "Contents", "MacOS", ProgramDescription.ExecutableName("host"));
+        Store.HostExecutableIn(release);
 
     internal static string AppExecutable(string release) =>
         Path.Combine(release, Name, "Contents", "MacOS", AppExecutableName);

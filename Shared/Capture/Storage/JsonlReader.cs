@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -40,7 +39,7 @@ public sealed class JsonlReader : IDisposable
         stream = Open(path);
         try
         {
-            Identity = FileIdentity(stream);
+            Identity = FileIdentity.Of(stream);
             length = stream.Length;
             modified = File.GetLastWriteTimeUtc(stream.SafeFileHandle).Ticks;
         }
@@ -50,7 +49,7 @@ public sealed class JsonlReader : IDisposable
     public static string Identify(string path)
     {
         using var stream = Open(path);
-        return FileIdentity(stream);
+        return FileIdentity.Of(stream);
     }
 
     public JsonlReadPlan Plan(JsonlCursor? previous, bool reconcile = false, bool wasArchive = false)
@@ -176,14 +175,6 @@ public sealed class JsonlReader : IDisposable
     private static FileStream Open(string path) =>
         new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
-    // Device, inode and birth time survive a move and change on replacement.
-    private static string FileIdentity(FileStream stream)
-    {
-        if (fstat(stream.SafeFileHandle.DangerousGetHandle().ToInt32(), out var stat) != 0)
-            throw new IOException($"could not identify {stream.Name}", new System.ComponentModel.Win32Exception());
-        return $"{stat.Device}:{stat.Inode}:{stat.BirthSeconds}:{stat.BirthNanoseconds}";
-    }
-
     // Hash of the first (prefix) or last (tail) bytes before offset.
     private static string Checkpoint(FileStream stream, long offset, bool prefix)
     {
@@ -232,15 +223,4 @@ public sealed class JsonlReader : IDisposable
             position += count;
         }
     }
-
-    [StructLayout(LayoutKind.Explicit, Size = 144)]
-    private struct DarwinStat
-    {
-        [FieldOffset(0)] public int Device;
-        [FieldOffset(8)] public ulong Inode;
-        [FieldOffset(80)] public long BirthSeconds;
-        [FieldOffset(88)] public long BirthNanoseconds;
-    }
-    [DllImport("/usr/lib/libSystem.B.dylib", SetLastError = true)]
-    private static extern int fstat(int descriptor, out DarwinStat stat);
 }

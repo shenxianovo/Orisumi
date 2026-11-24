@@ -19,32 +19,23 @@ internal static class CheckCommand
         var temporary = Directory.CreateTempSubdirectory("orisumi-check-");
         try
         {
-            var packages = Path.Combine(temporary.FullName, "packages");
-            var tools = Path.Combine(temporary.FullName, "tools");
+            var dev = await TargetPath(Repository.DevProject);
+            var host = await TargetPath(Repository.CliProject);
+            const string windows = "win-x64";
             (string Name, (string Executable, string[] Arguments)[] Steps)[] checks =
             [
-                ("Build", [Dotnet("build", "Orisumi.slnx")]),
+                ("Build", [.. DevPlatform.BuildTargets(checkout).Select(project => Dotnet("build", project))]),
+                ("Windows compile", [.. Repository.ManagedProjects(checkout, windows).Select(project =>
+                    Dotnet("build", project, "-c", "Release", "-r", windows, "-p:PublishAot=false", "-warnaserror", "-tl:off"))]),
                 FileCheck("Platform"),
-                FileCheck("CaptureStartup"),
-                FileCheck("CaptureStatus"),
-                FileCheck("Schema"),
-                FileCheck("CaptureIntegration"),
-                FileCheck("BrowserIntegration"),
-                FileCheck("CaptureCoverage"),
-                FileCheck("Day"),
-                FileCheck("Export"),
-                FileCheck("ClaudeIncremental"),
-                FileCheck("CodexIncremental"),
-                FileCheck("MacOSObservation"),
-                FileCheck("Instance"),
+                .. DevPlatform.NativeChecks(temporary.FullName, Path.GetDirectoryName(host)!),
                 ("Browser extension", [("npm", ["--prefix", DevCommand.ExtensionDirectory, "ci"]),
                     ("npm", ["--prefix", DevCommand.ExtensionDirectory, "test"])]),
-                ("App.MacOS", [("swift", ["test", "--package-path", ReleaseBuild.AppPackage])]),
-                ("SourceLauncher", [Dotnet("pack", Repository.DevProject, "-c", "Release", "-o", packages),
-                    Dotnet("tool", "install", "Orisumi.Dev", "--tool-path", tools, "--source", packages),
-                    RunFile("SourceLauncher", Path.Combine(tools, "orisumi-dev"), "Host/Cli/bin/Debug/net11.0")]),
-                FileCheck("Loc", "Tools/Dev/bin/Debug/net11.0/orisumi-dev.dll"),
+                FileCheck("Loc", dev),
             ];
+
+            async Task<string> TargetPath(string project) => (await Repository.Query(RunProcess.Dotnet, checkout, token,
+                ["msbuild", project, "-nologo", "-p:Configuration=Debug", "-getProperty:TargetPath"])).Trim();
 
             var failed = false;
             foreach (var (name, steps) in checks)
@@ -57,10 +48,11 @@ internal static class CheckCommand
                 {
                     try
                     {
-                        if (await RunProcess.Run(executable, arguments, capture, token, directory: checkout, errors: capture) == 0)
+                        var command = Development.Command(executable, arguments);
+                        if (await RunProcess.Run(command.Executable, command.Arguments, capture, token, directory: checkout, errors: capture) == 0)
                             continue;
                     }
-                    catch (Win32Exception error) { capture.WriteLine(error.Message); }
+                    catch (Exception error) when (error is Win32Exception or FileNotFoundException) { capture.WriteLine(error.Message); }
                     token.ThrowIfCancellationRequested();
                     passed = false;
                     break;
@@ -75,12 +67,12 @@ internal static class CheckCommand
         finally { temporary.Delete(recursive: true); }
     }
 
-    private static (string, string[]) Dotnet(params string[] arguments) => (RunProcess.Dotnet, arguments);
+    internal static (string, string[]) Dotnet(params string[] arguments) => (RunProcess.Dotnet, arguments);
 
-    private static (string Name, (string Executable, string[] Arguments)[] Steps) FileCheck(string name, params string[] arguments) =>
+    internal static (string Name, (string Executable, string[] Arguments)[] Steps) FileCheck(string name, params string[] arguments) =>
         (name, [RunFile(name, arguments)]);
 
-    private static (string, string[]) RunFile(string name, params string[] arguments) =>
+    internal static (string, string[]) RunFile(string name, params string[] arguments) =>
         Dotnet(arguments.Length == 0 ? ["run", "--file", $"Tests/{name}Checks.cs"]
             : ["run", "--file", $"Tests/{name}Checks.cs", "--", .. arguments]);
 }

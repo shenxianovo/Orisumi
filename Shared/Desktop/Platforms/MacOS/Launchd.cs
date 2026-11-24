@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Xml.Linq;
 
 namespace Orisumi.Platform;
 
+[SupportedOSPlatform("macos")]
 internal static class Launchd
 {
     private const int NotLoaded = 113;
@@ -26,30 +28,6 @@ internal static class Launchd
 
     internal static string CaptureAgentPlist(Instance instance, SystemLocations locations, string name) =>
         Path.Combine(locations.Agents, instance.CaptureAgentLabel(name) + ".plist");
-
-    internal static async Task<HashSet<string>> LoadedCaptureAgents(Instance instance, SystemLocations locations,
-        CancellationToken token, IEnumerable<string>? additional = null)
-    {
-        var loaded = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var plist in KnownCapturePlists(instance, locations, additional))
-        {
-            var label = Path.GetFileNameWithoutExtension(plist);
-            if (await Print(locations, Service(label), token) is not null)
-                loaded.Add(label[instance.CaptureAgentPrefix.Length..]);
-        }
-        return loaded;
-    }
-
-    internal static Task StopCapture(Instance instance, SystemLocations locations, CancellationToken token) =>
-        Task.WhenAll(KnownCapturePlists(instance, locations).ToArray().Select(plist => StopAgent(plist, locations, token)));
-
-    private static IEnumerable<string> KnownCapturePlists(Instance instance, SystemLocations locations,
-        IEnumerable<string>? additional = null)
-    {
-        var installed = ReleaseManifest.ReadInstalled(instance.Store)?.Components.Keys.AsEnumerable() ?? [];
-        return CaptureAgentPlists(instance, locations).Union(installed.Concat(additional ?? [])
-            .Where(name => name != "host" && Instance.IsName(name)).Select(name => CaptureAgentPlist(instance, locations, name)), StringComparer.Ordinal);
-    }
 
     internal static async Task StopAgent(string plist, SystemLocations locations, CancellationToken token)
     {
@@ -78,6 +56,15 @@ internal static class Launchd
             if (identity is not null) await identity.Wait(token);
         }
         if (File.Exists(plist)) File.Delete(plist);
+    }
+
+    internal static async Task Restore(string path, SystemLocations locations, byte[]? registration, bool loaded, CancellationToken token)
+    {
+        await StopAgent(path, locations, token);
+        if (registration is null) return;
+        File.WriteAllBytes(path, registration);
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        if (loaded) await Bootstrap(locations, path, token);
     }
 
     internal static async Task Bootstrap(SystemLocations locations, string plist, CancellationToken token)

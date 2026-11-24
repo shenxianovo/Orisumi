@@ -11,10 +11,12 @@
     <InternalsVisibleTo Include="orisumi-browser" />
     <InternalsVisibleTo Include="orisumi-dev" />
     <InternalsVisibleTo Include="Orisumi.Capture" />
+    <InternalsVisibleTo Include="Orisumi.Desktop" />
     <InternalsVisibleTo Include="InstanceChecks" />
     <InternalsVisibleTo Include="CaptureStartupChecks" />
     <InternalsVisibleTo Include="CaptureStatusChecks" />
     <InternalsVisibleTo Include="ExportChecks" />
+    <InternalsVisibleTo Include="SchemaChecks" />
     <InternalsVisibleTo Include="BrowserIntegrationChecks" />
   </ItemGroup>
 </Project>

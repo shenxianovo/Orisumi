@@ -12,5 +12,5 @@ internal static class ReleaseVersion
     internal static Version Require(string value) => Parse(value) ??
         throw new ArgumentException($"无效的发布版本：{value}，请使用 5.2.0 或 v5.2.0 格式。");
 
-    internal static string AssetPrefix(Version version) => $"orisumi-{version}-{ReleaseManifest.MacOSArm64}";
+    internal static string AssetPrefix(Version version, string rid) => $"orisumi-{version}-{rid}";
 }

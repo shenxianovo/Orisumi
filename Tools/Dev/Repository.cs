@@ -9,6 +9,16 @@ internal static class Repository
     internal const string CollectorsDirectory = "Collectors";
     internal const string CollectorProjectPrefix = "Orisumi.Collectors.";
 
+    internal static IEnumerable<(string Component, string Project)> CollectorProjects(string checkout, string rid) =>
+        Directory.EnumerateDirectories(Path.Combine(checkout, CollectorsDirectory))
+            .Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal)
+            .Select(folder => (Component: folder.ToLowerInvariant(),
+                Project: $"{CollectorsDirectory}/{folder}/{CollectorProjectPrefix}{folder}.csproj"))
+            .Where(item => Platforms.Runs(item.Component, rid));
+
+    internal static IEnumerable<string> ManagedProjects(string checkout, string rid) =>
+        [DevProject, CliProject, .. CollectorProjects(checkout, rid).Select(item => item.Project)];
+
     internal static string? Find(string start)
     {
         for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)

@@ -1,20 +1,16 @@
-using System.Runtime.InteropServices;
+using Orisumi.Platform;
 
 namespace Orisumi.Capture.Hosting;
 
 public sealed class CaptureLifetime : IDisposable
 {
     private readonly CancellationTokenSource stop;
-    private readonly PosixSignalRegistration termination;
+    private readonly IDisposable termination;
 
     public CaptureLifetime(CancellationToken cancellation = default)
     {
         stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        termination = PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
-        {
-            signal.Cancel = true;
-            stop.Cancel();
-        });
+        termination = RunProcess.RegisterTermination(stop);
     }
 
     public CancellationToken Token => stop.Token;

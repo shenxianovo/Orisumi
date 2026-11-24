@@ -23,7 +23,8 @@ var projects = Directory.GetDirectories(Path.Combine(root, "Collectors"))
 var solution = XDocument.Load(Path.Combine(root, "Orisumi.slnx")).Descendants("Project")
     .Select(project => (string?)project.Attribute("Path")).ToArray();
 var programs = await CollectorPrograms.Read(temporary.FullName, CancellationToken.None, Path.Combine(root, "Host/Cli/bin/Debug/net11.0"));
-Check(programs.Length == projects.Length, "build one executable per collector");
+Check(programs.Length == projects.Count(project => Platforms.Runs(project.ToLowerInvariant(), Platforms.CurrentRid)),
+    "build one executable per collector for this platform");
 var expectedArguments = new Dictionary<string, string[]>
 {
     ["browser"] = ["capture"],
@@ -53,9 +54,10 @@ try
         var source = project;
         Check(solution.Count(path => path == $"Collectors/{project}/{prefix}{project}.csproj") == 1,
             project + " appears in Orisumi.slnx once");
+        var name = source.ToLowerInvariant();
+        if (!Platforms.Runs(name, Platforms.CurrentRid)) continue;
         var projectDirectory = Path.Combine(root, "Collectors", project) + Path.DirectorySeparatorChar;
         var program = programs.Single(program => program.Path.StartsWith(projectDirectory, StringComparison.Ordinal));
-        var name = source.ToLowerInvariant();
         Check(program.Description.Name == name && Path.GetFileName(program.Path) == $"orisumi-{name}.dll", project + " executable and describe name");
         if (expectedArguments.TryGetValue(name, out var arguments))
             Check(program.Description.Arguments!.SequenceEqual(arguments), project + " describe arguments");
@@ -69,7 +71,7 @@ try
         foreach (var group in new[] { "Tables", "Indexes", "Views" })
             foreach (var file in schemas.Select(schema => Path.Combine(schema, group)).Where(Directory.Exists)
                          .SelectMany(directory => Directory.EnumerateFiles(directory, "*.sql")).OrderBy(Path.GetFileName, StringComparer.Ordinal))
-                Execute(expected, File.ReadAllText(file));
+                Execute(expected, File.ReadAllText(file).Replace("'{platform}'", $"'{Platforms.Current}'", StringComparison.Ordinal));
         Check(TextRows(expected, "SELECT name FROM pragma_table_info('capture_coverage') ORDER BY cid").Take(coverageColumns.Length)
             .SequenceEqual(coverageColumns), source + " capture_coverage columns");
         var assembly = Assembly.LoadFrom(program.Path);
@@ -90,7 +92,7 @@ try
             SqliteSchema.EnsureCreated(connection, assembly, id, platform, hardware);
         var newId = Guid.NewGuid().ToString("N");
         var path = Path.Combine(temporary.FullName, newId + ".sqlite");
-        const string platform = "macos";
+        var platform = Platforms.Current;
         const string hardwareUuid = "00000000-0000-0000-0000-000000000001";
         const string identity = "SELECT database_id || ':' || platform || ':' || hardware_uuid FROM database_identity";
         var expectedIdentity = $"{newId}:{platform}:{hardwareUuid}";
@@ -105,8 +107,8 @@ try
             Check(TextRows(actual, "PRAGMA foreign_key_check").Count == 0, source + " foreign keys");
             Check(TextRows(actual, identity).SequenceEqual([expectedIdentity]), source + " database identity records the given ID and host");
             // Reopening must not recreate objects or lose an existing capture interval.
-            Execute(actual, """
-                INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'macos','test');
+            Execute(actual, $"""
+                INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'{platform}','test');
                 INSERT INTO capture_runs(started_at_utc_ms,host_observation_id) VALUES(1,1);
                 """);
         }
@@ -137,18 +139,20 @@ static void SchemaUpgrade(string temporary, Assembly assembly, SqliteConnection 
         SELECT sql FROM sqlite_schema WHERE type IN ('index','view') AND sql IS NOT NULL ORDER BY type,name
         """;
     var upgrade = Instance.Create(Path.Combine(temporary, "upgrade"), "dev").Store;
-    var (path, id, _, _) = upgrade.WritableDatabase(collector.Source);
+    var (path, id, _, _, _) = upgrade.WritableDatabase(collector.Source);
     using (var old = Open(path))
     {
-        PrepareOld(old, sql => sql.Replace("    collector_version TEXT,\n", "", StringComparison.Ordinal));
-        Execute(old, """
-            INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'macos','test');
+        PrepareOld(old, sql => sql.Replace("    collector_version TEXT,\n", "", StringComparison.Ordinal)
+            .Replace(",\n    machine_guid TEXT", "", StringComparison.Ordinal)
+            .Replace(",\n    user_sid TEXT", "", StringComparison.Ordinal));
+        Execute(old, $"""
+            INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'{Platforms.Current}','test');
             INSERT INTO capture_runs(started_at_utc_ms,host_observation_id) VALUES(42,1);
             CREATE TABLE local_data(value TEXT UNIQUE);
             INSERT INTO local_data VALUES('keep');
             """);
         using var identity = old.CreateCommand();
-        identity.Execute("INSERT INTO database_identity VALUES(1,$p0,1,'macos',NULL)", id);
+        identity.Execute("INSERT INTO database_identity VALUES(1,$p0,1,$p1,NULL)", id, Platforms.Current);
     }
     using (var upgraded = CollectorDatabase.Open(upgrade.Root, collector))
     {
@@ -186,12 +190,12 @@ static void SchemaUpgrade(string temporary, Assembly assembly, SqliteConnection 
     {
         var (before, after, differences) = refusals[i];
         var instance = Instance.Create(Path.Combine(temporary, $"refuse-{i}"), i == 0 ? "prod" : "dev");
-        var (oldPath, _, _, _) = instance.Store.WritableDatabase(collector.Source);
+        var (oldPath, _, _, _, _) = instance.Store.WritableDatabase(collector.Source);
         using (var old = Open(oldPath))
         {
             PrepareOld(old, sql => sql.StartsWith("CREATE TABLE browser_runs ", StringComparison.Ordinal)
                 ? sql.Replace(before, after, StringComparison.Ordinal) : sql);
-            Execute(old, "INSERT INTO database_identity VALUES(1,'00000000000000000000000000000001',1,'macos',NULL)");
+            Execute(old, $"INSERT INTO database_identity VALUES(1,'00000000000000000000000000000001',1,'{Platforms.Current}',NULL,NULL)");
         }
         var original = File.ReadAllBytes(oldPath);
         try

@@ -201,6 +201,12 @@ try
         ]}
         """);
 
+    foreach (var source in new[] { "codex", "claude" })
+        Fixture(source, $"windows-{source}", null, """
+            CREATE TABLE database_identity(platform,hardware_uuid,machine_guid);
+            INSERT INTO database_identity VALUES ('windows','FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF','0011aabb-0000-1111-2222-334455667788');
+            """);
+
     using var output = new StringWriter(CultureInfo.InvariantCulture);
     var commandLine = new[] { "day", "--store", store.Root, "--date", "2026-11-01", "--time-zone", "America/New_York" };
     Equal(0, await Commands.Create(output: output).Parse(commandLine).InvokeAsync(), "day command succeeds");
@@ -208,7 +214,10 @@ try
     var root = report.RootElement;
     Equal("America/New_York", root.GetProperty("time_zone").GetString(), "requested time zone");
     var devices = root.GetProperty("devices").EnumerateArray().ToArray();
-    Equal(4, devices.Length, "identities are grouped per host with each unknown database kept separate");
+    Equal(5, devices.Length, "identities are grouped per host with each unknown database kept separate");
+    var windows = devices.Single(device => Text(device, "device") == "windows:machine-guid:0011AABB-0000-1111-2222-334455667788");
+    Equal(2, windows.GetProperty("databases").GetArrayLength(), "Windows copies with placeholder firmware UUIDs group by installation");
+    Check(!windows.GetProperty("this_host").GetBoolean(), "a Windows copy is remote on macOS");
     var local = devices.Single(device => Text(device, "device") == $"macos:{hardware}");
     var remote = devices.Single(device => Text(device, "device") == "macos:different-device");
     Check(devices.TakeWhile(device => device.GetProperty("this_host").GetBoolean()).Contains(local),

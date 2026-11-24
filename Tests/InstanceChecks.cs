@@ -11,6 +11,7 @@ using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Cli.Capture;
 using Orisumi.Dev;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 [assembly: SupportedOSPlatform("macos")]
@@ -22,6 +23,7 @@ try
     Resolution();
     var source = await Identity();
     await Install();
+    await RollbackChangedCollectors();
     await Deployment(source);
     await Update();
     await ForwardingAndReset();
@@ -70,6 +72,13 @@ async Task<string> Identity()
     foreach (var path in new[] { Repository.CliProject, browser, "Collectors/Codex/Orisumi.Collectors.Codex.csproj",
         "Shared/Capture/Capture.csproj", "Shared/Platform/Platform.csproj" })
         Write(path, project);
+    Write(Repository.CliProject, project.Replace("</Project>", """
+        <ItemGroup><ProjectReference Include="../../Shared/Desktop/Desktop.csproj" /></ItemGroup></Project>
+        """));
+    Write("Shared/Desktop/Desktop.csproj", project);
+    Write("Shared/Desktop/Supervisor.cs", "initial supervisor");
+    Write("Collectors/Browser/Platforms/MacOS/Browser.cs", "Mac browser");
+    Write("Collectors/Browser/Platforms/Windows/Browser.cs", "Windows browser");
     Write("Shared/Directory.Build.props", """
         <Project><ItemGroup Condition="'$(MSBuildProjectName)' == 'Capture'">
           <ProjectReference Include="$(MSBuildThisFileDirectory)Platform/Platform.csproj" />
@@ -82,9 +91,9 @@ async Task<string> Identity()
     Write("Collectors/Browser/Program.cs", "browser");
     Write("Collectors/Codex/Program.cs", "codex");
     Write(".gitignore", "/Collectors/Browser/ignored\nbin/\nobj/\n");
-    var icon = Path.Combine(source, ReleaseBuild.AppIconMaster);
+    var icon = Path.Combine(source, MacHostBuilder.AppIconMaster);
     Directory.CreateDirectory(Path.GetDirectoryName(icon)!);
-    File.Copy(Path.Combine(checkout, ReleaseBuild.AppIconMaster), icon);
+    File.Copy(Path.Combine(checkout, MacHostBuilder.AppIconMaster), icon);
     await Git("init", "-q");
     await Git("add", "-A");
 
@@ -92,6 +101,19 @@ async Task<string> Identity()
     var originalIndex = File.ReadAllBytes(index);
     var initial = await Id();
     Check(initial == await Id(), "same content produces the same identity");
+    var hostBefore = await HostId();
+    Write("Shared/Desktop/Supervisor.cs", "new supervisor");
+    Check(await HostId() != hostBefore && await Id() == initial, "desktop supervision changes the host identity alone");
+    var windows = await ComponentIdentity.Read(source, "Collectors/Browser", browser, "win-x64", RunProcess.Dotnet, default);
+    Write("Collectors/Browser/Platforms/Windows/Browser.cs", "changed Windows browser");
+    Check(await Id() == initial &&
+        await ComponentIdentity.Read(source, "Collectors/Browser", browser, "win-x64", RunProcess.Dotnet, default) != windows,
+        "only the target platform implementation contributes to a component identity");
+    Check(ProgramDescription.ExecutableName("browser", "win-x64") == "orisumi-browser.exe" &&
+        ProgramDescription.ExecutableName("browser", "osx-arm64") == "orisumi-browser" &&
+        ReleaseVersion.AssetPrefix(new Version(5, 0, 0), "win-x64") == "orisumi-5.0.0-win-x64" &&
+        !Platforms.Runs("macos", "win-x64"), "artifact names and eligible sources use the requested RID");
+
     Write("Collectors/Browser/ignored", "ignored");
     Check(initial == await Id(), "ignored untracked input does not change the identity");
     Write("Collectors/Browser/Program.cs", "dirty browser");
@@ -127,7 +149,8 @@ async Task<string> Identity()
     Console.WriteLine("PASS: worktree identity, recursive MSBuild references, props, exclusions, clean tree and unchanged index");
     return source;
 
-    Task<string> Id() => ComponentIdentity.Read(source, "Collectors/Browser", browser, RunProcess.Dotnet, default);
+    Task<string> HostId() => ComponentIdentity.Read(source, "Host", Repository.CliProject, Platforms.CurrentRid, RunProcess.Dotnet, default);
+    Task<string> Id() => ComponentIdentity.Read(source, "Collectors/Browser", browser, Platforms.CurrentRid, RunProcess.Dotnet, default);
     Task<string> Git(params string[] args) => Repository.Query("git", source, default, args);
     void Write(string name, string content)
     {
@@ -135,6 +158,33 @@ async Task<string> Identity()
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, content);
     }
+}
+
+async Task RollbackChangedCollectors()
+{
+    var instance = Instance.Create(Under("transaction store"), "test_rollback");
+    var fixture = Prepare("transaction system");
+    var platform = new MacInstallation(instance, Locations(fixture), FixtureTools(fixture));
+    var jobs = new MemoryJobs();
+    var first = Package("transaction old", instance, null, ("claude", 'a', "old-claude"), ("codex", 'b', "old-codex"));
+    await InstallCommand.Run(instance, first, jobs, platform, TextWriter.Null, default);
+    foreach (var program in await CollectorPrograms.Read(instance.Store.Root, default, temp.FullName))
+        await jobs.Set(program.Description.Name, program.Job(instance.Store), default);
+
+    var previousManifest = File.ReadAllText(instance.Store.Manifest);
+    var previousJobs = jobs.Jobs.ToDictionary();
+    var previousPayloads = previousJobs.Keys.ToDictionary(name => name, name => ReleaseManifest.HashFiles(instance.Store.Collector(name)));
+    var upgrade = Package("transaction update", instance, null, ("claude", 'c', "new-claude"), ("codex", 'd', "new-codex"));
+    jobs.Changes.Clear();
+    jobs.Fail = "codex";
+    await ExpectAsync<IOException>(() => InstallCommand.Run(instance, upgrade, jobs, platform, TextWriter.Null, default), "codex");
+    Check(jobs.Changes.SequenceEqual(["set claude", "set codex", "restore codex", "restore claude"]),
+        "failure after changing the second registration restores both in reverse order");
+    Check(File.ReadAllText(instance.Store.Manifest) == previousManifest &&
+        previousJobs.All(item => jobs.Jobs[item.Key] == item.Value) &&
+        previousPayloads.All(item => ReleaseManifest.HashFiles(instance.Store.Collector(item.Key)).SequenceEqual(item.Value)),
+        "the previous manifest, payloads and job specifications agree after rollback");
+    Console.WriteLine("PASS: second collector failure restores both registrations and both installed payloads");
 }
 
 async Task Install()
@@ -159,7 +209,9 @@ async Task Install()
     Check(File.ReadAllText(Path.Combine(extension, "manifest.json")).Contains("(dev)") &&
         !File.Exists(Path.Combine(first, "collectors/browser/extension/config.json")), "install configures only the staged extension");
 
-    await CaptureStartup.Start(instance, locations, output, default);
+    await CaptureStartup.Start(instance, new MacCollectorJobs(instance, locations), output, default);
+    Check(output.ToString().Contains($"Started {instance.CaptureAgentLabel("browser")}") &&
+        output.ToString().Contains($"Started {instance.CaptureAgentLabel("codex")}"), "start prints the native registration names");
     await Launchd.StopAgent(Agent("codex"), locations, default);
     ClearEvents();
     var sentinel = Path.Combine(store.Collector("browser"), "keep");
@@ -224,35 +276,35 @@ async Task Install()
     await Apply(failedStart);
     Check(ReleaseManifest.Read(store.Manifest).Components["browser"].Identity == new string('6', 40), "rolled back release can be retried");
 
-    await CaptureStartup.Stop(instance, locations, output, default);
+    await CaptureStartup.Stop(instance, new MacCollectorJobs(instance, locations), output, default);
     ClearEvents();
     var stopped = Package("added while stopped", instance, null, ("macos", '4', "capture"));
     await Apply(stopped);
     Check(LaunchEvents().Length == 0 && !File.Exists(Agent("macos")) && File.Exists(gui + ".loaded"), "adding to a stopped instance leaves capture stopped");
 
     using var status = new StringWriter();
-    await CaptureStatus.Write(instance, locations, true, status, default);
+    await CaptureStatus.Write(instance, new MacCollectorJobs(instance, locations), true, status, default);
     using var json = JsonDocument.Parse(status.ToString());
     var installedSource = json.RootElement.GetProperty("source");
     Check(installedSource.GetProperty("branch").GetString() == "work" && installedSource.GetProperty("commit").GetString() == "0123456" &&
         !installedSource.GetProperty("clean").GetBoolean() && json.RootElement.GetProperty("host_version").GetString()!.EndsWith(new string('1', 40)),
         "status reports dev source and installed component versions");
     status.GetStringBuilder().Clear();
-    await CaptureStatus.Write(instance, locations, false, status, default);
+    await CaptureStatus.Write(instance, new MacCollectorJobs(instance, locations), false, status, default);
     Check(status.ToString().Contains("work 0123456 dirty"), "text status reports the dev source");
 
     var prod = Instance.Create(Under("temporary prod"), "prod");
     var prodRelease = Package("prod release", prod, "v5.0.0", ("host", '5', "unused"));
-    await InstallCommand.Run(prod, prodRelease, locations, output, default, FixtureTools(fixture));
+    await InstallCommand.Run(prod, prodRelease, new MacCollectorJobs(prod, locations), new MacInstallation(prod, locations, FixtureTools(fixture)), output, default);
     Check(new FileInfo(Path.Combine(locations.Commands, "orisumi")).LinkTarget == prod.Store.HostExecutable, "only prod installs the command link");
     status.GetStringBuilder().Clear();
-    await CaptureStatus.Write(prod, locations, true, status, default);
+    await CaptureStatus.Write(prod, new MacCollectorJobs(prod, locations), true, status, default);
     using var prodStatus = JsonDocument.Parse(status.ToString());
     Check(prodStatus.RootElement.GetProperty("version").GetString() == "v5.0.0", "status reports the release version");
 
     Console.WriteLine("PASS: manifest install, selective restarts, rollback, signature and hash refusals, status and prod command link");
 
-    Task Apply(string release) => InstallCommand.Run(instance, release, locations, output, default, FixtureTools(fixture));
+    Task Apply(string release) => InstallCommand.Run(instance, release, new MacCollectorJobs(instance, locations), new MacInstallation(instance, locations, FixtureTools(fixture)), output, default);
     string Agent(string name) => Launchd.CaptureAgentPlist(instance, locations, name);
     string[] LaunchEvents() => File.Exists(Path.Combine(fixture, "launch-events")) ? File.ReadAllLines(Path.Combine(fixture, "launch-events")) : [];
     void ClearEvents() => File.Delete(Path.Combine(fixture, "launch-events"));
@@ -350,7 +402,7 @@ async Task Deployment(string source)
         Environment.SetEnvironmentVariable("PATH", fixture + Path.PathSeparator + path);
         var dirty = Path.Combine(source, "Collectors/Browser/untracked.txt");
         File.AppendAllText(dirty, " working edit");
-        await Deploy.Run(source, root, ["browser"], dotnet, locations, output, default, host);
+        await Deploy.Run(source, root, ["browser"], Platforms.CurrentRid, dotnet, instance => new MacCollectorJobs(instance, locations), new MacHostBuilder(host), output, default);
         var instance = Instance.Open(root);
         var store = instance.Store;
         var manifest = ReleaseManifest.Read(store.Manifest);
@@ -381,7 +433,7 @@ async Task Deployment(string source)
         output.GetStringBuilder().Clear();
         await Repository.Query("git", source, default, ["update-ref", "--no-deref", "HEAD", manifest.Source.Commit]);
         File.AppendAllText(dirty, " another edit");
-        await Deploy.Run(source, root, [], dotnet, locations, output, default, host);
+        await Deploy.Run(source, root, [], Platforms.CurrentRid, dotnet, instance => new MacCollectorJobs(instance, locations), new MacHostBuilder(host), output, default);
         var updated = ReleaseManifest.Read(store.Manifest);
         Check(File.ReadAllLines(Path.Combine(fixture, "host-events")).Length == 1 &&
             !output.ToString().Contains("Chrome extension") && !output.ToString().Contains("host:") &&
@@ -394,10 +446,10 @@ async Task Deployment(string source)
         await Repository.Query("git", source, default, ["update-ref", "refs/heads/review", updated.Source.Commit]);
         // Seed stale source fields with the same installed component identities.
         (updated with { Source = updated.Source with { Commit = new string('0', 40), Clean = true } }).Write(store.Manifest);
-        await Deploy.Run(source, root, [], dotnet, locations, output, default, host);
+        await Deploy.Run(source, root, [], Platforms.CurrentRid, dotnet, instance => new MacCollectorJobs(instance, locations), new MacHostBuilder(host), output, default);
         var refreshed = ReleaseManifest.Read(store.Manifest);
         using var status = new StringWriter();
-        await CaptureStatus.Write(instance, locations, true, status, default);
+        await CaptureStatus.Write(instance, new MacCollectorJobs(instance, locations), true, status, default);
         using var statusJson = JsonDocument.Parse(status.ToString());
         var statusSource = statusJson.RootElement.GetProperty("source");
         Check(output.ToString().Contains("No component changed.") &&
@@ -412,7 +464,7 @@ async Task Deployment(string source)
         File.WriteAllText(Path.Combine(fixture, "fail-publish"), "");
         File.WriteAllText(Path.Combine(source, "Collectors", "Codex", "edit.txt"), "changes codex so it is rebuilt");
         await ExpectAsync<IOException>(
-            () => Deploy.Run(source, root, ["codex"], dotnet, locations, output, default, host), "exited with code 17");
+            () => Deploy.Run(source, root, ["codex"], Platforms.CurrentRid, dotnet, instance => new MacCollectorJobs(instance, locations), new MacHostBuilder(host), output, default), "exited with code 17");
         Check(File.ReadAllText(store.Manifest) == previous && File.ReadAllLines(Path.Combine(fixture, "host-events")).Length == 1 &&
             File.ReadAllLines(Path.Combine(fixture, "publishes")).All(publish => !Directory.Exists(publish)),
             "failed publish preserves the installed manifest and removes temporary release paths");
@@ -440,13 +492,15 @@ async Task Deployment(string source)
                 var fresh = HostBundle.Executable(ReleaseManifest.ComponentDirectory(release, "host"));
                 Check(executable == (File.Exists(fresh) ? fresh : Instance.Open(store).Store.HostExecutable),
                     "install runs from the fresh release host, or the installed one when the host is unchanged");
-                await InstallCommand.Run(Instance.Open(store), release, locations, writer!, token, FixtureTools(fixture, RunHost));
+                var target = Instance.Open(store);
+                await InstallCommand.Run(target, release, new MacCollectorJobs(target, locations),
+                    new MacInstallation(target, locations, FixtureTools(fixture, RunHost)), writer!, token);
                 return 0;
             case ["--store", var store, "capture", "start"]:
                 var instance = Instance.Open(store);
                 Check(executable == instance.Store.HostExecutable, "capture is started from the installed host");
                 File.AppendAllText(Path.Combine(fixture, "host-events"), "capture start\n");
-                await CaptureStartup.Start(instance, locations, writer!, token);
+                await CaptureStartup.Start(instance, new MacCollectorJobs(instance, locations), writer!, token);
                 return 0;
             case ["--store", var store, "capture", "status"]:
                 Check(executable == Instance.Open(store).Store.HostExecutable, "release reports the installed dev host's capture status");
@@ -585,7 +639,7 @@ async Task Release(string source, string fixture, string dotnet, Instance dev, H
     Check(ReadAssets("v5.12.3").Version == "5.12.3", "explicit prefixed version is normalized");
     Console.WriteLine("PASS: release version selection, all refusals, additive schema rules, package hashes and notes via fake git and gh");
 
-    Task Run(string? version) => ReleaseCommand.Run(source, version, dev.Store.Root, dotnet, output, default, host);
+    Task Run(string? version) => ReleaseCommand.Run(source, version, dev.Store.Root, Platforms.CurrentRid, dotnet, output, default, new MacHostBuilder(host));
     void Write(string name, string value) => File.WriteAllText(Path.Combine(remote, name), value);
     string[] Events() => File.Exists(Path.Combine(remote, "events")) ? File.ReadAllLines(Path.Combine(remote, "events")) : [];
 
@@ -669,13 +723,13 @@ async Task Update()
     await Assets("5.2.0", 'a', 'c');
     await Assets("5.10.0", 'd', 'c');
     using var output = new StringWriter();
-    await ExpectAsync<ArgumentException>(() => UpdateCommand.Run(dev, null, assets, locations, output, default, host, certificate), "prod");
+    await ExpectAsync<ArgumentException>(() => UpdateCommand.Run(dev, null, assets, new MacCollectorJobs(dev, locations), new MacInstallation(dev, locations, host, certificate), output, default), "prod");
     var archive = Asset("5.0.1", "tar.gz");
     File.Move(archive, archive + ".original");
     File.WriteAllText(archive, "tampered");
     await ExpectAsync<InvalidDataException>(() => Apply("5.0.1"), "安装包 SHA-256");
     File.Move(archive + ".original", archive, overwrite: true);
-    await ExpectAsync<InvalidDataException>(() => UpdateCommand.Run(prod, "5.0.1", assets, locations, output, default, host), "证书 SHA-256");
+    await ExpectAsync<InvalidDataException>(() => UpdateCommand.Run(prod, "5.0.1", assets, new MacCollectorJobs(prod, locations), new MacInstallation(prod, locations, host), output, default), "证书 SHA-256");
     Check(!File.Exists(store.Manifest) && !Directory.Exists(store.Backups) && !Directory.Exists(locations.Agents) &&
         !Directory.Exists(locations.Commands), "dev, hash and certificate refusals leave the installation unchanged");
 
@@ -684,7 +738,7 @@ async Task Update()
         Snapshot("pre-v5", "codex", databaseId) == "first" && Snapshot("pre-v5", "previous", legacyId) == "legacy",
         "pre-v5 backup includes WAL contents and older databases without an identity");
     Check(new FileInfo(Path.Combine(locations.Commands, "orisumi")).LinkTarget == store.HostExecutable, "update installs through Phase A");
-    await CaptureStartup.Start(prod, locations, output, default);
+    await CaptureStartup.Start(prod, new MacCollectorJobs(prod, locations), output, default);
     var launchLog = Path.Combine(fixture, "launch-events");
     var firstEvents = File.ReadAllLines(launchLog).Length;
 
@@ -726,7 +780,7 @@ async Task Update()
         "export only reads observations, excluding all backup databases");
     Console.WriteLine("PASS: local updates, up-to-date shortcut, hash and certificate refusals, backups, pruning, downgrade and export");
 
-    Task Apply(string? version) => UpdateCommand.Run(prod, version, assets, locations, output, default, host, certificate);
+    Task Apply(string? version) => UpdateCommand.Run(prod, version, assets, new MacCollectorJobs(prod, locations), new MacInstallation(prod, locations, host, certificate), output, default);
     string Asset(string version, string extension) => Path.Combine(assets, $"orisumi-{version}-osx-arm64.{extension}");
 
     async Task Assets(string version, char hostId, char collectorId)
@@ -769,10 +823,11 @@ async Task ForwardingAndReset()
     var store = Instance.Create(Under("reset dev"), "dev").Store;
     var prod = Instance.Create(Under("reset prod"), "prod").Store;
     Directory.CreateDirectory(prod.Logs);
-    await ExpectAsync<ArgumentException>(() => DevInstance.Reset(prod.Root, locations, default), "prod");
+    await ExpectAsync<ArgumentException>(() => DevInstance.Reset(prod.Root, instance => new MacCollectorJobs(instance, locations), default), "prod");
     Check(Directory.Exists(prod.Logs), "reset leaves a prod store intact");
 
-    var dev = Path.Combine(checkout, "Tools/Dev/bin/Debug/net11.0/orisumi-dev.dll");
+    var dev = (await Repository.Query(RunProcess.Dotnet, checkout, default,
+        ["msbuild", Repository.DevProject, "-nologo", "-p:Configuration=Debug", "-getProperty:TargetPath"])).Trim();
     var missing = await InvokeDev("capture", "status", "--store", store.Root);
     Check(missing.Code != 0 && missing.Error.Contains("orisumi-dev deploy"), "missing dev host gives deployment instructions");
     Directory.CreateDirectory(Path.GetDirectoryName(store.HostExecutable)!);
@@ -801,7 +856,7 @@ async Task ForwardingAndReset()
     Directory.CreateDirectory(locations.Agents);
     File.WriteAllText(agent, "");
     File.WriteAllText(agent + ".loaded", "");
-    await DevInstance.Reset(store.Root, locations, default);
+    await DevInstance.Reset(store.Root, instance => new MacCollectorJobs(instance, locations), default);
     Check(File.Exists(store.HostExecutable) && Instance.Open(store.Root).Name == "dev" && !File.Exists(agent) && !File.Exists(agent + ".loaded") &&
         new[] { store.ObservationsRoot, store.State, store.Logs }.All(directory => !Directory.Exists(directory)), "reset stops capture and clears only data");
     Console.WriteLine("PASS: forwarding to installed dev host, missing host guidance, prod refusal and dev reset");
@@ -825,7 +880,7 @@ string Package(string directory, Instance instance, string? release, params (str
         var identity = new string(id, 40);
         var version = $"{release ?? "dev"}+{identity}";
         var description = JsonSerializer.Serialize(new ProgramDescription(name, version, name == "host" ? null : [argument]));
-        var executable = name == "host" ? HostBundle.Executable(component) : Path.Combine(component, ProgramDescription.ExecutableName(name));
+        var executable = name == "host" ? HostBundle.Executable(component) : Path.Combine(component, ProgramDescription.ExecutableName(name, Platforms.CurrentRid));
         Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
         if (name == "host")
         {
@@ -847,7 +902,7 @@ string Package(string directory, Instance instance, string? release, params (str
         }
         components.Add(name, new(identity, version, ReleaseManifest.HashFiles(component)));
     }
-    new ReleaseManifest(release, instance.Name, ReleaseManifest.MacOSArm64,
+    new ReleaseManifest(release, instance.Name, Platforms.CurrentRid,
         new("0123456789abcdef0123456789abcdef01234567", checkout, "work", false), components)
         .Write(Path.Combine(path, ReleaseManifest.FileName));
     return path;
@@ -936,4 +991,34 @@ static async Task ExpectAsync<T>(Func<Task> action, string? message = null) wher
 static void Check(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
+}
+
+
+sealed class MemoryJobs : ICollectorJobs
+{
+    internal sealed record Registration(string Name, JobSpec? Spec)
+        : SavedJob(Name, Spec is not null, Spec is not null, Spec is null ? "not_loaded" : "waiting", null, null);
+
+    internal Dictionary<string, Registration> Jobs { get; } = new();
+    internal List<string> Changes { get; } = [];
+    internal string? Fail { get; set; }
+
+    public Task<IReadOnlyDictionary<string, SavedJob>> Inspect(IEnumerable<string> sources, CancellationToken token) =>
+        Task.FromResult<IReadOnlyDictionary<string, SavedJob>>(sources.Union(Jobs.Keys)
+            .ToDictionary(name => name, name => (SavedJob)(Jobs.GetValueOrDefault(name) ?? new Registration(name, null))));
+
+    public Task<string> Set(string source, JobSpec? desired, CancellationToken token)
+    {
+        Changes.Add("set " + source);
+        Jobs[source] = new Registration(source, desired);
+        if (source == Fail) throw new IOException(source);
+        return Task.FromResult(source);
+    }
+
+    public Task Restore(SavedJob previous, CancellationToken token)
+    {
+        Changes.Add("restore " + previous.Source);
+        Jobs[previous.Source] = (Registration)previous;
+        return Task.CompletedTask;
+    }
 }

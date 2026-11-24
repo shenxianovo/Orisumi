@@ -181,7 +181,10 @@ try
     var relativeOutput = Path.Combine("fixture-output", "custom-config", "custom-framework");
     var hostOutput = Path.Combine(project, relativeOutput);
     CopyOutput(hostBuild, hostOutput);
-    CopyOutput(Path.Combine(collector, "bin/Debug/net11.0"), Path.Combine(collector, relativeOutput));
+    var collectorOutput = await Run("dotnet", collector, ["msbuild", "Orisumi.Collectors.Fixture.csproj",
+        "-nologo", "-p:Configuration=Debug", "-getProperty:TargetDir"]);
+    Check(collectorOutput.Code == 0, collectorOutput.Error);
+    CopyOutput(collectorOutput.Output.Trim(), Path.Combine(collector, relativeOutput));
     var host = Path.Combine(hostOutput, "orisumi");
     var store = Path.Combine(temp.FullName, "custom store ' 引号");
     Directory.CreateDirectory(store);

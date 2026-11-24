@@ -16,6 +16,8 @@ internal static class DirectoryPaths
     internal static bool Contains(string parent, string path)
     {
         var relative = Path.GetRelativePath(parent, path);
-        return !Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith("../", StringComparison.Ordinal);
+        return !Path.IsPathRooted(relative) && relative != ".." &&
+            !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) &&
+            !relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
     }
 }

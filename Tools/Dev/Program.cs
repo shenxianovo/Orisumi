@@ -9,8 +9,9 @@ try
 
     var root = new RootCommand("Orisumi · 开发与部署")
     {
-        DevCommand.Create(), Deploy.Create(), ReleaseCommand.Create(), DevInstance.ResetCommand(), CheckCommand.Create(),
+        DevCommand.Create(), CheckCommand.Create(),
     };
+    DevPlatform.AddCommands(root);
     root.HelpName = "orisumi-dev";
 
     var command = args.Length > 0 ? args[0] : null;

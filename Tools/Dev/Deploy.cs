@@ -1,24 +1,24 @@
 using System.CommandLine;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 namespace Orisumi.Dev;
 
 internal static class Deploy
 {
-    internal static Command Create()
+    internal static Command Create(string rid, Func<Instance, ICollectorJobs> jobs, IHostBuilder host)
     {
         var store = DevInstance.StoreOption();
         var components = new Argument<string[]>("component") { Arity = ArgumentArity.ZeroOrMore };
         var deploy = new Command("deploy", "构建工作树，安装到开发实例并启动采集。") { store, components };
-        deploy.SetAction((result, token) => Run(Repository.Require(), result.GetRequiredValue(store),
-            result.GetRequiredValue(components), RunProcess.Dotnet, SystemLocations.Current, Console.Out, token));
+        deploy.SetAction((result, token) => Run(Repository.Require(), result.GetRequiredValue(store), result.GetRequiredValue(components),
+            rid, RunProcess.Dotnet, jobs, host, Console.Out, token));
         return deploy;
     }
 
-    internal static async Task Run(string checkout, string root, string[] components, string dotnet, SystemLocations locations,
-        TextWriter output, CancellationToken token, HostBundle.Tools? host = null)
+    internal static async Task Run(string checkout, string root, string[] components, string rid, string dotnet,
+        Func<Instance, ICollectorJobs> jobs, IHostBuilder host, TextWriter output, CancellationToken token)
     {
-        host ??= HostBundle.Tools.Current;
         var instance = DevInstance.Open(root, create: true);
         var store = instance.Store;
         var temporary = Directory.CreateTempSubdirectory("orisumi-deploy-");
@@ -26,11 +26,11 @@ internal static class Deploy
         {
             // Only components that differ from what the dev instance runs are built; the rest stay as installed.
             var installed = ReleaseManifest.ReadInstalled(store);
-            var release = await ReleaseBuild.Build(checkout, temporary.FullName, instance.Name, null, components, dotnet, token, host, installed);
+            var release = await ReleaseBuild.Build(checkout, temporary.FullName, instance.Name, null, components, rid, dotnet, token, host, installed);
             if (release.Components.Count > 0)
             {
                 var newBrowser = release.Components.ContainsKey("browser") && installed?.Components.ContainsKey("browser") != true;
-                var built = HostBundle.Executable(ReleaseManifest.ComponentDirectory(temporary.FullName, "host"));
+                var built = Store.HostExecutableIn(ReleaseManifest.ComponentDirectory(temporary.FullName, "host"));
                 await RunHost(File.Exists(built) ? built : store.HostExecutable, "install", temporary.FullName);
                 if (newBrowser) ChromeExtension.PrintLocation(instance, output);
             }
@@ -52,7 +52,7 @@ internal static class Deploy
                 }
                 output.WriteLine("No component changed.");
             }
-            if ((await Launchd.LoadedCaptureAgents(instance, locations, token)).Count == 0)
+            if (!(await jobs(instance).Inspect([], token)).Values.Any(job => job.Supervised))
                 await RunHost(store.HostExecutable, "capture", "start");
         }
         finally { temporary.Delete(recursive: true); }

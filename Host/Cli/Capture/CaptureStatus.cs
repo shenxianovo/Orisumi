@@ -1,4 +1,4 @@
-using System.Globalization;
+using Orisumi.Desktop;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -15,7 +15,7 @@ internal static partial class CaptureStatus
     private const int RecentRunLimit = 5;
     private const int RecentFailureLimit = 10;
 
-    internal static async Task Write(Instance instance, SystemLocations locations, bool json, TextWriter output,
+    internal static async Task Write(Instance instance, ICollectorJobs jobs, bool json, TextWriter output,
         CancellationToken token, string? baseDirectory = null)
     {
         var store = instance.Store;
@@ -23,22 +23,19 @@ internal static partial class CaptureStatus
         var versions = manifest is null
             ? (await CollectorPrograms.Read(store.Root, token, baseDirectory)).ToDictionary(
                 program => program.Description.Name, program => program.Description.Version, StringComparer.Ordinal)
-            : manifest.Components.Where(item => item.Key != "host").ToDictionary(
+            : manifest.Components.Where(item => item.Key != "host" && Platforms.Runs(item.Key, Platforms.CurrentRid)).ToDictionary(
                 item => item.Key, item => item.Value.Version, StringComparer.Ordinal);
-        var prefix = instance.CaptureAgentPrefix;
-        var names = versions.Keys.Union(Launchd.CaptureAgentPlists(instance, locations)
-            .Select(path => Path.GetFileNameWithoutExtension(path)[prefix.Length..]), StringComparer.Ordinal)
-            .Union(store.Sources(), StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        var snapshot = await jobs.Inspect(versions.Keys.Concat(store.Sources()), token);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var host = HostIdentity.Read();
         var collectors = new List<CollectorStatus>();
-        foreach (var name in names)
+        foreach (var (name, job) in snapshot.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            var agent = await ReadAgent(locations, instance.CaptureAgentLabel(name), token);
+            var agent = new AgentStatus(job.State, job.Pid, job.LastExitCode);
             var (runs, failures, recentFailures) = ReadHistory(store.Databases(name), host, now - 3_600_000);
             var run = runs.FirstOrDefault() is { } latest ? latest with { Database = null } : null;
             var version = versions.GetValueOrDefault(name);
-            var (health, problems) = Assess(version, agent, run, now);
+            var (health, problems) = Assess(version, job, run, now);
             collectors.Add(new(name, version, agent, run, failures, health, problems, runs, recentFailures));
         }
 
@@ -55,36 +52,19 @@ internal static partial class CaptureStatus
     }
 
     // Read failures are evidence, not health: short AX timeouts happen every hour (see capture/index.mdx).
-    private static (string Health, List<string> Problems) Assess(string? version, AgentStatus agent, RunStatus? run, long now)
+    private static (string Health, List<string> Problems) Assess(string? version, SavedJob job, RunStatus? run, long now)
     {
         var problems = new List<string>();
-        var stopped = version is not null && agent.State == "not_loaded";
+        var stopped = version is not null && !job.Supervised;
         if (version is null) problems.Add("not_installed");
         if (stopped) problems.Add("not_loaded");
-        if (agent.State is not ("not_loaded" or "running")) problems.Add("not_running");
+        if (job.Supervised && job.State != "running") problems.Add("not_running");
         if (run?.StopReason == "failed") problems.Add("run_failed");
         if (run is { StoppedAtUtcMs: null } &&
             Math.Max(run.ConfirmedUntilUtcMs ?? run.StartedAtUtcMs, run.StartedAtUtcMs) < now - 300_000)
             problems.Add("stale");
 
         return (stopped ? Stopped : problems.Count > 0 ? Attention : Ok, problems);
-    }
-
-    private static async Task<AgentStatus> ReadAgent(SystemLocations locations, string label, CancellationToken token)
-    {
-        var service = Launchd.Service(label);
-        var output = await Launchd.Print(locations, service, token);
-        if (output is null) return new("not_loaded", null, null);
-        var state = Launchd.Field(output, "state") ?? throw new InvalidDataException($"launchctl print {service}: missing state");
-        if (state == "running") return new(state, Launchd.Pid(output), null);
-        var exit = Launchd.Field(output, "last exit code");
-        var lastExitCode = exit switch
-        {
-            null or "(never exited)" => null,
-            _ when long.TryParse(exit, CultureInfo.InvariantCulture, out var code) => JsonValue.Create(code),
-            _ => JsonValue.Create(exit),
-        };
-        return new(state, null, lastExitCode);
     }
 
     private static (RunStatus[] Runs, long Failures, ReadFailure[] RecentFailures) ReadHistory(IReadOnlyList<string> paths, HostIdentity host, long after)

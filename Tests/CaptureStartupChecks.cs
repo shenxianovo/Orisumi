@@ -9,7 +9,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Xml.Linq;
 using Orisumi.Cli;
-using Orisumi.Cli.Capture;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 [assembly: SupportedOSPlatform("macos")]
@@ -74,7 +74,7 @@ async Task ConfigurationChecks()
             var (name, _, command) = program.Description;
             var label = instance.CaptureAgentLabel(name);
             var path = Path.Combine(temp.FullName, name + ".plist");
-            CaptureStartup.LaunchAgent(instance, label, program.Command(store.Root, command!), name).Save(path);
+            MacCollectorJobs.LaunchAgent(instance, name, program.Job(store)).Save(path);
             var lint = await Process.RunAndCaptureTextAsync("/usr/bin/plutil", ["-lint", path], CancellationToken.None);
             Check(lint.ExitStatus.ExitCode == 0, lint.StandardError);
             var elements = XDocument.Load(path).Root!.Element("dict")!.Elements().ToArray();

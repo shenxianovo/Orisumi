@@ -29,7 +29,7 @@ internal static class DayCommand
             using var database = new DayDatabase(path, day);
             var identity = database.Host();
             var id = Path.GetFileNameWithoutExtension(path);
-            var key = identity is { Platform: { } platform, HardwareUuid: { } hardware } ? $"{platform}:{hardware}" : $"db:{id}";
+            var key = identity.DeviceKey(id);
             if (!devices.TryGetValue(key, out var device))
                 devices.Add(key, device = new(key, identity.IsThisHost(host)));
 

@@ -12,7 +12,6 @@ internal sealed record ReleaseManifest(
     [property: JsonRequired] Dictionary<string, ReleaseComponent> Components)
 {
     internal const string FileName = "manifest.json";
-    internal const string MacOSArm64 = "osx-arm64";
 
     public Dictionary<string, SchemaTable[]> Schema { get; init; } = new(StringComparer.Ordinal);
 
@@ -40,19 +39,20 @@ internal sealed record ReleaseManifest(
         File.WriteAllText(path, JsonSerializer.Serialize(this, ReleaseJson.Default.ReleaseManifest) + "\n");
 
     internal bool HasSameComponents(ReleaseManifest? other) =>
-        other is not null && Components.Count == other.Components.Count &&
+        other is not null && Platform == other.Platform && Components.Count == other.Components.Count &&
         Components.All(item => other.Components.GetValueOrDefault(item.Key)?.Identity == item.Value.Identity);
 
-    internal void VerifyFor(Instance instance)
+    internal void VerifyFor(Instance instance, string rid)
     {
-        if (Platform != MacOSArm64) throw new InvalidDataException($"不支持的发布平台：{Platform}");
+        if (Platform != rid) throw new InvalidDataException($"不支持的发布平台：{Platform}");
         if (Instance != instance.Name) throw new InvalidDataException($"发布实例为 {Instance}，目标实例为 {instance.Name}。");
         if (Version is { Length: 0 } || Source is null || !IsTreeId(Source.Commit) ||
             Source.Checkout is null || !Path.IsPathFullyQualified(Source.Checkout) ||
             Source.Branch is { Length: 0 } || Components is not { Count: > 0 } || Schema is null)
             throw new InvalidDataException("发布清单缺少有效的版本、来源或组件。");
         foreach (var (name, component) in Components)
-            if (!Orisumi.Platform.Instance.IsName(name) || component is null || !IsTreeId(component.Identity) ||
+            if (!Orisumi.Platform.Instance.IsName(name) || !Platforms.Runs(name, rid) ||
+                component is null || !IsTreeId(component.Identity) ||
                 component.Version != $"{Version ?? "dev"}+{component.Identity}" || component.Files is not { Count: > 0 })
                 throw new InvalidDataException($"发布清单的组件无效：{name}");
     }

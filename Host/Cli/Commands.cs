@@ -4,15 +4,19 @@ using Orisumi.Platform;
 
 namespace Orisumi.Cli;
 
-internal static class Commands
+internal static partial class Commands
 {
     internal static string HostVersion { get; } =
         typeof(Commands).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
 
-    internal static RootCommand Create(SystemLocations? locations = null, TextWriter? output = null, string? baseDirectory = null)
+    private static partial DesktopServices? CurrentDesktop();
+    internal static partial Task<int?> Forward(RootCommand root, string[] arguments);
+
+    internal static RootCommand Create(TextWriter? output = null, string? baseDirectory = null) =>
+        Create(CurrentDesktop(), output ?? Console.Out, baseDirectory);
+
+    internal static RootCommand Create(DesktopServices? desktop, TextWriter output, string? baseDirectory = null)
     {
-        locations ??= SystemLocations.Current;
-        output ??= Console.Out;
         var store = new Option<string?>("--store")
         {
             Description = "采集存储目录，默认使用程序所属的实例。",
@@ -21,7 +25,7 @@ internal static class Commands
         var root = new RootCommand("Orisumi · 采集与查询") { store };
         root.HelpName = "orisumi";
 
-        root.Add(Capture.CaptureCommand.Create(store, locations, output, baseDirectory));
+        root.Add(Capture.CaptureCommand.Create(store, desktop, output, baseDirectory));
         root.Add(Day.DayCommand.Create(store, output));
 
         var destination = new Argument<string>("destination") { Description = "观测库快照的目标目录。" };
@@ -33,12 +37,18 @@ internal static class Commands
         describe.SetAction(_ => new ProgramDescription("host", HostVersion).Write(output));
         root.Add(describe);
 
+        if (desktop is null) return root;
+
         var release = new Argument<string>("release-dir");
         var install = new Command("install", "将发布目录安装到实例。") { release };
-        install.SetAction((result, token) => InstallCommand.Run(Instance.Open(result.GetValue(store) ?? Instance.DefaultRoot()),
-            result.GetRequiredValue(release), locations, output, token));
+        install.SetAction((result, token) =>
+        {
+            var instance = Instance.Open(result.GetValue(store) ?? Instance.DefaultRoot());
+            return InstallCommand.Run(instance, result.GetRequiredValue(release), desktop.Jobs(instance),
+                desktop.Installation(instance), output, token);
+        });
         root.Add(install);
-        root.Add(UpdateCommand.Create(store, locations, output, baseDirectory));
+        root.Add(UpdateCommand.Create(store, desktop, output, baseDirectory));
         return root;
     }
 }

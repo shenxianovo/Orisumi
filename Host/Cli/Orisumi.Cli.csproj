@@ -7,13 +7,12 @@
     <IsAotCompatible>true</IsAotCompatible>
     <PublishAot Condition="'$(_IsPublishing)' == 'true'">true</PublishAot>
     <StripSymbols Condition="'$(PublishAot)' == 'true'">false</StripSymbols>
-    <RuntimeIdentifiers>osx-arm64</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../Shared/Platform/Orisumi.Platform.csproj" />
+    <ProjectReference Include="../../Shared/Desktop/Orisumi.Desktop.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -21,7 +21,7 @@ internal static class SetupCommand
         var extension = Path.Combine(root, DevCommand.ExtensionDirectory);
         List<(string Executable, string Directory, string[] Arguments)> steps =
         [
-            ("dotnet", root, ["build", "Orisumi.slnx"]),
+            .. DevPlatform.BuildTargets(root).Select(target => ("dotnet", root, new[] { "build", target })),
             ("npm", docs, ["ci"]),
             ("npm", extension, ["ci"]),
             ("dotnet", root, ["pack", "Tools/Dev", "--configuration", "Release", "--output", "bin/packages"]),
@@ -44,10 +44,7 @@ internal static class SetupCommand
     private static async Task CheckPrerequisites(string root, CancellationToken token)
     {
         var missing = new List<string>();
-        // Command Line Tools lack SwiftUI's macro plugins, so the GUI only builds with Xcode selected.
-        var developer = await Output("xcode-select", token, "-p");
-        if (developer is null || !developer.Trim().EndsWith(".app/Contents/Developer", StringComparison.Ordinal))
-            missing.Add($"Xcode：安装后运行 sudo xcode-select -s /Applications/Xcode.app（当前 {developer?.Trim() ?? "未安装"}）。");
+        await DevPlatform.CheckPrerequisites(missing, token);
 
         var required = RequiredNode(root);
         var node = await Output("node", token, "--version");
@@ -57,8 +54,7 @@ internal static class SetupCommand
         var home = Environment.GetEnvironmentVariable("DOTNET_CLI_HOME") ??
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var tools = Path.Combine(home, ".dotnet", "tools");
-        var path = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator);
-        if (!path.Any(entry => entry.Length > 0 && Path.TrimEndingDirectorySeparator(entry) == tools))
+        if (!DevPlatform.HasToolsPath(tools))
             missing.Add($"PATH 中缺少全局工具目录 {tools}。");
 
         if (missing.Count > 0)
@@ -85,7 +81,7 @@ internal static class SetupCommand
             : throw new InvalidDataException($"无法识别文档站 engines.node：{range}。");
     }
 
-    private static async Task<string?> Output(string executable, CancellationToken token, params string[] arguments)
+    internal static async Task<string?> Output(string executable, CancellationToken token, params string[] arguments)
     {
         try
         {

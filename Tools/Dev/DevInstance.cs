@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 namespace Orisumi.Dev;
@@ -46,20 +47,20 @@ internal static class DevInstance
         catch (FileNotFoundException) { throw MissingHost(); }
     }
 
-    internal static Command ResetCommand()
+    internal static Command ResetCommand(Func<Instance, ICollectorJobs> jobs)
     {
         var store = StoreOption();
         var command = new Command("reset", "停止开发采集并删除观测、运行状态和日志。") { store };
-        command.SetAction((result, token) => Reset(result.GetRequiredValue(store), SystemLocations.Current, token));
+        command.SetAction((result, token) => Reset(result.GetRequiredValue(store), jobs, token));
         return command;
     }
 
-    internal static async Task Reset(string root, SystemLocations locations, CancellationToken token)
+    internal static async Task Reset(string root, Func<Instance, ICollectorJobs> jobs, CancellationToken token)
     {
         var instance = Open(root);
         var store = instance.Store;
         using var guard = Store.WaitLock(store.AppLock);
-        await Launchd.StopCapture(instance, locations, token);
+        await jobs(instance).StopAll(token);
         foreach (var directory in new[] { store.ObservationsRoot, store.State, store.Logs })
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
     }
