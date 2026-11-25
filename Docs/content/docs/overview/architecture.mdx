@@ -3,7 +3,7 @@ title: 架构
 description: 采集进程、数据怎么流进库，以及各来源共享什么。
 ---
 
-每个来源由自己的程序 `orisumi-<来源>` 采集、自己决定记什么，写进自己的 SQLite 库。宿主 `orisumi` 不引用任何采集器：它按各采集器 `describe` 给出的参数把它们装成 LaunchAgent，把 `orisumi <来源> …` 转给对应程序，并直接读各库做覆盖查询、导出和[派生读出](../query/index.mdx)；约定见[新增采集器](../capture/index.mdx#新增采集器)。各来源共享的只有“怎么安全地写”：单写入、运行记录、事务和进度，由共享项目 `Shared/Capture` 的 `CaptureWriter` 负责。写库只在 C# 里做；状态放在能可靠持有它的一方，见下文[各来源怎么走](#各来源怎么走)。
+每个来源由自己的程序 `orisumi-<来源>` 决定采集哪些事实，写进自己的 SQLite 库。各来源都用 C# 写库，`Shared/Capture` 的 `CaptureWriter` 负责单写入、运行记录、事务和进度。宿主 `orisumi` 通过 `describe` 发现采集器，直接读库做覆盖查询、导出和[派生读出](../query/index.mdx)。接口约定见[新增采集器](../capture/index.mdx#新增采集器)，桌面托管的分工见[平台](../development/release.mdx#平台)。
 
 ```mermaid
 flowchart LR
@@ -42,7 +42,7 @@ flowchart LR
 | `orisumi-browser capture` | 一条扩展连接，每个 Chrome 配置一条 | 通知加定时快照；历史回放 |
 | `orisumi-macos foreground` 与 Swift 助手 | 进程生命期 | 通知加读现值 |
 
-四个采集器都由 `capture start` 装成 LaunchAgent，经签名的 `Orisumi.app` 拉起以获得系统权限，见[安装与启停](../development/release.mdx#安装与启停)。同一个 app 的主程序是 GUI，它只调用 CLI，见 [GUI](../development/release.mdx#gui)。
+在 macOS 上，`capture start` 把四个采集器装成 LaunchAgent，`orisumi <来源> …` 把命令转给对应程序。GUI 也通过 CLI 查询和启停采集。见[安装与启停](../development/release.mdx#安装与启停)和 [GUI](../development/release.mdx#gui)。
 
 ## 一轮写入
 

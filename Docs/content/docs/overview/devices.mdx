@@ -12,8 +12,8 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 | 概念 | 怎么来 | 状态 |
 | --- | --- | --- |
 | 库实例 | `database_identity.database_id`，建库时生成，即库文件名 | 已实现，见[存储](./storage.mdx) |
-| 建库主机 | `database_identity` 的 `platform` 和原始硬件标识，建库时随库写入，副本拷到哪里都带着 | macOS 已实现 |
-| 主机观测 | `host_observations`，每次运行开始时读主机名、系统版本、系统用户等会变的值 | macOS 已实现 |
+| 建库主机 | `database_identity` 的平台和原始主机标识随库保留 | macOS 已验证，Windows 待真机验证 |
+| 主机观测 | 每次运行开始时，通过 `host_observations` 记录主机、系统和用户的变化 | 字段按[数据库结构](../capture/index.mdx#数据库结构)记录 |
 | 设备 | 主机键加 `rules/devices.json` 里的合并和命名 | 未实现，做法见下 |
 | 来源实例 | 浏览器扩展安装（`profile_id`）、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 等 | 已由各来源记录；浏览器是哪个 Chrome 配置在派生层判断 |
 
@@ -21,13 +21,21 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 - 一台机器上两个存储目录：两个库实例，硬件 UUID 相同，读出同一台设备。
 - 重装系统：硬件 UUID 不变，仍是同一台；换主板后加一条人工合并。
 
-各平台标识的稳定程度不同：macOS 的 `IOPlatformUUID` 重装不变；Windows 的 `MachineGuid` 重装会变，SMBIOS UUID 不变，但有些主板出厂写的是多台共用的占位值；Android 应用拿不到硬件标识，`ANDROID_ID` 随签名密钥和恢复出厂设置变化。所以按平台记原始值，不假定有通用的稳定 ID；新平台在 `HostIdentity`、`database_identity.platform` 和 `host_observations.platform` 加值，并补上自己的标识列（Windows 两个都记）。
+macOS 的 `IOPlatformUUID` 和 Windows 的 SMBIOS UUID 来自硬件，Windows 的 `MachineGuid` 属于一次系统安装，重装后可能改变。库里保留读到的原始值，包括固件返回的占位 UUID。Android 计划使用 `ANDROID_ID`，它会随签名密钥或恢复出厂设置而改变。
 
 ### 读出设备
 
 主机键已由[查询](../query/index.mdx#设备)读出；`rules/devices.json` 未实现。
 
-- 主机键由建库主机算出，规则只在读的地方维护：macOS `macos:<IOPlatformUUID>`，Windows `windows:<SMBIOS UUID>`（占位值改用 `MachineGuid`），Android `android:<ANDROID_ID>`；读不到硬件标识时用 `db:<database_id>`，让该库自成一台，等人工归类。不按主机名猜。
+| 建库时的标识 | 查询时的设备键 |
+| --- | --- |
+| macOS 硬件 UUID | `macos:<IOPlatformUUID>` |
+| Windows 有效的 SMBIOS UUID | `windows:<SMBIOS UUID>` |
+| Windows SMBIOS UUID 缺失、全 0 或全 F，有 `MachineGuid` | `windows:machine-guid:<MachineGuid>` |
+| 缺少可用标识 | `db:<database_id>`，该库单独成组 |
+
+Windows 设备键中的 GUID 统一转成大写。Android 计划使用 `android:<ANDROID_ID>`。
+
 - `rules/devices.json` 把多个主机键归到一台设备并命名。未归类的主机键各自是一台；设备 ID 用规则里的 ID，否则用主机键；显示名用规则里的名字，否则用最近的主机名。
 - 系统用户不算进设备：同一台 Mac 上的两个账号是同一台设备、不同用户。
 - 机器转手需要给规则加生效区间，暂不做。
@@ -45,7 +53,7 @@ Orisumi 要在 macOS、Windows、Android 等多台设备上采集，再合到一
 - 每台设备用自己的时钟记 UTC 毫秒，含义见[时间分两种](../capture/index.mdx#时间分两种)。采集时不做跨设备校正。
 - 时区不逐行记。每台设备记时区的初值和变化，其他来源按同一设备、同一时刻对照。
 - 启动 ID 随主机观测每次运行记一次，不逐行记。
-- 每台设备记时钟事件：墙钟和单调时钟一起读的初值，以及时钟被调整后的变化。macOS 见 [macOS](../capture/sources/macos.mdx#屏幕会话和时间)；Windows 用 `WM_TIMECHANGE`，Android 用 `ACTION_TIME_CHANGED`。
+- macOS 已记录墙钟和单调时钟的初值，以及时钟调整后的变化，见[屏幕、会话和时间](../capture/sources/macos.mdx#屏幕会话和时间)。Windows 的 `WM_TIMECHANGE` 和 Android 的 `ACTION_TIME_CHANGED` 属于后续采集计划。
 - 时钟偏差作为观测另记，未实现。校正只在派生层做：`corrected_at` 为原始时间加该设备当时的偏差，偏差未知时按 0；原始时间不改。
 
 ## 查询与可视化

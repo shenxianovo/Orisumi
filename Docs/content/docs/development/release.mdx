@@ -17,7 +17,7 @@ flowchart TD
 
 ## 实例
 
-实例是带 `instance.json`（如 `{"name":"prod"}`）的存储目录，数据、运行状态和装好的程序都在里面，结构见[存储](../overview/storage.mdx#目录)。每台机器两个：
+实例是带 `instance.json`（如 `{"name":"prod"}`）的存储目录，数据、运行状态和装好的程序都在里面，结构见[存储](../overview/storage.mdx#目录)。macOS 上的两个实例约定如下。
 
 | | 生产 | 开发 |
 | --- | --- | --- |
@@ -32,11 +32,23 @@ flowchart TD
 - LaunchAgent 是采集器 `dev.orisumi.<名字>.capture.<来源>` 和 GUI `dev.orisumi.<名字>.app`。测试用的其他名字，端口取 47900 加名字的 FNV-1a 哈希模 100，不建命令链接。
 - 程序没给 `--store` 时，从自己所在目录往上找 `instance.json`，找不到就报错。不回落到生产目录，也不读环境变量：LaunchAgent 拉起的进程不继承环境变量。
 
+## 平台
+
+| | macOS | Windows |
+| --- | --- | --- |
+| 构建目标 | `osx-arm64`，已在开发实例验证 NativeAOT | `win-x64`，已通过托管编译，待真机验证 |
+| 宿主命令 | 查询、采集管理、采集器命令转发、安装与更新 | `day`、`capture coverage`、`export`、`describe` |
+| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 系统采集器、托管和发布均待实现 |
+
+根目录的 `Directory.Build.props` 按目标运行时标识（RID）选择源文件。例如 `dotnet build Host/Cli -r win-x64` 编入各项目的 `Platforms/Windows/`，而 `-r osx-arm64` 编入 `Platforms/MacOS/`。省略 `-r` 时取本机 SDK 的 RID。CA1416 按目标平台检查 API，用错平台会构建失败。
+
+主机标识和存储路径在 `Shared/Platform`，打开文件的身份在 `Shared/Capture`。安装、启停和部署通过 `Shared/Desktop` 的 `ICollectorJobs` 查询和修改托管状态，只有 macOS 实现读写 plist、调用 launchd。`Shared/Platform/Platforms.cs` 决定哪些采集器属于构建目标：`macos`、`windows` 只属于同名平台，其余来源两边都编译。查询其他设备的库不受这条规则限制。
+
 ## 组件与版本
 
 组件是宿主（`Orisumi.app`，含 CLI 和 GUI）和 `Collectors/` 下的每个目录，不用登记。组件的标识是它输入文件的 git tree 哈希：
 
-- 输入是组件目录（宿主是 `Host/`）、MSBuild 求值得到的递归项目引用所在目录、路径上的各级 `Directory.Build.props`；其中名为 `Tests`、`test` 的目录不算。
+- 输入包括组件目录（宿主是 `Host/`）、按目标 RID 求得的递归项目引用目录，以及路径上的各级 `Directory.Build.props` 和 `Directory.Build.targets`。计算时排除 `Tests/`、`test/` 和另一平台的实现目录。只有宿主组件引用 `Shared/Desktop`，因此单改 launchd 托管代码只会改变宿主标识。
 - 用临时 index 对输入 `git add -A` 再 `git write-tree` 得出：包括未提交和未跟踪的文件，不碰暂存区，不建提交。同样的内容提交后标识不变，开发时验证的就是之后发布的那份。工具链不计入。
 - 程序版本是 `dev+<标识>` 或 `<发布版本>+<标识>`，即 `describe` 和运行记录里的 `collector_version`。组件没变就不重装，版本可以停在更早的发布。
 
@@ -48,7 +60,7 @@ flowchart TD
 orisumi-dev deploy [组件…]
 ```
 
-构建工作树，装进开发实例；没有采集器在运行就 `capture start`。不要求提交。先算各组件标识，和开发实例装着的相同就不构建；都没变时只记下当前来源。实测：没有改动约 8 秒，改一个采集器约 20 秒，全部构建约 100 秒。两个检出先后部署，后者覆盖前者：开发实例只验证一份代码。
+构建工作树，装进开发实例。部署结束时，若 launchd 没有加载该实例的任何采集任务，就执行 `capture start`。不要求提交。先算各组件标识，和开发实例装着的相同就不构建；都没变时只记下当前来源。实测：没有改动约 8 秒，改一个采集器约 20 秒，全部构建约 100 秒。两个检出先后部署，后者覆盖前者：开发实例只验证一份代码。
 
 `orisumi-dev reset` 停掉开发采集，删掉它的 `observations/`、`state/`、`logs/`，保留装好的程序；只接受开发实例。
 
@@ -84,7 +96,15 @@ v5/host/Orisumi.app/Contents/MacOS/orisumi --store ~/Library/Application\ Suppor
 
 ## 安装与启停
 
-`orisumi install <发布目录>` 先核对清单（平台、目标实例、文件 SHA-256、宿主签名和 bundle ID），已装的状态记在 `app/manifest.json`。只替换标识变了的组件：先放进临时目录再原子换入，失败就换回。变了的采集器若在运行就按新的 `describe` 参数重启；新加的采集器在实例有采集运行时启动；宿主变了只重启 GUI，采集器的 `launch` 代理运行到各自下次重启。实例相关的内容只在这一步写入：生产的命令链接，GUI 的 LaunchAgent（登录时以菜单栏启动，退出后不重启），浏览器扩展的 `config.json`（实例名和端口）和扩展名后缀 `(<名字>)`。
+`orisumi install <发布目录>` 先核对清单（平台、目标实例、文件 SHA-256、宿主签名和 bundle ID），再把标识变了的组件从临时目录原子换入。启动范围取决于安装前 launchd 已加载哪些任务。
+
+| 变动 | 安装后的行为 |
+| --- | --- |
+| 只更新宿主 | 启动或重启 GUI，各采集器及其 `launch` 代理继续运行 |
+| 更新已有采集器 | 原先已加载的按新 `describe` 参数重启，已停用的保持停止 |
+| 新增采集器 | 实例原先有任一采集任务已加载时启动 |
+
+组件和启动配置全部应用成功后才替换 `app/manifest.json`。中途失败会换回旧组件，恢复已动过的启动配置和加载状态。安装也会写入生产命令链接、GUI 的登录项，以及浏览器扩展的 `config.json`（实例名和端口）和扩展名后缀 `(<名字>)`。
 
 `capture start` 用各采集器 `describe` 给出的参数，把它们装成 LaunchAgent 并启动；已在运行的先停掉。`capture` 命令只管采集器，不动 GUI。所有 LaunchAgent 都标明属于实例的 bundle ID，系统设置的「登录项」里列在对应 app 下。它们在登录时启动，退出后 10 秒重启。`capture stop` 停掉并删除它们，每次运行以 `completed` 结束。日志在 `logs/<来源>.{out,err}.log`。
 

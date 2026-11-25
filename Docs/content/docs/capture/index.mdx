@@ -120,14 +120,16 @@ NULL 只表示“不知道”，与 SQL 本身对 NULL 的理解一致。“知�
 
 C# 采集器通过共享项目 `Shared/Capture` 的 `CaptureWriter` 写入：它用 `CollectorDatabase.Open` 打开库，新库按共享项目和采集器程序集里的 SQL 建结构，一轮怎么走见[架构](../overview/architecture.mdx#一轮写入)。它在运行期间持有单写入锁（`state/locks/<来源>.writer.lock`，浏览器按配置各一把），同一存储目录下第二个写入方直接失败。
 
-没有任何用户对象的空库在一个事务里建结构，失败时回滚；已有对象的库原样使用，不核对结构。打开连接时启用外键、3 秒锁等待和 WAL。
+空库在一个事务里建结构并写入建库身份，失败时回滚。写入连接启用外键、3 秒锁等待和 WAL。
 
 每个库都提供 `capture_coverage` 视图，前六列依次是 `scope`、`mode`、`started_at_utc_ms`、`stopped_at_utc_ms`、`evidence`、`detail`，含义见[覆盖与恢复](./recovery.mdx)；来源自己的列跟在后面。
 
 每个库还有 `Shared/Capture/Schema/` 里的共享表，构建时和来源自己的 `Schema/` 合在一起按文件名执行：
 
-- `database_identity`：建库时在同一事务里写一行，之后不变。`database_id` 是随机 32 位十六进制，等于库文件名，库在设备间合并时靠它区分；`platform`、`hardware_uuid` 是存储选库时绑定的建库主机，读不到硬件 UUID 时为空，含义见[多设备](../overview/devices.mdx#身份)。
-- `host_observations`：运行开始时由 `Orisumi.Platform.HostIdentity` 读到的主机原始标识，包括硬件 UUID、主机名、型号、系统版本、启动 ID、系统用户和存储目录；读不到的为空。和上一行完全相同时不写新行，所以重启开机或换了存储目录才会多一行。
+- `database_identity` 只有一行。`database_id` 是随机生成的 32 位十六进制库 ID，也是文件名。`platform`、`hardware_uuid` 和 `machine_guid` 记录[选库时绑定的主机](../overview/storage.mdx#每个来源写哪个库)，随库保留。
+- `host_observations` 在运行开始时记录主机原始标识、系统版本、系统用户和存储目录。Windows 分别用 `hardware_uuid`、`machine_guid` 和 `user_sid` 记录 SMBIOS UUID、系统安装标识和用户 SID；macOS 用 `user_id` 记录数字 UID。取不到或不适用的字段留空。只有观测值变化才新增一行。
+
+这两张表的 `platform` 约束随构建目标生成：macOS 库只接受 `macos`，Windows 库只接受 `windows`。建库、重新打开写入库和 `schema` 命令使用同一份定义。已有 Mac 库保留原约束，打开写入时按下述规则补齐可空列。
 
 `capture_runs`、`capture_read_failures` 也是共享表。`capture_runs.host_observation_id` 指向这次运行开始时的主机观测，和运行在同一事务里写入；`collector_version` 记写这次运行的采集器版本（发布版本或 `dev`，加组件标识，见[组件与版本](../development/release.mdx#组件与版本)）；v5 之前的运行记的是程序版本加提交号，更早的为 NULL。
 

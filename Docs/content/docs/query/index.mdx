@@ -27,7 +27,7 @@ description: 怎么从观测库读出时间段、按设备合并，以及读时�
 
 ## 设备
 
-每个库按建库主机归到设备：设备键是 `<platform>:<hardware_uuid>`；没有 `database_identity` 或硬件 UUID 为空时用 `db:<库 ID>`，让它自成一台。设备名取最近一次主机观测的主机名。规则见[多设备](../overview/devices.mdx#读出设备)，`rules/devices.json` 合并尚未实现。
+查询按[建库主机的设备键](../overview/devices.mdx#读出设备)归组，本机库和拷来的副本遵循同一规则。设备名取组内最近一次主机观测的主机名。`rules/devices.json` 的人工合并尚未实现。
 
 旧库和副本可能缺表或缺列：缺的部分算未观测，列在输出里，不当成空。
 

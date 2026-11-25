@@ -3,7 +3,7 @@ title: 存储
 description: 存储目录的位置与结构，以及每个来源写哪个库。
 ---
 
-每个存储目录是一个实例：生产在 `~/Library/Application Support/Orisumi`，开发实例在 `~/Library/Application Support/Orisumi-dev`，见[实例](../development/release.mdx#实例)；`--store` 可指定别处，测试用临时目录。Windows 计划用 `%LOCALAPPDATA%\Orisumi`，Android 用应用私有目录，尚未实现。路径只由 `Shared/Platform` 的 `Store` 拼出。
+每个存储目录是一个实例。生产目录名为 `Orisumi`，开发目录名为 `Orisumi-dev`；macOS 放在 `~/Library/Application Support/` 下，Windows 放在 `%LOCALAPPDATA%` 下。`--store` 可指定其他目录，测试用临时目录。Android 计划使用应用私有目录。各平台的运行状态见[平台](../development/release.mdx#平台)。
 
 正在写的库不放进 iCloud Drive、Dropbox 等同步盘：同步工具复制或覆盖写入中的 SQLite（尤其是 WAL）会损坏它。也不放 `~/Documents`、`~/Desktop`：这些目录受 macOS 隐私保护，后台 LaunchAgent 访问会被拦。
 
@@ -37,9 +37,10 @@ description: 存储目录的位置与结构，以及每个来源写哪个库。
 
 - 文件名就是库 ID（`database_identity.database_id`），建库时生成，之后不变。
 - 一个库只有一个写入方：创建它的主机上的采集器。其他设备只保存只读副本，所以同步只是复制文件。
-- `state/current/<来源>.json` 记当前写的库 ID 和建库时的硬件 UUID；同一个值随库写进 `database_identity`，副本靠它说明自己来自哪台主机。写入前由 `Store.WritableDatabase` 取库：没有指针、库文件不在，或硬件 UUID 与指针不同（如用迁移助理把存储拷到新 Mac），就新建一个库并改指针，旧库留在原处只读。读不到硬件 UUID 时无法证明换了机器，沿用当前库。
+- `state/current/<来源>.json` 记库 ID、建库平台、硬件 UUID 和 Windows 的 `MachineGuid`。旧指针缺少平台时按 macOS 读取。指针或文件缺失、平台不同、主机标识不匹配时，写入方新建库并更新指针，旧库留作只读副本。
+- 同平台时，优先用本机有效的硬件 UUID 匹配建库记录。Windows 的 SMBIOS UUID 缺失、全 0 或全 F 时，改用本机 `MachineGuid` 匹配。若本机没有可用标识，就沿用当前库。
 - 新库在锁内建成空文件，同一来源的并发写入方（如多个 Chrome 配置各自的连接）使用同一个库。
 - 只读命令不建库。`capture coverage` 和 `export` 读每个来源的所有库，来源按 `observations/` 下的目录认，本机没装对应采集器的（如从其他设备拷来的库）也读；`capture status` 只读本机建的库；`macos timeline` 只读本机当前的 macOS 库。
-- 本机建的库：`database_identity` 的平台与本机相同，且硬件 UUID 相同或本机读不到硬件 UUID（同 `Store.WritableDatabase`）。还没有 `database_identity` 的半成品也算本机的，只有写入方会建它。
+- 判断库是否属于本机时，用同一规则匹配 `database_identity`。正在创建、尚无身份记录的库也算本机库。
 
 改结构的规则见[数据库结构](../capture/index.mdx#数据库结构)。

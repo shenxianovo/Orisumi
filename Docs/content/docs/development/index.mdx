@@ -5,7 +5,7 @@ description: 安装开发入口、命令一览、验证和行数统计。
 
 ## 安装
 
-只支持 macOS。需要 .NET 11 SDK、Xcode（只装 Command Line Tools 编不了 GUI：SwiftUI 的 `@State` 等是宏，插件只随 Xcode 提供）、Node.js（版本下限见文档站 `package.json` 的 `engines.node`），`PATH` 里要有 `~/.dotnet/tools` 和 `~/.local/bin`。首次在仓库根目录运行：
+以下是 macOS 开发实例的安装步骤。需要 .NET 11 SDK、完整 Xcode（SwiftUI 宏需要 Xcode 的插件）和 Node.js（最低版本见 `Docs/package.json` 的 `engines.node`）。将 `~/.dotnet/tools` 和 `~/.local/bin` 加入 `PATH`，首次在仓库根目录运行：
 
 ```sh
 dotnet run --project Tools/Dev -- dev setup
@@ -22,7 +22,7 @@ dotnet run --project Tools/Dev -- dev setup
 
 ## 命令
 
-宿主在 `Host/`（CLI `Host/Cli`、GUI `Host/App.MacOS`），采集器在 `Collectors/<来源>`，共享代码在 `Shared/`（`Platform`：实例、存储、主机和进程；`Capture`：采集器的写入和命令），开发命令在 `Tools/Dev`，测试在 `Tests/`，文档站在 `Docs/`。完整选项见 `--help`。不给 `--store` 时用程序所在的实例，见[实例](./release.mdx#实例)。
+宿主在 `Host/`（CLI 和 macOS GUI），采集器在 `Collectors/<来源>`，开发工具在 `Tools/Dev`。共享项目职责、构建目标和 Windows 命令范围见[平台](./release.mdx#平台)。下表列出 macOS 命令。完整选项见 `--help`；省略 `--store` 时用程序所在的[实例](./release.mdx#实例)。
 
 宿主命令，`orisumi` 作用于生产，`orisumi-dev` 作用于开发实例：
 
@@ -66,11 +66,12 @@ dotnet run --project Tools/Dev -- dev setup
 orisumi-dev check
 ```
 
-在检出里运行全部验证，每项打印通过与否和耗时，失败时打印输出，有失败就以 1 退出；清单只在 `Tools/Dev/CheckCommand.cs` 里维护。测试只用临时数据、替身 `launchctl` 和进程，结束后清理，不碰真实的实例和 LaunchAgent。
+在检出里运行当前平台的验证，每项打印结果和耗时，失败时打印输出并以 1 退出。`Tools/Dev/CheckCommand.cs` 组合共用检查和平台检查。下表是 macOS 上运行的项目，集成测试使用临时实例。
 
 | 检查 | 覆盖 |
 | --- | --- |
-| Platform | 主机标识、选库、主机绑定、并发建库 |
+| Windows compile | 按 `win-x64` 托管编译 CLI、开发工具和 Browser、Claude、Codex 三个采集器，警告视为错误 |
+| Platform | 主机标识、旧指针与跨平台选库、并发建库、文件改名和替换 |
 | CaptureStartup | LaunchAgent 配置；`launch` 的参数、标准输入输出、进程组、信号转发和退出码 |
 | CaptureStatus | 合并已装采集器、LaunchAgent 和来源目录；运行中、未加载、已退出和已停止的运行；不写存储 |
 | Schema | 项目与解决方案一致、`describe`、`schema`、结构打包、视图、coverage 列、重复打开、旧库按只增补齐与各种不兼容的拒绝 |
@@ -80,7 +81,7 @@ orisumi-dev check
 | Day | 时间段的运行结束和通道中断、夏令时、今天截到现在、presence 优先级、attention 与标题规则、Chrome 标签、设备分组、缺表、子会话折叠 |
 | CaptureCoverage、Export | 覆盖查询的区间；导出时未检查点的 WAL、重复导出、目标位置、库 ID 不符、半成品 |
 | MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
-| Instance | 实例解析、bundle ID 与端口、扩展 ID、组件标识、按清单安装与选择性重启、回滚、签名与证书核对、部署、转发、`reset`、`release` 的各项拒绝与结构比较、`update` 与备份 |
+| Instance | 实例与组件标识、选择性重启、签名、部署、转发、重置、发布、更新与备份；用内存托管实现在第二个组件登记后注入失败，核对两个组件的文件、登记和原清单 |
 | SourceLauncher、Loc | 在临时仓库里测开发入口的构建、参数、退出码、二进制输入输出、信号，以及行数统计 |
 
 新增采集器的要求见[采集开发](../capture/index.mdx)。
