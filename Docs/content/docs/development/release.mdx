@@ -38,7 +38,7 @@ flowchart TD
 | --- | --- | --- |
 | 构建目标 | `osx-arm64`，已在开发实例验证 NativeAOT | `win-x64`，已通过托管编译，待真机验证 |
 | 宿主命令 | 查询、采集管理、采集器命令转发、安装与更新 | `day`、`capture coverage`、`export`、`describe` |
-| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 系统采集器、托管和发布均待实现 |
+| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 系统采集器、托管和发布均待实现，计划见 [Windows 客户端](./windows.mdx) |
 
 根目录的 `Directory.Build.props` 按目标运行时标识（RID）选择源文件。例如 `dotnet build Host/Cli -r win-x64` 编入各项目的 `Platforms/Windows/`，而 `-r osx-arm64` 编入 `Platforms/MacOS/`。省略 `-r` 时取本机 SDK 的 RID。CA1416 按目标平台检查 API，用错平台会构建失败。
 
