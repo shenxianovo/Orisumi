@@ -13,11 +13,15 @@ description: Windows 上的托管、系统采集器、托盘和发布计划，�
 | --- | --- |
 | 系统 | Windows 11 Pro 23H2（22631），Lenovo 82YA，时区 China Standard Time |
 | 睡眠 | 只有 S3，没有现代待机（S0） |
-| 工具链 | .NET SDK 11.0.100、VS 2026 Community 和 VS 2022/2019 C++ 工具（NativeAOT 需要）、Git、gh；Node.js 22.19，低于 `Docs/package.json` 要求的 24.14 |
+| 工具链 | .NET SDK 11.0.100、VS 2026 Community 和 VS 2022/2019 C++ 工具（NativeAOT 需要）、Git、gh、Node.js 26 |
 | 来源 | Chrome、Edge；Claude Code 和 Codex 装在 Windows 本机，`~\.claude`、`~\.codex` 存在 |
 | SSH | 落在 session 0，带管理员令牌；用户桌面是 session 1 |
 | 计划任务 | 从 SSH 注册的 `Interactive`、`Limited` 任务跑在 session 1，不提权 |
 | 浏览器端口 | 不提权的进程可以用 `HttpListener` 监听 `http://127.0.0.1:<端口>/`，接收端不用改 |
+
+## 开发循环
+
+在 Mac 上改代码，把工作树镜像到 Windows 检出 `E:\Code\Personal\Projects\Orisumi` 再跑 `orisumi-dev check`，不用为同步提交：用临时 index 对工作树 `git add -A`、`write-tree`、`commit-tree`，推到 Windows 检出的 `sync` 分支（`--receive-pack='git receive-pack'`，Windows 登录 shell 找不到 `git-receive-pack`），在那边 `checkout -f --detach sync` 和 `clean -fd`。两边 tree 哈希相同，组件标识也相同。Windows 检出是 `core.autocrlf=true`，代码按 CRLF 工作树也要正确。
 
 ## 托管
 
@@ -78,7 +82,7 @@ C# NativeAOT 的 WinExe，用 `Shell_NotifyIconW` 和原生菜单：总状态、
 
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
-| 0 | Windows 检出、Node 升级、去掉 `Tests/` 里写死的 `SupportedOSPlatform("macos")`、`orisumi-dev check` 在 Windows 跑通 | `check` 全部通过；`HostIdentity` 读出 SMBIOS UUID `6EE135AE-06B7-11EE-8C92-088FC3FA62F2` |
+| 0（已完成） | Windows 检出、Node 升级、跨平台测试移出 macOS 检查、`orisumi-dev check` 在 Windows 跑通 | 两个平台 `check` 全部通过，NativeAOT 无警告；`HostIdentity` 读出 SMBIOS UUID `6EE135AE-06B7-11EE-8C92-088FC3FA62F2` |
 | 1 | 托管、停止事件、Windows 安装、命令转发、`deploy`；Claude、Codex、浏览器上线 | 从 SSH `deploy` 后采集器在 session 1 运行；强杀后 10 秒内恢复；`capture stop` 写 `completed`；更新一个采集器时其余 PID 不变；Chrome 扩展连上 |
 | 2 | `Collectors/Windows`，`day` 读 Windows | 开发实例跑一两天，导出到 Mac 后 `day` 读出两台设备 |
 | 3 | 托盘 | 状态、启停正确；重启 `explorer.exe` 后图标恢复 |
@@ -91,6 +95,5 @@ C# NativeAOT 的 WinExe，用 `Shell_NotifyIconW` 和原生菜单：总状态、
 | --- | --- |
 | `Host/Cli/InstallCommand.cs` | 先换目录再重启采集器 |
 | `Shared/Platform/ChromeExtension.cs` | 按 UTF-8 算扩展 ID；Chromium 在 Windows 上按 UTF-16 算并把盘符转大写，待加载扩展时核对 |
-| `Tools/Dev/ComponentIdentity.cs` | Windows 宿主的标识包含 `Host/App.MacOS` |
 | `Shared/Platform/Platforms/Windows/RunProcess.cs` | 只监听 SIGTERM，后台进程收不到 |
 | `Host/Cli/Day/` | 只有 macOS 读出；Chrome 按 bundle ID 识别；默认时区 ID 在 Windows 上不是 IANA |

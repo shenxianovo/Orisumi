@@ -32,28 +32,12 @@ internal static class DevPlatform
             missing.Add($"Xcode：安装后运行 sudo xcode-select -s /Applications/Xcode.app（当前 {developer?.Trim() ?? "未安装"}）。");
     }
 
-    internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks(string temporary, string host)
-    {
-        var packages = Path.Combine(temporary, "packages");
-        var tools = Path.Combine(temporary, "tools");
-        return
-        [
-            FileCheck("CaptureStartup"),
-            FileCheck("CaptureStatus"),
-            FileCheck("Schema"),
-            FileCheck("CaptureIntegration"),
-            FileCheck("BrowserIntegration"),
-            FileCheck("CaptureCoverage"),
-            FileCheck("Day"),
-            FileCheck("Export"),
-            FileCheck("ClaudeIncremental"),
-            FileCheck("CodexIncremental"),
-            FileCheck("MacOSObservation"),
-            FileCheck("Instance"),
-            ("App.MacOS", [("swift", ["test", "--package-path", MacHostBuilder.AppPackage])]),
-            ("SourceLauncher", [Dotnet("pack", Repository.DevProject, "-c", "Release", "-o", packages),
-                Dotnet("tool", "install", "Orisumi.Dev", "--tool-path", tools, "--source", packages),
-                RunFile("SourceLauncher", Path.Combine(tools, "orisumi-dev"), host)]),
-        ];
-    }
+    internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks() =>
+    [
+        FileCheck("MacOSCaptureStartup"),
+        FileCheck("MacOSCaptureStatus"),
+        FileCheck("MacOSInstance"),
+        FileCheck("MacOSObservation"),
+        ("App.MacOS", [("swift", ["test", "--package-path", MacHostBuilder.AppPackage])]),
+    ];
 }

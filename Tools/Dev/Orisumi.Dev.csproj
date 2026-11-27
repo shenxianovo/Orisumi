@@ -12,6 +12,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- The SDK generates a native Windows tool shim for a managed entry point. A cmd shim reparses argv. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <ToolCommandRunner>dotnet</ToolCommandRunner>
+    <ToolEntryPoint>$(AssemblyName).dll</ToolEntryPoint>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(OrisumiPlatform)' == 'MacOS'">
     <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
       <_Parameter1>macos</_Parameter1>

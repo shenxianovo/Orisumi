@@ -21,14 +21,31 @@ internal static class CheckCommand
         {
             var dev = await TargetPath(Repository.DevProject);
             var host = await TargetPath(Repository.CliProject);
+            var packages = Path.Combine(temporary.FullName, "packages");
+            var tools = Path.Combine(temporary.FullName, "tools");
+            var launcher = Path.Combine(tools, OperatingSystem.IsWindows() ? "orisumi-dev.exe" : "orisumi-dev");
             const string windows = "win-x64";
             (string Name, (string Executable, string[] Arguments)[] Steps)[] checks =
             [
-                ("Build", [.. DevPlatform.BuildTargets(checkout).Select(project => Dotnet("build", project))]),
+                ("Build", [.. DevPlatform.BuildTargets(checkout).Select(project => Dotnet("build", project, "-warnaserror"))]),
                 ("Windows compile", [.. Repository.ManagedProjects(checkout, windows).Select(project =>
                     Dotnet("build", project, "-c", "Release", "-r", windows, "-p:PublishAot=false", "-warnaserror", "-tl:off"))]),
                 FileCheck("Platform"),
-                .. DevPlatform.NativeChecks(temporary.FullName, Path.GetDirectoryName(host)!),
+                FileCheck("CaptureStartup"),
+                FileCheck("CaptureStatus"),
+                FileCheck("Schema"),
+                FileCheck("CaptureIntegration"),
+                FileCheck("BrowserIntegration"),
+                FileCheck("CaptureCoverage"),
+                FileCheck("Day"),
+                FileCheck("Export"),
+                FileCheck("ClaudeIncremental"),
+                FileCheck("CodexIncremental"),
+                FileCheck("Instance"),
+                .. DevPlatform.NativeChecks(),
+                ("SourceLauncher", [Dotnet("pack", Repository.DevProject, "-c", "Release", "-o", packages),
+                    Dotnet("tool", "install", "Orisumi.Dev", "--tool-path", tools, "--source", packages),
+                    RunFile("SourceLauncher", launcher, Path.GetDirectoryName(host)!)]),
                 ("Browser extension", [("npm", ["--prefix", DevCommand.ExtensionDirectory, "ci"]),
                     ("npm", ["--prefix", DevCommand.ExtensionDirectory, "test"])]),
                 FileCheck("Loc", dev),

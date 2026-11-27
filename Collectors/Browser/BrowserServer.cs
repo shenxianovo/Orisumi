@@ -106,9 +106,10 @@ internal static class BrowserServer
             {
                 if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
                 {
-                    // Keep the receive pending until the close frame is sent. Cancelling it aborts the socket.
+                    // Complete the close handshake before disposing the transport. An outstanding receive may
+                    // consume the peer's close frame; cancelling it before the handshake would abort the socket.
                     using var close = new CancellationTokenSource(SocketTimeout);
-                    await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, close.Token);
+                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, close.Token);
                 }
             }
             catch (Exception error) when (error is WebSocketException or IOException or OperationCanceledException) { }

@@ -5,14 +5,11 @@
 using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.Versioning;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Cli.Day;
 using Orisumi.Platform;
-
-[assembly: SupportedOSPlatform("macos")]
 
 var day = DayRange.Create("2026-11-01", "America/New_York");
 Equal(25 * 3_600_000L, day.To - day.From, "fall-back date is 25 hours");
@@ -32,8 +29,8 @@ var titleTotals = DayDevice.TitleTotals([
 ], 60_000).ToArray();
 Check(titleTotals is [{ Title: "a", Foreground: 70_000, Active: 50_000 }], "title totals add separate segments and drop short titles");
 
-var skippedMidnight = DayRange.Create("2026-09-06", "America/Santiago");
-Equal("2026-09-06T01:00:00-03:00", skippedMidnight.Format(skippedMidnight.From), "skipped midnight starts at first valid local time");
+var skippedMidnight = DayRange.Create("2024-03-10", "America/Havana");
+Equal("2024-03-10T01:00:00-04:00", skippedMidnight.Format(skippedMidnight.From), "skipped midnight starts at first valid local time");
 
 var runs = new Dictionary<long, DaySpan<long>>
 {
@@ -67,7 +64,8 @@ var temp = Directory.CreateTempSubdirectory("orisumi-day-");
 try
 {
     var store = new Store(temp.FullName);
-    var hardware = HostIdentity.Read().HardwareUuid ?? "local-device";
+    var host = HostIdentity.Read();
+    var hardware = host.HardwareUuid ?? "fixture-device";
     var from = day.From;
     var to = day.To;
     Fixture("macos", "primary", hardware, $"""
@@ -220,8 +218,10 @@ try
     Check(!windows.GetProperty("this_host").GetBoolean(), "a Windows copy is remote on macOS");
     var local = devices.Single(device => Text(device, "device") == $"macos:{hardware}");
     var remote = devices.Single(device => Text(device, "device") == "macos:different-device");
-    Check(devices.TakeWhile(device => device.GetProperty("this_host").GetBoolean()).Contains(local),
-        "this host sorts before other devices");
+    Check(local.GetProperty("this_host").GetBoolean() == host.MatchesDatabase("macos", hardware, null) &&
+        devices.Select(device => device.GetProperty("this_host").GetBoolean()).SequenceEqual(
+            devices.Select(device => device.GetProperty("this_host").GetBoolean()).OrderDescending()),
+        "the recorded Mac is matched by platform and hardware, and local devices sort first");
     Equal("Newest name", Text(local, "name"), "the latest host observation across databases supplies the name");
     Check(local.GetProperty("time_zones").EnumerateArray().Select(zone => zone.GetString())
         .SequenceEqual(["Asia/Shanghai", "Asia/Tokyo"]), "only time zones in effect during a run");

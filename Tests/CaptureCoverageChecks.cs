@@ -5,12 +5,9 @@
 
 using System.Diagnostics;
 using System.Text.Json;
-using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Platform;
-
-[assembly: SupportedOSPlatform("macos")]
 
 var temp = Directory.CreateTempSubdirectory("orisumi-coverage-");
 try
@@ -37,14 +34,14 @@ try
     using var report = JsonDocument.Parse(coverage.StandardOutput);
     var sources = report.RootElement.GetProperty("sources").EnumerateArray().ToArray();
     Check(sources.Where(source => source.GetProperty("status").GetString() == "no_database")
-        .Select(source => source.GetProperty("source").GetString()).SequenceEqual(["browser", "codex", "macos"]),
+        .Select(source => source.GetProperty("source").GetString()).SequenceEqual(Platforms.Current == "macos" ? ["browser", "codex", "macos"] : ["browser", "codex"]),
         "each installed collector missing a database has an explicit row");
     var copiedRows = new[] { "abcdefabcdefabcdefabcdefabcdefab", "abcdefabcdefabcdefabcdefabcdef00" }
         .Select(id => sources.Single(source => source.GetProperty("database").GetString() == id)).ToArray();
     Check(copiedRows[0].GetProperty("status").GetString() == "queried" &&
         copiedRows[0].GetProperty("evidence")[0].GetProperty("detail").GetString() == "copied from another device",
         "a copied source without a collector is queried");
-    Check(copiedRows[0].GetProperty("platform").GetString() == "macos" &&
+    Check(copiedRows[0].GetProperty("platform").GetString() == Platforms.Current &&
         copiedRows[0].GetProperty("hardware_uuid").GetString() == "other-hardware" && !copiedRows[0].GetProperty("this_host").GetBoolean() &&
         copiedRows[1].GetProperty("this_host").GetBoolean(), "each database names the host it was created on and whether that is this one");
     Check(sources.Where(source => source.GetProperty("source").GetString() != copied).All(source =>
@@ -75,7 +72,7 @@ try
             {(hardwareUuid is null ? "" : $"""
                 CREATE TABLE database_identity (singleton INTEGER PRIMARY KEY, database_id TEXT, created_at_utc_ms INTEGER,
                     platform TEXT, hardware_uuid TEXT);
-                INSERT INTO database_identity VALUES (1, '{databaseId}', 0, 'macos', '{hardwareUuid}');
+                INSERT INTO database_identity VALUES (1, '{databaseId}', 0, '{Platforms.Current}', '{hardwareUuid}');
                 """)}
             """;
         command.ExecuteNonQuery();

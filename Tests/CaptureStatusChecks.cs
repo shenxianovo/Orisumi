@@ -1,24 +1,18 @@
+#!/usr/bin/env dotnet
+#:include Fixtures/FixtureProgram.cs
 #:project ../Host/Cli/Orisumi.Cli.csproj
 #:property AssemblyName=CaptureStatusChecks
 #:property PublishAot=false
 #:property JsonSerializerIsReflectionEnabledByDefault=false
 
 using System.CommandLine;
-using System.Runtime.Versioning;
+using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Desktop;
 using Orisumi.Platform;
-
-[assembly: SupportedOSPlatform("macos")]
-
-if (!OperatingSystem.IsMacOS())
-{
-    Console.WriteLine("Skipped: capture status requires macOS.");
-    return;
-}
 
 const string RunTables = """
     CREATE TABLE capture_runs (run_id INTEGER PRIMARY KEY, started_at_utc_ms INTEGER, collector_version TEXT,
@@ -32,30 +26,10 @@ try
     var instance = Instance.Create(Path.Combine(temp.FullName, "store '中文"), "test_status");
     var store = instance.Store;
     var baseDirectory = Directory.CreateDirectory(Path.Combine(temp.FullName, "checkout", "bin")).FullName;
-    var locations = new SystemLocations(Path.Combine(temp.FullName, "agents"), Path.Combine(temp.FullName, "commands"),
-        Path.Combine(temp.FullName, "launchctl"));
-    WriteExecutable(locations.Launchctl, """
-        #!/bin/sh
-        set -eu
-        [ "$1" = print ] && [ "$#" = 2 ] || exit 2
-        case "$2" in
-          gui/"$(/usr/bin/id -u)"/dev.orisumi.test_status.capture.*|gui/"$(/usr/bin/id -u)"/dev.orisumi.test_status_overall.capture.*) ;;
-          *) exit 2 ;;
-        esac
-        case "$2" in
-          *.collecting) printf '\tstate = running\n\tpid = 4321\n\tlast exit code = 4\n' ;;
-          *.idle) printf '\tstate = waiting\n\tlast exit code = 17\n' ;;
-          *.queued) printf '\tstate = spawn scheduled\n\tlast exit code = (never exited)\n' ;;
-          *.signaled) printf '\tstate = waiting\n\tlast exit code = terminated by signal\n' ;;
-          *.broken) printf 'print failed\n' >&2; exit 5 ;;
-          *) exit 113 ;;
-        esac
-        """);
-    Directory.CreateDirectory(locations.Agents);
-    var other = Instance.Create(Path.Combine(temp.FullName, "other"), "other");
-    foreach (var label in new[] { instance.CaptureAgentLabel("idle"), instance.CaptureAgentLabel("queued"),
-        instance.CaptureAgentLabel("signaled"), other.CaptureAgentLabel("ignored"), instance.AppAgentLabel })
-        File.WriteAllText(Path.Combine(locations.Agents, label + ".plist"), "");
+    var program = await FixtureProgram.Build(Path.Combine(temp.FullName, "fixture tool"));
+    void Install(Store target, string name) => program.Describe(
+        Path.Combine(target.Collector(name), ProgramDescription.ExecutableName(name, Platforms.CurrentRid)),
+        name, "0.2.0+fixture", ["capture"]);
     foreach (var name in new[] { "collecting", "unloaded" })
         Install(store, name);
     Directory.CreateDirectory(store.Observations("source_only"));
@@ -120,14 +94,13 @@ try
 
     using var output = new StringWriter();
     var command = Commands.Create(new DesktopServices(
-        current => current.Name == "test_status_overall" ? new StatusJobs() : new MacCollectorJobs(current, locations),
-        current => new MacInstallation(current, locations, HostBundle.Tools.Current)), output, baseDirectory);
+        current => new StatusJobs(current.Name == "test_status"),
+        _ => throw new Exception("Status requested installation services")), output, baseDirectory);
     var queries = Commands.Create(null, output, baseDirectory);
     Check(queries.Subcommands.Select(c => c.Name).Order().SequenceEqual(["capture", "day", "describe", "export"]) &&
         queries.Subcommands.Single(c => c.Name == "capture").Subcommands.Select(c => c.Name).SequenceEqual(["coverage"]),
         "a desktop without supervision exposes the available query commands");
     var before = Entries(store.Root);
-    var agentsBefore = Entries(locations.Agents);
     Check(await Invoke("describe") == 0, "describe succeeds");
     using var description = JsonDocument.Parse(output.ToString());
     var hostVersion = description.RootElement.GetProperty("version").GetString();
@@ -215,9 +188,9 @@ try
     CheckHealth(collectors[6], "stopped", "not_loaded", "run_failed");
     Console.WriteLine("PASS: JSON health, ordered problem codes, recent runs and recent read failures across databases");
 
-    Check(before.SequenceEqual(Entries(store.Root)) && agentsBefore.SequenceEqual(Entries(locations.Agents)),
-        "status creates no files or directories in the store or LaunchAgents");
-    Console.WriteLine("PASS: text and JSON status merge installed collectors, LaunchAgents and observations, including stopped and live WAL runs");
+    Check(before.SequenceEqual(Entries(store.Root)),
+        "status creates no files or directories in the store");
+    Console.WriteLine("PASS: text and JSON status merge installed collectors, jobs and observations, including stopped and live WAL runs");
 
     var overallStore = Instance.Create(Path.Combine(temp.FullName, "overall"), "test_status_overall").Store;
     await CheckOverall("ok", 0);
@@ -238,13 +211,11 @@ try
     await CheckOverall("ok", 1);
     Console.WriteLine("PASS: empty, stopped, mixed and healthy stores, including completed runs and fresh starts");
 
-    File.WriteAllText(Path.Combine(locations.Agents, instance.CaptureAgentLabel("broken") + ".plist"), "");
-    await Expect<IOException>("print failed", ["capture", "status", "--store", store.Root]);
     var checkout = Path.GetDirectoryName(baseDirectory)!;
     File.WriteAllText(Path.Combine(checkout, "Orisumi.slnx"), "<Solution />");
     await Expect<DirectoryNotFoundException>("instance.json", ["capture", "status"]);
     Check(!Directory.Exists(Path.Combine(checkout, "app")), "implicit status does not initialize a checkout store");
-    Console.WriteLine("PASS: unexpected launchctl errors propagate and status stays read-only");
+    Console.WriteLine("PASS: status stays read-only");
 
     JsonElement Agent(int index) => collectors[index].GetProperty("agent");
 
@@ -295,20 +266,10 @@ static void CheckHealth(JsonElement collector, string health, params string[] pr
         $"{name} has expected problem codes in order");
 }
 
-static void Install(Store store, string name)
-{
-    Directory.CreateDirectory(store.Collector(name));
-    WriteExecutable(Path.Combine(store.Collector(name), "orisumi-" + name), $$"""
-        #!/bin/sh
-        [ "$#" = 1 ] && [ "$1" = describe ] || exit 2
-        printf '%s\n' '{"name":"{{name}}","version":"0.2.0+fixture","arguments":["capture"]}'
-        """);
-}
-
 static string Identity(string? hardwareUuid) => $"""
     CREATE TABLE database_identity (singleton INTEGER PRIMARY KEY, database_id TEXT, created_at_utc_ms INTEGER,
         platform TEXT, hardware_uuid TEXT);
-    INSERT INTO database_identity VALUES (1, '{new string('0', 32)}', 0, 'macos', {(hardwareUuid is null ? "NULL" : $"'{hardwareUuid}'")});
+    INSERT INTO database_identity VALUES (1, '{new string('0', 32)}', 0, '{Platforms.Current}', {(hardwareUuid is null ? "NULL" : $"'{hardwareUuid}'")});
     """;
 
 static void Execute(SqliteConnection db, string sql)
@@ -316,12 +277,6 @@ static void Execute(SqliteConnection db, string sql)
     using var command = db.CreateCommand();
     command.CommandText = sql;
     command.ExecuteNonQuery();
-}
-
-static void WriteExecutable(string path, string text)
-{
-    File.WriteAllText(path, text);
-    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 }
 
 // SQLite may add -wal/-shm beside a closed WAL database even on a read-only open; that is accepted.
@@ -335,12 +290,20 @@ static void Check(bool condition, string message)
 }
 
 
-sealed class StatusJobs : ICollectorJobs
+sealed class StatusJobs(bool mixed) : ICollectorJobs
 {
-    public Task<IReadOnlyDictionary<string, SavedJob>> Inspect(IEnumerable<string> sources, CancellationToken token) =>
-        Task.FromResult<IReadOnlyDictionary<string, SavedJob>>(sources.Distinct().ToDictionary(name => name,
-            name => name == "collecting" ? new SavedJob(name, true, true, "running", 1234, null)
-                : new SavedJob(name, false, false, "not_loaded", null, null)));
+    public Task<IReadOnlyDictionary<string, SavedJob>> Inspect(IEnumerable<string> sources, CancellationToken token)
+    {
+        string[] registered = mixed ? ["idle", "queued", "signaled"] : [];
+        return Task.FromResult<IReadOnlyDictionary<string, SavedJob>>(sources.Union(registered).ToDictionary(name => name, name => name switch
+        {
+            "collecting" => new SavedJob(name, false, true, "running", 4321, null),
+            "idle" => new SavedJob(name, true, true, "waiting", null, JsonValue.Create(17)),
+            "queued" => new SavedJob(name, true, true, "spawn scheduled", null, null),
+            "signaled" => new SavedJob(name, true, true, "waiting", null, JsonValue.Create("terminated by signal")),
+            _ => new SavedJob(name, false, false, "not_loaded", null, null),
+        }));
+    }
 
     public Task<string> Set(string source, JobSpec? desired, CancellationToken token) => throw new Exception("Status modified a job");
     public Task Restore(SavedJob previous, CancellationToken token) => throw new Exception("Status restored a job");

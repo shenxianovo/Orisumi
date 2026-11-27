@@ -10,13 +10,10 @@ using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Browser;
 using Orisumi.Capture.Storage;
 using Orisumi.Platform;
-
-[assembly: SupportedOSPlatform("macos")]
 
 if (args.Length > 1) throw new ArgumentException("Provide at most one Native AOT browser executable.");
 if (args.Length == 1) Fixture.Executable = Path.GetFullPath(args[0]);
@@ -129,8 +126,8 @@ static async Task UpgradePreviousBrowserSchema()
         var end = coverage.IndexOf("SELECT e.scope", start, StringComparison.Ordinal);
         Execute(previous, "DROP VIEW capture_coverage; ALTER TABLE browser_runs DROP COLUMN extension_version;");
         Execute(previous, coverage.Remove(start, end - start));
-        Execute(previous, """
-            INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'macos','test');
+        Execute(previous, $"""
+            INSERT INTO host_observations(observation_id,observed_at_utc_ms,platform,store_path) VALUES(1,1,'{Platforms.Current}','test');
             INSERT INTO capture_runs(run_id,started_at_utc_ms,host_observation_id) VALUES(1,1,1);
             INSERT INTO browser_runs VALUES(1,'chrome','old-profile','old-session');
             """);
@@ -484,7 +481,7 @@ static async Task WebSockets()
 
 static async Task Termination()
 {
-    using var fixture = new Fixture(external: true);
+    using var fixture = new Fixture(instancePort: true);
     await using var first = await fixture.Connect();
     await using var second = await fixture.Connect(profile: Guid.NewGuid());
     using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(8));
@@ -504,7 +501,7 @@ static async Task Termination()
             if (!conflict.HasExited) { conflict.Kill(); await conflict.WaitForExitAsync(); }
         }
     }
-    if (Fixture.Executable is not null)
+    if (fixture.Process is not null && Fixture.Executable is not null)
     {
         using var heartbeat = new CancellationTokenSource(TimeSpan.FromSeconds(25));
         await Task.WhenAll(first.Heartbeat(heartbeat.Token), second.Heartbeat(heartbeat.Token));
@@ -512,13 +509,17 @@ static async Task Termination()
     }
     using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(8));
     var elapsed = Stopwatch.StartNew();
-    fixture.Process!.Signal(PosixSignal.SIGTERM);
+    if (OperatingSystem.IsWindows()) fixture.Cancel();
+    else fixture.Process!.Signal(PosixSignal.SIGTERM);
     await Task.WhenAll(first.ExpectClose(shutdown.Token), second.ExpectClose(shutdown.Token));
-    await fixture.Process.WaitForExitAsync(shutdown.Token);
-    Equal(0, fixture.Process.ExitCode, "SIGTERM exits successfully");
+    if (fixture.Process is { } process)
+    {
+        await process.WaitForExitAsync(shutdown.Token);
+        Equal(0, process.ExitCode, "SIGTERM exits successfully");
+    }
     using var database = fixture.Database();
-    Equal(2L, Value(database, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason='completed' AND error IS NULL"), "SIGTERM completes all runs");
-    Console.WriteLine($"PASS: bind diagnostics and SIGTERM closed both sockets and completed both runs in {elapsed.ElapsedMilliseconds} ms");
+    Equal(2L, Value(database, "SELECT COUNT(*) FROM capture_runs WHERE stop_reason='completed' AND error IS NULL"), "shutdown completes all runs");
+    Console.WriteLine($"PASS: bind diagnostics and shutdown closed both sockets and completed both runs in {elapsed.ElapsedMilliseconds} ms");
 }
 
 static object? Value(SqliteConnection db, string sql)
@@ -539,7 +540,7 @@ static void Equal(object? expected, object? actual, string reason)
     if (!Equals(expected, actual)) throw new Exception($"{reason}: expected {expected ?? "NULL"}, got {actual ?? "NULL"}");
 }
 
-sealed class Fixture(bool external = false) : IDisposable
+sealed class Fixture(bool instancePort = false) : IDisposable
 {
     private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("orisumi-browser-");
     private readonly Guid profileId = Guid.NewGuid();
@@ -553,12 +554,14 @@ sealed class Fixture(bool external = false) : IDisposable
     internal Instance Instance { get; private set; } = null!;
     internal Process? Process { get; private set; }
     internal string Store => directory.FullName;
+    private bool External => instancePort && !OperatingSystem.IsWindows();
+    internal void Cancel() => stop.Cancel();
 
     internal Uri Start(TimeSpan? interval = null, TimeSpan? heartbeat = null)
     {
         if (endpoint is not null) return endpoint;
         var name = "test_browser";
-        if (external)
+        if (instancePort)
         {
             // The CLI uses its instance's fixed port. Find an unused test name for that port.
             var probes = Directory.CreateDirectory(Path.Combine(Store, "probes"));
@@ -570,9 +573,9 @@ sealed class Fixture(bool external = false) : IDisposable
             } while (true);
         }
         Instance = Instance.Create(Store, name);
-        var port = external ? Instance.BrowserPort : FreePort();
+        var port = instancePort ? Instance.BrowserPort : FreePort();
         endpoint = new Uri($"ws://127.0.0.1:{port}/");
-        if (external)
+        if (External)
         {
             Process = StartProcess();
             diagnostics = Process.StandardError.ReadToEndAsync();
@@ -601,7 +604,7 @@ sealed class Fixture(bool external = false) : IDisposable
         var address = Start(interval);
         if (server?.IsCompleted == true) await server;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        if (external)
+        if (External)
             while (true)
             {
                 if (Process!.HasExited) throw new IOException(await diagnostics!);
@@ -649,7 +652,7 @@ sealed class Fixture(bool external = false) : IDisposable
         {
             stop.Cancel();
             server?.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
-            if (Process is { HasExited: false })
+            if (!OperatingSystem.IsWindows() && Process is { HasExited: false })
             {
                 Process.Signal(PosixSignal.SIGTERM);
                 if (!Process.WaitForExit(5000)) { Process.Kill(); Process.WaitForExit(); }
@@ -740,7 +743,11 @@ sealed class Connection(ClientWebSocket socket, Guid browserSession) : IAsyncDis
         while (true)
         {
             var (type, reply) = await Receive(token);
-            if (type == WebSocketMessageType.Close && socket.CloseStatus == WebSocketCloseStatus.NormalClosure) return;
+            if (type == WebSocketMessageType.Close && socket.CloseStatus == WebSocketCloseStatus.NormalClosure)
+            {
+                await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, token);
+                return;
+            }
             if (reply?["type"]?.GetValue<string>() != "heartbeat") throw new Exception($"Expected close frame, got {type} {reply}");
         }
     }
@@ -750,7 +757,7 @@ sealed class Connection(ClientWebSocket socket, Guid browserSession) : IAsyncDis
         using (socket)
         {
             using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            if (socket.State == WebSocketState.Open)
+            if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
                 await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, cancellation.Token);
         }
     }

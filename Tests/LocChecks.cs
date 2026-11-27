@@ -1,3 +1,5 @@
+#!/usr/bin/env dotnet
+#:include Fixtures/TemporaryGit.cs
 #:property PublishAot=false
 using System.Diagnostics;
 using System.Text.Json;
@@ -85,7 +87,7 @@ try
 }
 finally
 {
-    temp.Delete(recursive: true);
+    TemporaryGit.Delete(temp);
 }
 
 static void Check(bool condition, string message)

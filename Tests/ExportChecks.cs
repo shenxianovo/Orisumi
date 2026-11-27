@@ -3,14 +3,11 @@
 #:property PublishAot=false
 #:property JsonSerializerIsReflectionEnabledByDefault=true
 
-using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Platform;
-
-[assembly: SupportedOSPlatform("macos")]
 
 var temp = Directory.CreateTempSubdirectory("orisumi-export-");
 try
@@ -32,7 +29,7 @@ try
     var current = Directory.CreateDirectory(Path.Combine(store.State, "current"));
     foreach (var (source, id, _) in fixtures.Where((_, index) => index is 0 or 2))
     {
-        File.WriteAllText(Path.Combine(current.FullName, source + ".json"), JsonSerializer.Serialize(new { databaseId = id }));
+        File.WriteAllText(Path.Combine(current.FullName, source + ".json"), JsonSerializer.Serialize(new { databaseId = id, platform = Platforms.Current }));
         Check(store.CurrentDatabase(source) == Database(store, source, id), source + " current database fixture");
     }
     var log = Directory.CreateDirectory(store.Logs);
@@ -208,5 +205,9 @@ static object? Execute(SqliteConnection db, string sql)
 }
 
 static string Database(Store store, string source, string id) => Path.Combine(store.Observations(source), id + ".sqlite");
-static string Hash(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+static string Hash(string path)
+{
+    using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    return Convert.ToHexString(SHA256.HashData(file));
+}
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }

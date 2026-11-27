@@ -7,13 +7,10 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 using System.Text.Json;
-using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orisumi.Capture.Storage;
 using Orisumi.Cli;
 using Orisumi.Platform;
-
-[assembly: SupportedOSPlatform("macos")]
 
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
 var temporary = Directory.CreateTempSubdirectory("orisumi-schema-");
@@ -71,7 +68,7 @@ try
         foreach (var group in new[] { "Tables", "Indexes", "Views" })
             foreach (var file in schemas.Select(schema => Path.Combine(schema, group)).Where(Directory.Exists)
                          .SelectMany(directory => Directory.EnumerateFiles(directory, "*.sql")).OrderBy(Path.GetFileName, StringComparer.Ordinal))
-                Execute(expected, File.ReadAllText(file).Replace("'{platform}'", $"'{Platforms.Current}'", StringComparison.Ordinal));
+                Execute(expected, File.ReadAllText(file).ReplaceLineEndings("\n").Replace("'{platform}'", $"'{Platforms.Current}'", StringComparison.Ordinal));
         Check(TextRows(expected, "SELECT name FROM pragma_table_info('capture_coverage') ORDER BY cid").Take(coverageColumns.Length)
             .SequenceEqual(coverageColumns), source + " capture_coverage columns");
         var assembly = Assembly.LoadFrom(program.Path);
@@ -271,7 +268,14 @@ static async Task SchemaShape(string executable, SqliteConnection expected)
 
 static async Task InvalidDescription(string json)
 {
-    try { await ProgramDescription.Read("/bin/sh", ["-c", "printf '%s\\n' \"$1\"", "_", json], default); }
+    try
+    {
+        await ProgramDescription.Read("fixture", [], default, (_, _, output, _) =>
+        {
+            output!.WriteLine(json);
+            return Task.FromResult(0);
+        });
+    }
     catch (InvalidDataException) { return; }
     throw new Exception("accepted invalid describe payload " + json);
 }

@@ -66,23 +66,33 @@ dotnet run --project Tools/Dev -- dev setup
 orisumi-dev check
 ```
 
-在检出里运行当前平台的验证，每项打印结果和耗时，失败时打印输出并以 1 退出。`Tools/Dev/CheckCommand.cs` 组合共用检查和平台检查。下表是 macOS 上运行的项目，集成测试使用临时实例。
+在检出里运行当前平台的验证，每项打印结果和耗时，失败时打印输出并以 1 退出。`Tools/Dev/CheckCommand.cs` 组合共用检查和平台检查，集成测试使用临时实例。构建警告视为错误。
+
+两个平台都跑的检查（POSIX 信号的子用例只在 macOS 跑）：
 
 | 检查 | 覆盖 |
 | --- | --- |
-| Windows compile | 按 `win-x64` 托管编译 CLI、开发工具和 Browser、Claude、Codex 三个采集器，警告视为错误 |
+| Windows compile | 按 `win-x64` 托管编译 CLI、开发工具和 Browser、Claude、Codex 三个采集器 |
 | Platform | 主机标识、旧指针与跨平台选库、并发建库、文件改名和替换 |
-| CaptureStartup | LaunchAgent 配置；`launch` 的参数、标准输入输出、进程组、信号转发和退出码 |
-| CaptureStatus | 合并已装采集器、LaunchAgent 和来源目录；运行中、未加载、已退出和已停止的运行；不写存储 |
-| Schema | 项目与解决方案一致、`describe`、`schema`、结构打包、视图、coverage 列、重复打开、旧库按只增补齐与各种不兼容的拒绝 |
+| CaptureStartup | 采集器作业参数、日志位置和启动范围 |
+| CaptureStatus | 合并已装采集器、托管状态和来源目录；运行中、未加载、已退出和已停止的运行；不写存储 |
+| Schema | 项目与解决方案一致、`describe`、`schema`、结构打包、视图、coverage 列、重复打开、旧库按只增补齐与各种不兼容的拒绝；CRLF 检出的结构与 LF 相同 |
 | CaptureIntegration、Claude/CodexIncremental | 独立变化、修订、重试、身份、中断、回放和增量 |
-| `swift test`（App.MacOS） | GUI 解码状态和覆盖 JSON、健康与严重程度、时间线上运行和通道的分段、从 app 位置找 CLI 和实例 |
-| BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤、版本握手与只重载一次；接收端的 Origin 校验、并发配置、心跳、快照核对、关闭、超时、历史事务 |
+| BrowserIntegration、扩展测试 | 扩展的转发、入队、重连、隐身过滤、版本握手与只重载一次；接收端的 Origin 校验、并发配置、心跳、快照核对、关闭握手、超时、历史事务 |
 | Day | 时间段的运行结束和通道中断、夏令时、今天截到现在、presence 优先级、attention 与标题规则、Chrome 标签、设备分组、缺表、子会话折叠 |
 | CaptureCoverage、Export | 覆盖查询的区间；导出时未检查点的 WAL、重复导出、目标位置、库 ID 不符、半成品 |
-| MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
-| Instance | 实例与组件标识、选择性重启、签名、部署、转发、重置、发布、更新与备份；用内存托管实现在第二个组件登记后注入失败，核对两个组件的文件、登记和原清单 |
+| Instance | 实例与组件标识（两个平台各自排除对方的实现）、选择性重启、部署、转发、重置、发布、更新与备份；用内存托管实现在第二个组件登记后注入失败，核对两个组件的文件、登记和原清单；发布用临时裸仓库充当 `origin`，只替身 `gh` |
 | SourceLauncher、Loc | 在临时仓库里测开发入口的构建、参数、退出码、二进制输入输出、信号，以及行数统计 |
+
+只在 macOS 跑的检查：
+
+| 检查 | 覆盖 |
+| --- | --- |
+| MacOSCaptureStartup | LaunchAgent 配置；`launch` 的参数、标准输入输出、进程组、信号转发和退出码 |
+| MacOSCaptureStatus | 按实例列出 plist，解析 `launchctl print` 的状态、退出码和错误 |
+| MacOSInstance | 实例路径、launchd 标签与回滚、命令链接、app bundle、签名和证书 |
+| MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
+| `swift test`（App.MacOS） | GUI 解码状态和覆盖 JSON、健康与严重程度、时间线上运行和通道的分段、从 app 位置找 CLI 和实例 |
 
 新增采集器的要求见[采集开发](../capture/index.mdx)。
 

@@ -16,13 +16,14 @@ internal static class ComponentIdentity
         try
         {
             var index = new Dictionary<string, string> { ["GIT_INDEX_FILE"] = Path.Combine(temporary.FullName, "index") };
-            string[] pathspecs =
+            List<string> pathspecs =
             [
                 .. inputs.Order(StringComparer.Ordinal).Select(input => ":(top,literal)" + input),
                 ":(top,exclude,glob)**/Tests/**",
                 ":(top,exclude,glob)**/test/**",
                 ":(top,exclude,glob)**/Platforms/" + (Platforms.Name(rid) == "macos" ? "Windows" : "MacOS") + "/**",
             ];
+            if (Platforms.Name(rid) == "windows") pathspecs.Add(":(top,exclude)Host/App.MacOS");
             await Git(index, ["add", "-A", "--", .. pathspecs]);
             return (await Git(index, ["write-tree"])).Trim();
         }
@@ -58,7 +59,7 @@ internal static class ComponentIdentity
             var full = Path.GetFullPath(path, checkout);
             if (!DirectoryPaths.Contains(checkout, full))
                 throw new InvalidDataException($"组件输入必须位于检出内：{full}");
-            return Path.GetRelativePath(checkout, full);
+            return Path.GetRelativePath(checkout, full).Replace(Path.DirectorySeparatorChar, '/');
         }
     }
 }

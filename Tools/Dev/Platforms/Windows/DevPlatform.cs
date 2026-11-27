@@ -44,5 +44,5 @@ internal static class DevPlatform
         return null;
     }
 
-    internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks(string temporary, string host) => [];
+    internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks() => [];
 }

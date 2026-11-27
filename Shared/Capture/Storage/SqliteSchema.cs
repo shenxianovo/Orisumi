@@ -263,7 +263,7 @@ public static partial class SqliteSchema
         using var stream = assembly.GetManifestResourceStream(resource)
             ?? throw new InvalidOperationException($"Missing schema resource: {resource}");
         using var reader = new StreamReader(stream);
-        var sql = reader.ReadToEnd();
+        var sql = reader.ReadToEnd().ReplaceLineEndings("\n");
         return assembly == typeof(SqliteSchema).Assembly ? sql.Replace("'{platform}'", $"'{Platforms.Current}'", StringComparison.Ordinal) : sql;
     }
 }

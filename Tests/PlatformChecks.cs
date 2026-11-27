@@ -21,7 +21,7 @@ else
 var withPlaceholder = host with { Platform = "windows", HardwareUuid = Guid.Empty.ToString(), MachineGuid = "machine-A" };
 Check(withPlaceholder.MatchesDatabase("windows", null, "machine-A") && !withPlaceholder.MatchesDatabase("windows", Guid.Empty.ToString(), "machine-B"),
     "a placeholder SMBIOS UUID falls back to MachineGuid");
-Console.WriteLine("PASS: host identity");
+Console.WriteLine($"PASS: {host.Platform} host identity (hardware UUID {host.HardwareUuid ?? "unknown"})");
 
 var temp = Directory.CreateTempSubdirectory("orisumi-platform-");
 try

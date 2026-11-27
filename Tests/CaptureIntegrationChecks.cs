@@ -8,16 +8,13 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
 using Orisumi.Platform;
 
-[assembly: SupportedOSPlatform("macos")]
-
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
-var claude = Path.Combine(root, "Collectors/Claude/bin/Debug/net11.0/orisumi-claude");
+var claude = Path.Combine(root, "Collectors/Claude/bin/Debug/net11.0/orisumi-claude.dll");
 CodexChecks();
 await ClaudeChecks();
 await ResidentRunChecks();
@@ -313,9 +310,9 @@ async Task ResidentRunChecks()
         {"type":"user","sessionId":"019b7a61-bc00-7111-8111-111111111111","uuid":"019b7a61-bc00-7111-8111-222222222222","parentUuid":null,"message":{"role":"user","content":"hi"}}
         """ + "\n");
     var arguments = new[] { "--store", fixture.Store, "capture" };
-    for (var run = 1; run <= 2; run++)
+    for (var run = 1; run <= (OperatingSystem.IsWindows() ? 1 : 2); run++)
     {
-        using var process = Start(claude, arguments, fixture);
+        using var process = Start(RunProcess.Dotnet, [claude, .. arguments], fixture);
         process.StandardInput.Close();
         var error = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -329,7 +326,7 @@ async Task ResidentRunChecks()
             Rows(db, "SELECT collector_version FROM capture_runs WHERE run_id=(SELECT MAX(run_id) FROM capture_runs)",
                 [typeof(ClaudeCollector).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion]);
             if (run == 1) process.Kill();
-            else process.Signal(PosixSignal.SIGTERM);
+            else if (!OperatingSystem.IsWindows()) process.Signal(PosixSignal.SIGTERM);
             await process.WaitForExitAsync(timeout.Token);
             if (run == 2) Check(process.ExitCode == 0, await error);
             Rows(db, "SELECT run_id,evidence,stopped_at_utc_ms IS NOT NULL,confirmed_until_utc_ms IS NOT NULL FROM capture_coverage WHERE scope='project_logs' ORDER BY run_id",
@@ -341,7 +338,23 @@ async Task ResidentRunChecks()
             if (!process.HasExited) { process.Kill(); await process.WaitForExitAsync(); }
         }
     }
-    Console.WriteLine("PASS: resident run records its collector version, remains unconfirmed after a kill and closes on SIGTERM");
+    if (OperatingSystem.IsWindows())
+    {
+        var previous = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+        Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", fixture.Root);
+        try
+        {
+            using var stop = new CancellationTokenSource();
+            var watch = ClaudeCollector.Watch(fixture.Store, stop.Token);
+            stop.Cancel();
+            await watch;
+            using var db = Open(fixture.Database("claude"));
+            Rows(db, "SELECT run_id,stop_reason,stopped_at_utc_ms IS NOT NULL FROM capture_runs ORDER BY run_id",
+                [1, null, 0], [2, "completed", 1]);
+        }
+        finally { Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", previous); }
+    }
+    Console.WriteLine("PASS: a killed run remains unconfirmed and graceful shutdown records completed");
 }
 
 static Process Start(string executable, string[] arguments, Fixture? fixture = null)
