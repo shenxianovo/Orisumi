@@ -6,9 +6,9 @@ internal sealed record DayAppTotal(DayApp App, long Foreground, long Active);
 internal sealed record DayTitleTotal(DayApp App, string? Title, long Foreground, long Active);
 internal sealed record DayDatabaseInfo(string Source, string Id, string[] Missing);
 
-internal sealed class DayDevice(string key, bool thisHost)
+internal sealed class DayDevice(string key, bool thisHost, string platform)
 {
-    internal const string Chrome = "com.google.Chrome";
+    internal bool IsChrome(DayApp app) => (platform, app.Id) is ("windows", "chrome.exe") or ("macos", "com.google.Chrome");
 
     internal string Key { get; } = key;
     internal bool ThisHost { get; } = thisHost;
@@ -45,7 +45,7 @@ internal sealed class DayDevice(string key, bool thisHost)
             if (app is null) continue;
             var (identity, title) = app.Value;
             DayTimeline.Append(contexts, new(start, end, new(identity, title,
-                identity.Bundle == Chrome ? tab?.Value.Tab : null)));
+                IsChrome(identity) ? tab?.Value.Tab : null)));
         }
 
         var result = new List<DayAttentionSpan>();
@@ -63,13 +63,13 @@ internal sealed class DayDevice(string key, bool thisHost)
     }
 
     internal static IEnumerable<DayAppTotal> AppTotals(IEnumerable<DayAttentionSpan> attention) =>
-        attention.Where(span => span.Value.App is not { Name: null, Bundle: null }).GroupBy(span => span.Value.App)
+        attention.Where(span => span.Value.App is not { Name: null, Id: null }).GroupBy(span => span.Value.App)
             .Select(group => new DayAppTotal(group.Key, group.Sum(span => span.End - span.Start), group.Sum(span => span.Active)))
             .OrderByDescending(app => app.Active).ThenByDescending(app => app.Foreground);
 
     // The detailed attention list runs to hundreds of segments a day; this is the readable digest.
     internal static IEnumerable<DayTitleTotal> TitleTotals(IEnumerable<DayAttentionSpan> attention, long minimum) =>
-        attention.Where(span => span.Value.App is not { Name: null, Bundle: null })
+        attention.Where(span => span.Value.App is not { Name: null, Id: null })
             .GroupBy(span => (span.Value.App, span.Value.Title))
             .Select(group => new DayTitleTotal(group.Key.App, group.Key.Title,
                 group.Sum(span => span.End - span.Start), group.Sum(span => span.Active)))

@@ -15,7 +15,7 @@ try
     var store = instance.Store;
     var host = Path.GetFullPath("Host/Cli/bin/Debug/net11.0");
     var programs = await CollectorPrograms.Read(store.Root, default, host);
-    string[] expected = Platforms.Current == "macos" ? ["browser", "claude", "codex", "macos"] : ["browser", "claude", "codex"];
+    string[] expected = ["browser", "claude", "codex", Platforms.Current];
     Check(programs.Select(program => program.Description.Name).Order().SequenceEqual(expected), "collector discovery");
     var extension = ChromeExtension.DirectoryFor(instance);
     Directory.CreateDirectory(extension);

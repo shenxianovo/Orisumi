@@ -28,6 +28,7 @@ var expectedArguments = new Dictionary<string, string[]>
     ["claude"] = ["capture"],
     ["codex"] = ["capture"],
     ["macos"] = ["foreground", "--windows", "--input", "--microphone", "--audio-output", "--camera"],
+    ["windows"] = ["foreground", "--windows", "--input"],
 };
 Check(!typeof(CollectorPrograms).Assembly.GetReferencedAssemblies().Any(reference => reference.Name!.StartsWith("orisumi-", StringComparison.Ordinal)),
     "host does not reference collectors");

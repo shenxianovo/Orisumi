@@ -3,6 +3,9 @@
   <Project Path="Collectors/Claude/Orisumi.Collectors.Claude.csproj" />
   <Project Path="Collectors/Codex/Orisumi.Collectors.Codex.csproj" />
   <Project Path="Collectors/MacOS/Orisumi.Collectors.MacOS.csproj" />
+  <Project Path="Collectors/Windows/Orisumi.Collectors.Windows.csproj">
+    <Build Project="false" />
+  </Project>
   <Project Path="Host/Cli/Orisumi.Cli.csproj" />
   <Project Path="Host/Supervisor.Windows/Orisumi.Supervisor.Windows.csproj">
     <Build Project="false" />

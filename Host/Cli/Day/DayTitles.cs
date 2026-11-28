@@ -5,7 +5,7 @@ namespace Orisumi.Cli.Day;
 
 internal sealed class DayTitles(List<DayTitles.Rule> rules)
 {
-    internal sealed record Rule(string Field, string? Bundle, Regex Pattern, string Replacement, int Index);
+    internal sealed record Rule(string Field, string? AppId, Regex Pattern, string Replacement, int Index);
 
     internal static DayTitles Read(string path)
     {
@@ -37,16 +37,16 @@ internal sealed class DayTitles(List<DayTitles.Rule> rules)
                     var field = Required(entry.RootElement, "field");
                     if (field is not ("window_title" or "tab_title"))
                         throw new JsonException($"未知的 field：{field}");
-                    string? bundle = null;
-                    if (entry.RootElement.TryGetProperty("bundle_id", out var bundleId))
+                    string? appId = null;
+                    if (entry.RootElement.TryGetProperty("app_id", out var identifier))
                     {
-                        if (field != "window_title" || bundleId.ValueKind != JsonValueKind.String)
-                            throw new JsonException("bundle_id 只能用于 window_title，且必须是字符串。");
-                        bundle = bundleId.GetString();
+                        if (field != "window_title" || identifier.ValueKind != JsonValueKind.String)
+                            throw new JsonException("app_id 只能用于 window_title，且必须是字符串。");
+                        appId = identifier.GetString();
                     }
                     var pattern = new Regex(Required(entry.RootElement, "pattern"), RegexOptions.CultureInvariant,
                         TimeSpan.FromMilliseconds(100));
-                    rules.Add(new(field, bundle, pattern, Required(entry.RootElement, "replacement"), index++));
+                    rules.Add(new(field, appId, pattern, Required(entry.RootElement, "replacement"), index++));
                 }
                 if (reader.TokenType != JsonTokenType.EndArray) throw new JsonException();
             }
@@ -63,12 +63,12 @@ internal sealed class DayTitles(List<DayTitles.Rule> rules)
                 ? value.GetString()! : throw new JsonException($"{key} 必须是字符串。");
     }
 
-    internal string? Apply(string field, string? title, string? bundle = null)
+    internal string? Apply(string field, string? title, string? appId = null)
     {
         if (title is null) return null;
         foreach (var rule in rules)
         {
-            if (rule.Field != field || rule.Bundle is not null && rule.Bundle != bundle) continue;
+            if (rule.Field != field || rule.AppId is not null && rule.AppId != appId) continue;
             try { title = rule.Pattern.Replace(title, rule.Replacement); }
             catch (RegexMatchTimeoutException error)
             {

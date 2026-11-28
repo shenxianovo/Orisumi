@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="WindowsObservationChecks" />
+  </ItemGroup>
+  <Target Name="CheckWindowsCollectorTarget" BeforeTargets="PrepareForBuild" Condition="'$(OrisumiPlatform)' != 'Windows'">
+    <Error Text="The Windows collector requires the win-x64 target." />
+  </Target>
+</Project>

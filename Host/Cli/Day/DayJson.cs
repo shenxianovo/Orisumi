@@ -61,7 +61,7 @@ internal static class DayJson
                 json.WriteNumber("active_ms", span.Active);
                 App(span.Value.App);
                 json.WriteString("title", span.Value.Title);
-                if (span.Value.App.Bundle == DayDevice.Chrome)
+                if (device.IsChrome(span.Value.App))
                 {
                     if (span.Value.Tab is not { } tab) json.WriteNull("tab");
                     else
@@ -111,7 +111,7 @@ internal static class DayJson
         void App(DayApp app)
         {
             json.WriteString("app", app.Name);
-            json.WriteString("bundle_id", app.Bundle);
+            json.WriteString("app_id", app.Id);
         }
 
         void Strings(string field, IEnumerable<string> values)

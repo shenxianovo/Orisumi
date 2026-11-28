@@ -1,0 +1,40 @@
+---
+title: Windows
+description: 前台应用、窗口、输入、离开、屏幕与会话。
+---
+
+`orisumi-windows foreground` 是一个 C# 进程：一条线程跑隐藏顶层窗口的消息循环，WinEvent 钩子、Raw Input、会话和电源通知都在这条线程上，比较也在这里做，变化按批交给 `CaptureWriter` 入库。流程见[架构](../../overview/architecture.mdx#各来源怎么走)。语义和 [macOS](./macos.mdx) 相同的表、视图和通道沿用同样的名字，`day` 用同一套读法；下面只写 Windows 的不同。不需要授权；没有音频和摄像头（计划见 [Windows 客户端](../../development/windows.mdx)）。
+
+## 应用和窗口
+
+| 事实或视图 | 含义 |
+| --- | --- |
+| `process_instances` | 进程：`pid`、创建时间 `created_at_filetime`（和 pid 一起区分 pid 复用）、`executable_path`、`aumid`（打包应用的 AppUserModelID，没有为 `''`）、`app_name`（文件版本信息）、`is_elevated`。都是不变属性，读不到为 NULL，之后可以补上 |
+| `running_app_observations` / `taskbar_window_observations` / `taskbar_app_intervals` | 进程存在（初值、出现、退出）／是否有任务栏式窗口的变化／有任务栏窗口的区间，对应 macOS 的激活策略 |
+| `foreground_app_events` / `foreground_app_history` | 前台应用的初值和切换；`has_app=0` 没有前台窗口，NULL 读不到 |
+| `window_focus_instances` / `focused_window_events` / `window_title_observations` / `window_history` | 同 macOS。焦点是前台顶层窗口，`hwnd` 在窗口生命期内稳定，销毁后可能被复用；每次重新获得焦点是新的一段 |
+
+只记人摆出来的应用：进程第一次被看到时有任务栏式顶层窗口（可见、非工具窗口、未被 DWM 隐藏、无所有者或带 `WS_EX_APPWINDOW`），或进入过前台。前台取 `EVENT_SYSTEM_FOREGROUND`；前台是 `ApplicationFrameHost.exe` 时归到它子窗口 `Windows.UI.Core.CoreWindow` 的进程。标题取 `EVENT_OBJECT_NAMECHANGE`，每 60 秒核对，用 `InternalGetWindowText` 读：它不向目标进程发消息，目标卡死时不会卡住采集。任务栏状态在窗口显示、隐藏、销毁时和每秒核对。
+
+## 输入和离开
+
+| 事实 | 含义 |
+| --- | --- |
+| `keyboard_presses` | 一次按键：`vk_code`、`scan_code`、`is_extended`（E0、E1 前缀，区分左右 Ctrl 这类键）、按下和松开时间、按下时的修饰键（1 Shift、2 Ctrl、4 Alt、8 Win）；自动重复不另计，没看到松开时结束为空 |
+| `mouse_button_events` | 按钮按下或松开：按钮（0 左、1 右、2 中、3 X1、4 X2）、读到时的光标位置，单位是虚拟屏幕的物理像素 |
+| `afk_events` | active、idle 的初值和变化 |
+
+输入用 Raw Input（`RIDEV_INPUTSINK`，前台是别的窗口时也收得到），只记键码和按钮，不记输入的文字。离开读 `GetLastInputInfo`（整个会话的最后输入，每秒一次），离开状态下一有输入立即重读。`GetLastInputInfo` 和 WinEvent 的时间按 `GetTickCount64` 对齐：.NET 11 的 `Environment.TickCount64` 在 Windows 上不含睡眠时间。
+
+## 屏幕、会话和时间
+
+| 事实 | Windows 来源 |
+| --- | --- |
+| `screen_lock_events` | `WTS_SESSION_LOCK` / `UNLOCK`；初值读 `WTSSessionInfoEx` 的 `SessionFlags` |
+| `user_session_events` | 控制台和远程连接、断开；读不到为 NULL |
+| `display_sleep_events` | `GUID_CONSOLE_DISPLAY_STATE`，注册时即给初值；变暗算未休眠 |
+| `system_sleep_events` | `WM_POWERBROADCAST` 和 `PowerRegisterSuspendResumeNotification` |
+| `time_zone_events` | `WM_SETTINGCHANGE`、`WM_TIMECHANGE`；`id_kind` 标明是 IANA ID 还是转换不了的 Windows ID |
+| `clock_events` | 墙钟和 `QueryInterruptTime`（含睡眠）同时读的初值，以及 `WM_TIMECHANGE` 后的变化 |
+
+中断和恢复同 macOS：系统睡眠和会话切出中断应用、窗口、输入、离开、时区和时钟通道，恢复后各自重新记初值，还按着的键以没看到松开记下；锁屏和显示器休眠不中断其他通道。`capture_run_configuration` 记离开阈值和窗口、输入开关。

@@ -14,6 +14,8 @@ internal sealed record DayRange(DateOnly Date, TimeZoneInfo Zone, long From, lon
         }
         if (zoneId is not null && !zone.HasIanaId)
             throw new ArgumentException($"--time-zone 需要 IANA 时区：{zoneId}");
+        if (!zone.HasIanaId && TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var iana))
+            zone = TimeZoneInfo.FindSystemTimeZoneById(iana);
 
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime);
         var day = today;

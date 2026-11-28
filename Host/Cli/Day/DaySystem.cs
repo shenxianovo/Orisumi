@@ -1,9 +1,9 @@
 namespace Orisumi.Cli.Day;
 
-internal sealed record DayApp(string? Name, string? Bundle);
+internal sealed record DayApp(string? Name, string? Id);
 internal sealed record DayWindow(DayApp App, string? Title);
 
-internal sealed class DayMac(DayDatabase database, DayTitles titles)
+internal sealed class DaySystem(DayDatabase database, DayTitles titles, string source)
 {
     private sealed record Foreground(string? Process, DayApp App);
     private sealed record Focus(long? HasWindow, string? Id, string? Process);
@@ -38,14 +38,14 @@ internal sealed class DayMac(DayDatabase database, DayTitles titles)
         foreach (var run in runs.Values)
             device.Presence.Add(new(Math.Max(day.From, run.Start), Math.Min(day.To, run.End), "unknown"));
         AddPresence(database.Changes("system_sleep_events", "event_kind", row => row.GetString(3), "event_kind"), "sleep", "asleep");
-        AddPresence(database.Changes("user_session_events", "event_kind", row => row.GetString(3), "event_kind"), "session_inactive", "session_inactive");
+        AddPresence(database.Changes("user_session_events", "event_kind", row => DayDatabase.Text(row, 3), "event_kind"), "session_inactive", "session_inactive");
         AddPresence(database.Changes("screen_lock_events", "is_locked", row => DayDatabase.Number(row, 3), "is_locked"), 1L, "locked");
         device.Presence.AddRange(DayTimeline.Values(day, runs,
-            database.Changes("afk_events", "state", row => row.GetString(3), "state"), Channel("afk")));
+            database.Changes("afk_events", "state", row => DayDatabase.Text(row, 3) ?? "unknown", "state"), Channel("afk")));
 
         foreach (var zone in DayTimeline.Values(day, runs,
-            database.Changes("time_zone_events", "time_zone_id", row => row.GetString(3), "time_zone_id")))
-            device.TimeZones.Add(zone.Value);
+            database.Changes("time_zone_events", "time_zone_id", row => DayDatabase.Text(row, 3), "time_zone_id"), Channel("time_zone")))
+            if (zone.Value is { } id) device.TimeZones.Add(id);
 
         var foreground = ReadForeground().ToLookup(change => change.Position.Run);
         var focus = ReadFocus().ToLookup(change => change.Position.Run);
@@ -81,7 +81,7 @@ internal sealed class DayMac(DayDatabase database, DayTitles titles)
                 {
                     if (window.Value.Focus.HasWindow == 0) title = "";
                     else if (process == window.Value.Focus.Process)
-                        title = titles.Apply("window_title", window.Value.Text, value.Bundle);
+                        title = titles.Apply("window_title", window.Value.Text, value.Id);
                 }
                 DayTimeline.Append(device.Windows, new(start, end, new(value, title)));
             }
@@ -100,14 +100,28 @@ internal sealed class DayMac(DayDatabase database, DayTitles titles)
         if (!database.Has(table, "run_id", "run_sequence", "observed_at_utc_ms", "has_app")) return [];
         var hasProcess = database.Has(table, "process_instance_id") && database.Has("process_instances", "process_instance_id");
         var app = database.Column("process_instances", "app_name", "p.");
-        var bundle = database.Column("process_instances", "bundle_id", "p.");
-        var columns = hasProcess ? $"e.process_instance_id, {app}, {bundle}" : "NULL, NULL, NULL";
+        var windows = source == "windows";
+        var identifier = database.Column("process_instances", windows ? "aumid" : "bundle_id", "p.");
+        var path = windows ? database.Column("process_instances", "executable_path", "p.") : "NULL";
+        var columns = hasProcess ? $"e.process_instance_id, {app}, {identifier}, {path}" : "NULL, NULL, NULL, NULL";
         var join = hasProcess ? "LEFT JOIN process_instances p USING(process_instance_id)" : "";
         return database.Read($"""
             SELECT e.run_id, e.run_sequence, e.observed_at_utc_ms, e.has_app, {columns}
             FROM foreground_app_events e {join}
-            """, row => new DayChange<Foreground>(DayDatabase.Position(row), row.GetBoolean(3)
-                ? new(DayDatabase.Text(row, 4), new(DayDatabase.Text(row, 5), DayDatabase.Text(row, 6))) : new(null, NoApp)));
+            """, row =>
+            {
+                var foreground = new Foreground(null, NoApp);
+                if (DayDatabase.Number(row, 3) == 1)
+                {
+                    var id = DayDatabase.Text(row, 6);
+                    // Windows databases are also read on macOS, where backslash is not a path separator.
+                    if (windows && string.IsNullOrEmpty(id))
+                        id = DayDatabase.Text(row, 7) is { Length: > 0 } exe
+                            ? exe[(exe.LastIndexOfAny(['/', '\\']) + 1)..].ToLowerInvariant() : null;
+                    foreground = new(DayDatabase.Text(row, 4), new(DayDatabase.Text(row, 5), id));
+                }
+                return new DayChange<Foreground>(DayDatabase.Position(row), foreground);
+            });
     }
 
     private IEnumerable<DayChange<Focus>> ReadFocus()

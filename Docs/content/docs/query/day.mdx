@@ -28,7 +28,7 @@ orisumi day [--date YYYY-MM-DD] [--time-zone <IANA 时区>]
 
 整天连续不重叠，相邻同状态合并。同一时刻按优先级取最高的：
 
-`unobserved`（没有 macOS 运行）> `asleep`（系统休眠）> `session_inactive`（用户会话切出）> `locked` > `active` / `idle`（离开判定）> `unknown`（离开通道不可用）。锁屏状态未知时往下落。
+`unobserved`（没有系统采集器运行：macOS 或 Windows）> `asleep`（系统休眠）> `session_inactive`（用户会话切出）> `locked` > `active` / `idle`（离开判定）> `unknown`（离开通道不可用）。锁屏状态未知时往下落。
 
 ### attention
 

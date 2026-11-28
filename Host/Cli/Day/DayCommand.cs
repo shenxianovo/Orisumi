@@ -31,7 +31,7 @@ internal static class DayCommand
             var id = Path.GetFileNameWithoutExtension(path);
             var key = identity.DeviceKey(id);
             if (!devices.TryGetValue(key, out var device))
-                devices.Add(key, device = new(key, identity.IsThisHost(host)));
+                devices.Add(key, device = new(key, identity.IsThisHost(host), identity.Platform ?? source));
 
             if (database.Has("host_observations", "observed_at_utc_ms", "host_name"))
             {
@@ -45,7 +45,8 @@ internal static class DayCommand
 
             switch (source)
             {
-                case "macos": new DayMac(database, titles).ReadInto(device); break;
+                case "macos":
+                case "windows": new DaySystem(database, titles, source).ReadInto(device); break;
                 case "browser": new DayBrowser(database, titles).ReadInto(device); break;
                 case "claude": device.Agents.ReadClaude(database); break;
                 case "codex": device.Agents.ReadCodex(database); break;

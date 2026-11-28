@@ -13,6 +13,7 @@ flowchart LR
     CS["state_5.sqlite"]
     CH["Chrome"]
     OS["macOS 系统 API"]
+    WS["Windows 系统 API"]
   end
   subgraph 采集进程
     CL["orisumi-claude capture"]
@@ -21,6 +22,7 @@ flowchart LR
     NH["orisumi-browser capture"]
     SW["Swift 观测助手"]
     FG["orisumi-macos foreground"]
+    WF["orisumi-windows foreground"]
   end
   W[["CaptureWriter"]]
   DB[("observations/来源/库 ID.sqlite")]
@@ -30,7 +32,8 @@ flowchart LR
   CS -. 现值 .-> CX
   CH --> EXT -- WebSocket --> NH
   OS --> SW -- JSONL --> FG
-  CL & CX & NH & FG --> W --> DB --> Q
+  WS --> WF
+  CL & CX & NH & FG & WF --> W --> DB --> Q
 ```
 
 ## 进程
@@ -41,8 +44,9 @@ flowchart LR
 | `orisumi-codex capture` | 进程生命期 | 回放 rollout；名称、归档、置顶读现值 |
 | `orisumi-browser capture` | 一条扩展连接，每个 Chrome 配置一条 | 通知加定时快照；历史回放 |
 | `orisumi-macos foreground` 与 Swift 助手 | 进程生命期 | 通知加读现值 |
+| `orisumi-windows foreground` | 进程生命期 | 通知加读现值 |
 
-在 macOS 上，`capture start` 把四个采集器装成 LaunchAgent，`orisumi <来源> …` 把命令转给对应程序。GUI 也通过 CLI 查询和启停采集。见[安装与启停](../development/release.mdx#安装与启停)和 [GUI](../development/release.mdx#gui)。
+`capture start` 在 macOS 上把四个采集器装成 LaunchAgent，在 Windows 上交给实例的托管进程，`orisumi <来源> …` 把命令转给对应程序。GUI 也通过 CLI 查询和启停采集。见[安装与启停](../development/release.mdx#安装与启停)和 [GUI](../development/release.mdx#gui)。
 
 ## 一轮写入
 
@@ -59,6 +63,8 @@ flowchart LR
 **Claude、Codex**：监听来源目录，`JsonlReader` 从游标读新增的完整行，来源代码挑出事件和内容，与游标一起提交。通知只触发读取；Claude 每五分钟、Codex 每 60 秒再核对一次。
 
 **macOS**：Swift 助手在内存里保留各通道的上一个值，只把变化连同观测时间写成 JSONL；`foreground` 按批入库。Swift 进程的生命期就是一次运行，内存里的状态在运行内可靠，所以比较留在 Swift。两边任一方退出，另一方随之结束运行。
+
+**Windows**：同样的比较放在 `orisumi-windows` 自己的消息线程里，Win32 接口在 C# 里直接调用，不需要助手进程，见 [Windows](../capture/sources/windows.mdx)。
 
 **浏览器**：扩展会被 Chrome 随时停掉，状态不放在扩展里。扩展只转发事件和快照，接收端拿库里的最后已知状态比较：
 

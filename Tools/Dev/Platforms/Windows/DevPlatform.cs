@@ -51,5 +51,5 @@ internal static class DevPlatform
     }
 
     internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks() =>
-        [CheckCommand.FileCheck("WindowsSupervisor")];
+        [CheckCommand.FileCheck("WindowsSupervisor"), CheckCommand.FileCheck("WindowsObservation")];
 }

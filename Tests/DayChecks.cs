@@ -19,6 +19,7 @@ var spring = DayRange.Create("2026-03-08", "America/New_York");
 Equal(23 * 3_600_000L, spring.To - spring.From, "spring-forward date is 23 hours");
 
 var today = DayRange.Create(null, "UTC");
+Check(DayRange.Create(null, null).Zone.HasIanaId, "local query zone uses its IANA identifier");
 Check(today.To <= DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() && today.To > today.From, "today ends now, not at midnight");
 var terminal = new DayApp("Terminal", "com.apple.Terminal");
 var titleTotals = DayDevice.TitleTotals([
@@ -193,7 +194,8 @@ try
     Directory.CreateDirectory(Path.GetDirectoryName(rules)!);
     File.WriteAllText(rules, """
         {"rules":[
-          {"field":"window_title","bundle_id":"com.apple.Terminal","pattern":" \\([0-9]+\\)$","replacement":"","why":"counter"},
+          {"field":"window_title","app_id":"com.apple.Terminal","pattern":" \\([0-9]+\\)$","replacement":"","why":"counter"},
+          {"field":"window_title","app_id":"chrome.exe","pattern":" - Chrome$","replacement":""},
           {"field":"tab_title","pattern":" [0-9]+$","replacement":"!"},
           {"field":"tab_title","pattern":"!$","replacement":""}
         ]}
@@ -205,6 +207,27 @@ try
             INSERT INTO database_identity VALUES ('windows','FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF','0011aabb-0000-1111-2222-334455667788');
             """);
 
+    Fixture("windows", "windows-desktop", null, $"""
+        CREATE TABLE database_identity(platform,hardware_uuid,machine_guid);
+        INSERT INTO database_identity VALUES ('windows',NULL,'0011aabb-0000-1111-2222-334455667788');
+        CREATE TABLE capture_runs(run_id,started_at_utc_ms,stopped_at_utc_ms,confirmed_until_utc_ms);
+        INSERT INTO capture_runs VALUES (1,{from},NULL,{from+300});
+        CREATE TABLE capture_channel_events(run_id,run_sequence,observed_at_utc_ms,channel,available);
+        CREATE TABLE afk_events(run_id,run_sequence,observed_at_utc_ms,state);
+        INSERT INTO afk_events VALUES (1,1,{from},'active'),(1,4,{from+150},'idle'),(1,8,{from+260},NULL);
+        CREATE TABLE process_instances(process_instance_id,app_name,executable_path,aumid);
+        INSERT INTO process_instances VALUES ('c','Chrome','C:\Program Files\Chrome\CHROME.EXE',''),
+            ('s','Editor','C:\Apps\EDITOR.EXE','Example.Editor_pkg!App');
+        CREATE TABLE foreground_app_events(run_id,run_sequence,observed_at_utc_ms,has_app,process_instance_id);
+        INSERT INTO foreground_app_events VALUES (1,2,{from},1,'c'),(1,5,{from+200},1,'s'),(1,7,{from+250},NULL,NULL);
+        CREATE TABLE focused_window_events(run_id,run_sequence,observed_at_utc_ms,has_window,focus_id);
+        INSERT INTO focused_window_events VALUES (1,3,{from},1,'f1'),(1,6,{from+200},1,'f2');
+        CREATE TABLE window_focus_instances(focus_id,process_instance_id);
+        INSERT INTO window_focus_instances VALUES ('f1','c'),('f2','s');
+        CREATE TABLE window_title_observations(run_id,run_sequence,observed_at_utc_ms,focus_id,title);
+        INSERT INTO window_title_observations VALUES (1,3,{from},'f1','Page - Chrome'),(1,6,{from+200},'f2','Text - Chrome');
+        """);
+
     using var output = new StringWriter(CultureInfo.InvariantCulture);
     var commandLine = new[] { "day", "--store", store.Root, "--date", "2026-11-01", "--time-zone", "America/New_York" };
     Equal(0, await Commands.Create(output: output).Parse(commandLine).InvokeAsync(), "day command succeeds");
@@ -214,7 +237,17 @@ try
     var devices = root.GetProperty("devices").EnumerateArray().ToArray();
     Equal(5, devices.Length, "identities are grouped per host with each unknown database kept separate");
     var windows = devices.Single(device => Text(device, "device") == "windows:machine-guid:0011AABB-0000-1111-2222-334455667788");
-    Equal(2, windows.GetProperty("databases").GetArrayLength(), "Windows copies with placeholder firmware UUIDs group by installation");
+    Equal(3, windows.GetProperty("databases").GetArrayLength(), "Windows copies with placeholder firmware UUIDs group by installation");
+    Check(Rows(windows, "presence").Select(row => Text(row, "state")).SequenceEqual(["active","idle","unknown","unobserved"]),
+        "Windows presence ends at the last confirmation");
+    var windowsAttention = Rows(windows, "attention");
+    Check(Text(windowsAttention[0], "app_id") == "chrome.exe" && Text(windowsAttention[0], "title") == "Page" &&
+        windowsAttention[0].GetProperty("tab").ValueKind == JsonValueKind.Null, "Windows executable identity, Chrome tab and title rule");
+    Check(Text(windowsAttention[1], "app_id") == "Example.Editor_pkg!App" && Text(windowsAttention[1], "title") == "Text - Chrome" &&
+        !windowsAttention[1].TryGetProperty("tab", out _), "packaged app identity takes precedence");
+    Check(Text(windowsAttention[2], "app_id") is null, "unknown foreground ends the previous Windows app");
+    var windowsApps = Rows(windows.GetProperty("summary"), "apps");
+    Equal(150L, windowsApps[0].GetProperty("active_ms").GetInt64(), "Windows foreground and active time intersect");
     Check(!windows.GetProperty("this_host").GetBoolean(), "a Windows copy is remote on macOS");
     var local = devices.Single(device => Text(device, "device") == $"macos:{hardware}");
     var remote = devices.Single(device => Text(device, "device") == "macos:different-device");
@@ -252,7 +285,7 @@ try
     Equal("Task", Text(attention[0], "title"), "title rule applies before segmenting");
     Equal(from + 90, At(attention[0], "end"), "equal normalized window titles merge");
     Check(attention.All(segment => (At(segment, "end") <= from + 120 || At(segment, "start") >= from + 180)
-        && (Text(segment, "bundle_id") == "com.google.Chrome") == segment.TryGetProperty("tab", out _)),
+        && (Text(segment, "app_id") == "com.google.Chrome") == segment.TryGetProperty("tab", out _)),
         "sleep excludes attention and tabs appear only for Chrome");
     Equal("Page", Text(AttentionAt(320).GetProperty("tab"), "title"), "focused profile tab uses normalized title");
     Check(At(AttentionAt(320), "start") == from + 300, "equal normalized tab titles merge");

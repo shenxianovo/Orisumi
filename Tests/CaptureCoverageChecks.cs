@@ -34,7 +34,7 @@ try
     using var report = JsonDocument.Parse(coverage.StandardOutput);
     var sources = report.RootElement.GetProperty("sources").EnumerateArray().ToArray();
     Check(sources.Where(source => source.GetProperty("status").GetString() == "no_database")
-        .Select(source => source.GetProperty("source").GetString()).SequenceEqual(Platforms.Current == "macos" ? ["browser", "codex", "macos"] : ["browser", "codex"]),
+        .Select(source => source.GetProperty("source").GetString()).SequenceEqual(["browser", "codex", Platforms.Current]),
         "each installed collector missing a database has an explicit row");
     var copiedRows = new[] { "abcdefabcdefabcdefabcdefabcdefab", "abcdefabcdefabcdefabcdefabcdef00" }
         .Select(id => sources.Single(source => source.GetProperty("database").GetString() == id)).ToArray();

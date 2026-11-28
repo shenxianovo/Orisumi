@@ -41,7 +41,7 @@ description: 怎么从观测库读出时间段、按设备合并，以及读时�
 
 ```json
 {"rules": [
-  {"field": "window_title", "bundle_id": "com.apple.Terminal",
+  {"field": "window_title", "app_id": "com.apple.Terminal",
    "pattern": "(^|—\\s+)[◐◑◒◓✳\\u2800-\\u28FF]\\s+", "replacement": "$1",
    "why": "Claude Code 的忙闲 spinner"}
 ]}
@@ -49,9 +49,21 @@ description: 怎么从观测库读出时间段、按设备合并，以及读时�
 
 | 字段 | 含义 |
 | --- | --- |
-| `field` | `window_title`（macOS 窗口标题）或 `tab_title`（Chrome 标签标题） |
-| `bundle_id` | 可选，只对这个应用的窗口标题生效 |
+| `field` | `window_title`（系统采集器记的窗口标题）或 `tab_title`（Chrome 标签标题） |
+| `app_id` | 可选，只对这个应用的窗口标题生效，取值见下 |
 | `pattern` / `replacement` | 正则和替换，`$1` 引用分组 |
 | `why` | 为什么要这条，给以后改规则的人或 Agent 看 |
 
 代码里不带默认规则。没有文件就是不整理。
+
+### 应用身份
+
+`app_id` 在读的时候由进程的原始属性推出，`day` 输出和标题规则用同一个值：
+
+| 平台 | `app_id` | 例子 |
+| --- | --- | --- |
+| macOS | bundle ID | `com.google.Chrome` |
+| Windows，打包应用 | AUMID | `OpenAI.Codex_2p2nqsd0c76g0!App` |
+| Windows，其他 | exe 文件名，小写 | `chrome.exe` |
+
+`attention` 里的 `tab` 只在前台是 Chrome（`com.google.Chrome` 或 `chrome.exe`）时有。
