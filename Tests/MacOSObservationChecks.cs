@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.MacOS;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 if (!OperatingSystem.IsMacOS()) return;
 var run = typeof(MacOSForeground).GetMethod("RunObserver", BindingFlags.Static | BindingFlags.NonPublic)!

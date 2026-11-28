@@ -1,7 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Orisumi.Capture.Hosting;
 using Orisumi.Capture.Storage;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Collectors.Codex;
 

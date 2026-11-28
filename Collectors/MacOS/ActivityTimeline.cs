@@ -1,6 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Collectors.MacOS;
 

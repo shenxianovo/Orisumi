@@ -1,7 +1,7 @@
 using System.CommandLine;
 using Orisumi.Capture.Hosting;
 using Orisumi.Collectors.MacOS;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var store = CollectorCommand.StoreOption();
 var root = CollectorCommand.Create(MacOSForeground.Collector, "Orisumi · macOS 采集", store,

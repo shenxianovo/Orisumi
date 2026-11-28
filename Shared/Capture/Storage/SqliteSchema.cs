@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Capture.Storage;
 

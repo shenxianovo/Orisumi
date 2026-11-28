@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Platform/Orisumi.Platform.csproj" />
+    <ProjectReference Include="../Core/Orisumi.Core.csproj" />
     <InternalsVisibleTo Include="orisumi" />
     <InternalsVisibleTo Include="orisumi-supervisor" />
     <InternalsVisibleTo Include="WindowsSupervisorChecks" />

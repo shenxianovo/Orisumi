@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.ComponentModel;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Cli;
 

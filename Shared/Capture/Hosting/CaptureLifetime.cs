@@ -1,4 +1,4 @@
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Capture.Hosting;
 

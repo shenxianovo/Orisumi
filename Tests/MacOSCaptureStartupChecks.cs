@@ -10,7 +10,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 using Orisumi.Cli;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 [assembly: SupportedOSPlatform("macos")]
 

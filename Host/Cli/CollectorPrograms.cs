@@ -1,5 +1,5 @@
 using System.CommandLine;
-using Orisumi.Platform;
+using Orisumi.Core;
 using Orisumi.Desktop;
 
 namespace Orisumi.Cli;

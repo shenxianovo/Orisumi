@@ -1,7 +1,7 @@
 using System.CommandLine;
 using Orisumi.Collectors.Browser;
 using Orisumi.Capture.Hosting;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var store = CollectorCommand.StoreOption();
 var root = CollectorCommand.Create(BrowserDatabase.Collector, "Orisumi · 浏览器采集", store, ["capture"]);

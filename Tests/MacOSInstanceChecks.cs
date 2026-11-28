@@ -10,7 +10,7 @@ using Orisumi.Cli;
 using Orisumi.Cli.Capture;
 using Orisumi.Dev;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 [assembly: SupportedOSPlatform("macos")]
 
@@ -160,7 +160,7 @@ async Task BuildBundle()
     WriteExecutable(Path.Combine(fixture, "swift"), """
         #!/bin/sh
         set -eu
-        [ "$1 $2 $3 $4 $5 $6 $7 $8" = 'build -c release --package-path Host/App.MacOS --product OrisumiApp --scratch-path' ]
+        [ "$1 $2 $3 $4 $5 $6 $7 $8" = 'build -c release --package-path Host/Platforms/MacOS/App --product OrisumiApp --scratch-path' ]
         if [ "${10}" = --show-bin-path ]; then printf '%s\n' "$9/release"; exit; fi
         [ "${10} ${11}" = '-Xswiftc -warnings-as-errors' ]
         /bin/mkdir -p "$9/release"

@@ -1,12 +1,13 @@
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
-using Orisumi.Platform;
+using Orisumi.Core;
+using Orisumi.Desktop;
 
 namespace Orisumi.Dev;
 
 internal sealed partial class MacHostBuilder(HostBundle.Tools tools) : IHostBuilder
 {
-    internal const string AppPackage = "Host/App.MacOS";
+    internal const string AppPackage = "Host/Platforms/MacOS/App";
     internal const string AppIconMaster = AppPackage + "/Icon/AppIcon.png";
 
     public CommandProcess Run => tools.Run;

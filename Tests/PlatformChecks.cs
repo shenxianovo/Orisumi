@@ -4,7 +4,7 @@
 using System.Text.Json;
 using Orisumi.Capture.Hosting;
 using Orisumi.Capture.Storage;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var host = HostIdentity.Read();
 if (OperatingSystem.IsMacOS())

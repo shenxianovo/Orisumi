@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 // Copy the SDK apphost with its managed payload so discovery and describe cross a real process boundary.
 internal sealed class FixtureProgram(string build)

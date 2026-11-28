@@ -4,7 +4,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Capture.Storage;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Capture.Hosting;
 

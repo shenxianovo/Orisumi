@@ -8,7 +8,7 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 if (args is ["fixture", var marker])
 {
@@ -27,7 +27,7 @@ var temp = Directory.CreateTempSubdirectory("orisumi-supervisor-");
 var instance = Instance.Create(temp.FullName, "test_supervisor");
 var store = instance.Store;
 var files = new JobFiles(store);
-var supervisor = Path.GetFullPath("Host/Supervisor.Windows/bin/Debug/net11.0/orisumi-supervisor.exe");
+var supervisor = Path.GetFullPath("Host/Platforms/Windows/Supervisor/bin/Debug/net11.0/orisumi-supervisor.exe");
 var claude = Path.GetFullPath("Collectors/Claude/bin/Debug/net11.0/orisumi-claude.exe");
 var config = temp.CreateSubdirectory("fixture Claude config").FullName;
 Directory.CreateDirectory(Path.Combine(config, "projects"));

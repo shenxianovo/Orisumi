@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Desktop;
 

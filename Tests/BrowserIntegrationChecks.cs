@@ -14,7 +14,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Browser;
 using Orisumi.Capture.Storage;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 if (args.Length > 1) throw new ArgumentException("Provide at most one Native AOT browser executable.");
 if (args.Length == 1) Fixture.Executable = Path.GetFullPath(args[0]);

@@ -1,7 +1,7 @@
 using System.CommandLine;
 using Orisumi.Capture.Hosting;
 using Orisumi.Collectors.Claude;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var store = CollectorCommand.StoreOption();
 var capture = new Command("capture", "持续监听 Claude Code 会话日志并增量导入。");

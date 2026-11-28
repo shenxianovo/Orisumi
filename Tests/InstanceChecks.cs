@@ -15,7 +15,7 @@ using Orisumi.Cli;
 using Orisumi.Cli.Capture;
 using Orisumi.Dev;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var checkout = Environment.CurrentDirectory;
 var temp = Directory.CreateTempSubdirectory("orisumi-instance-check-");
@@ -86,24 +86,28 @@ async Task<string> Identity()
     Write("Directory.Build.props", "<Project />");
     Write("Collectors/Directory.Build.props", props);
     foreach (var path in new[] { Repository.CliProject, browser, "Collectors/Codex/Orisumi.Collectors.Codex.csproj",
-        "Shared/Capture/Capture.csproj", "Shared/Platform/Platform.csproj" })
+        "Shared/Capture/Capture.csproj", "Shared/Core/Core.csproj" })
         Write(path, project);
     Write(Repository.CliProject, project.Replace("</Project>", """
         <ItemGroup><ProjectReference Include="../../Shared/Desktop/Desktop.csproj" /></ItemGroup></Project>
         """));
     Write("Shared/Desktop/Desktop.csproj", project);
-    Write("Shared/Desktop/Supervisor.cs", "initial supervisor");
+    Write(Repository.SupervisorProject, project.Replace("</Project>", """
+        <ItemGroup><ProjectReference Include="../../../../Shared/SupervisorDependency/Dependency.csproj" /></ItemGroup></Project>
+        """));
+    Write("Shared/SupervisorDependency/Dependency.csproj", project);
+    Write("Shared/Desktop/Installation.cs", "initial installation");
     Write("Collectors/Browser/Platforms/MacOS/Browser.cs", "Mac browser");
     Write("Collectors/Browser/Platforms/Windows/Browser.cs", "Windows browser");
     Write("Shared/Directory.Build.props", """
         <Project><ItemGroup Condition="'$(MSBuildProjectName)' == 'Capture'">
-          <ProjectReference Include="$(MSBuildThisFileDirectory)Platform/Platform.csproj" />
+          <ProjectReference Include="$(MSBuildThisFileDirectory)Core/Core.csproj" />
         </ItemGroup></Project>
         """);
     Write("Collectors/Browser/Extension/manifest.json", """{"name":"Browser"}""");
     Write("Collectors/Browser/Extension/test/test.mjs", "test");
     Write("Collectors/Browser/Tests/test.cs", "test");
-    Write("Shared/Platform/Tests/test.cs", "test");
+    Write("Shared/Core/Tests/test.cs", "test");
     Write("Collectors/Browser/Program.cs", "browser");
     Write("Collectors/Codex/Program.cs", "codex");
     Write(".gitignore", "/Collectors/Browser/ignored\nbin/\nobj/\n");
@@ -114,24 +118,27 @@ async Task<string> Identity()
     var originalIndex = File.ReadAllBytes(index);
     var initial = await Id();
     Check(initial == await Id(), "same content produces the same identity");
-    var hostBefore = await HostId();
-    Write("Shared/Desktop/Supervisor.cs", "new supervisor");
-    Check(await HostId() != hostBefore && await Id() == initial, "desktop supervision changes the host identity alone");
+    var hostBefore = await HostId(Platforms.CurrentRid);
+    Write("Shared/Desktop/Installation.cs", "updated installation");
+    Check(await HostId(Platforms.CurrentRid) != hostBefore && await Id() == initial, "desktop installation changes the host identity alone");
     var macHost = await HostId("osx-arm64");
     var windowsHost = await HostId("win-x64");
-    Write("Host/App.MacOS/App.swift", "updated mac app");
+    Write("Host/Platforms/MacOS/App/App.swift", "updated mac app");
     Check(await HostId("osx-arm64") != macHost && await HostId("win-x64") == windowsHost,
         "the Swift app contributes only to the macOS host identity");
     macHost = await HostId("osx-arm64");
-    Write("Host/Supervisor.Windows/Program.cs", "updated Windows supervisor");
+    Write("Host/Platforms/Windows/Supervisor/Program.cs", "updated Windows supervisor");
     Check(await HostId("win-x64") != windowsHost && await HostId("osx-arm64") == macHost,
         "the Windows supervisor contributes only to the Windows host identity");
+    windowsHost = await HostId("win-x64");
+    Write("Shared/SupervisorDependency/Dependency.cs", "updated dependency");
+    Check(await HostId("win-x64") != windowsHost && await HostId("osx-arm64") == macHost,
+        "a reference unique to the supervisor contributes only to the Windows host identity");
     var otherRid = Platforms.Current == "macos" ? "win-x64" : "osx-arm64";
     var otherPlatform = Platforms.Current == "macos" ? "Windows" : "MacOS";
-    var otherIdentity = await ComponentIdentity.Read(source, "Collectors/Browser", browser, otherRid, RunProcess.Dotnet, default);
+    var otherIdentity = await Id(otherRid);
     Write($"Collectors/Browser/Platforms/{otherPlatform}/Browser.cs", "changed other platform");
-    Check(await Id() == initial &&
-        await ComponentIdentity.Read(source, "Collectors/Browser", browser, otherRid, RunProcess.Dotnet, default) != otherIdentity,
+    Check(await Id() == initial && await Id(otherRid) != otherIdentity,
         "only the target platform implementation contributes to a component identity");
     Check(ProgramDescription.ExecutableName("browser", "win-x64") == "orisumi-browser.exe" &&
         ProgramDescription.ExecutableName("browser", "osx-arm64") == "orisumi-browser" &&
@@ -147,11 +154,11 @@ async Task<string> Identity()
     var untracked = await Id();
     Check(untracked != initial, "untracked input changes the identity");
     foreach (var path in new[] { "Collectors/Browser/Extension/test/test.mjs", "Collectors/Browser/Tests/test.cs",
-        "Shared/Platform/Tests/test.cs", "Collectors/Codex/Program.cs" })
+        "Shared/Core/Tests/test.cs", "Collectors/Codex/Program.cs" })
         File.AppendAllText(Path.Combine(source, path), " changed");
     Check(await Id() == untracked, "test directories and unrelated components are excluded");
 
-    Write("Shared/Platform/Platform.csproj", project + "\n<!-- referenced -->");
+    Write("Shared/Core/Core.csproj", project + "\n<!-- referenced -->");
     var referenced = await Id();
     Check(referenced != untracked, "transitive references evaluated through props count");
     Write("Shared/Directory.Build.props", File.ReadAllText(Path.Combine(source, "Shared/Directory.Build.props")) + "\n<!-- props -->");
@@ -173,8 +180,8 @@ async Task<string> Identity()
     Console.WriteLine("PASS: worktree identity, recursive MSBuild references, props, exclusions, clean tree and unchanged index");
     return source;
 
-    Task<string> HostId(string? rid = null) => ComponentIdentity.Read(source, "Host", Repository.CliProject, rid ?? Platforms.CurrentRid, RunProcess.Dotnet, default);
-    Task<string> Id() => ComponentIdentity.Read(source, "Collectors/Browser", browser, Platforms.CurrentRid, RunProcess.Dotnet, default);
+    Task<string> HostId(string rid) => ComponentIdentity.Read(source, "Host", Repository.HostProjects(rid), rid, RunProcess.Dotnet, default);
+    Task<string> Id(string? rid = null) => ComponentIdentity.Read(source, "Collectors/Browser", [browser], rid ?? Platforms.CurrentRid, RunProcess.Dotnet, default);
     Task<string> Git(params string[] args) => Repository.Query("git", source, default, args);
     void Write(string name, string content)
     {

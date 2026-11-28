@@ -1,6 +1,6 @@
 using System.CommandLine;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Dev;
 

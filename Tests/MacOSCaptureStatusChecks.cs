@@ -5,7 +5,7 @@
 
 using System.Runtime.Versioning;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 [assembly: SupportedOSPlatform("macos")]
 

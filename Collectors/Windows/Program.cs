@@ -1,7 +1,7 @@
 using System.CommandLine;
 using Orisumi.Capture.Hosting;
 using Orisumi.Collectors.Windows;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var store = CollectorCommand.StoreOption();
 var root = CollectorCommand.Create(WindowsForeground.Collector, "Orisumi · Windows 采集", store, ["foreground", "--windows", "--input"]);

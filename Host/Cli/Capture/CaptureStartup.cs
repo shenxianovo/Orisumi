@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Cli.Capture;
 

@@ -1,6 +1,6 @@
 using System.Runtime.Versioning;
 
-namespace Orisumi.Platform;
+namespace Orisumi.Core;
 
 [SupportedOSPlatform("macos")]
 internal sealed record SystemLocations(string Agents, string Commands, string Launchctl)

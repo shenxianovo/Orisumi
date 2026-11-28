@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Cli;
 

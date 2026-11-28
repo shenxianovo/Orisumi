@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Claude;
 using Orisumi.Collectors.Codex;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
 var claude = Path.Combine(root, "Collectors/Claude/bin/Debug/net11.0/orisumi-claude.dll");
@@ -330,7 +330,7 @@ async Task ResidentRunChecks()
             await process.WaitForExitAsync(timeout.Token);
             // Windows signals a killed process before its file objects are cleaned up (seen 1.7 ms later in ETW),
             // so the next writer starts only once the killed writer's lock can be opened exclusively.
-            if (run == 1) await Released(new Orisumi.Platform.Store(fixture.Store).LockFile("claude.writer"));
+            if (run == 1) await Released(new Orisumi.Core.Store(fixture.Store).LockFile("claude.writer"));
             if (run == 2) Check(process.ExitCode == 0, await error);
             Rows(db, "SELECT run_id,evidence,stopped_at_utc_ms IS NOT NULL,confirmed_until_utc_ms IS NOT NULL FROM capture_coverage WHERE scope='project_logs' ORDER BY run_id",
                 run == 1 ? [[1, "unconfirmed", 0, 1]] : [[1, "unconfirmed", 0, 1], [2, "completed", 1, 1]]);
@@ -397,6 +397,6 @@ sealed class Fixture : IDisposable
     private readonly DirectoryInfo directory = Directory.CreateTempSubdirectory("orisumi-facts-");
     internal string Root => directory.FullName;
     internal string Store => Path.Combine(Root, "store");
-    internal string Database(string source) => new Orisumi.Platform.Store(Store).CurrentDatabase(source)!;
+    internal string Database(string source) => new Orisumi.Core.Store(Store).CurrentDatabase(source)!;
     public void Dispose() => directory.Delete(recursive: true);
 }

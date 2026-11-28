@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Principal;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Desktop;
 
@@ -56,7 +56,7 @@ internal sealed partial class CaptureTask(Instance instance) : ICaptureTask
                     parent = CreateFolder(RequireFolder(service, @"\"), "Orisumi", default);
                 folder = CreateFolder(parent!, instance.Name, security);
             }
-            xml ??= WindowsTaskDefinition.Create(sid, Path.Combine(instance.Store.Host, WindowsSupervisor.Executable),
+            xml ??= WindowsTaskDefinition.Create(sid, Path.Combine(instance.Store.Host, WindowsInstallation.SupervisorExecutable),
                 instance.Store.Root).ToString();
             folder!.RegisterTask(TaskName, xml, CreateOrUpdate, default, default, InteractiveToken, security);
         }

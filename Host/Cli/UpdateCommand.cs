@@ -1,7 +1,7 @@
 using System.CommandLine;
 using Orisumi.Desktop;
 using System.Text.Json;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Cli;
 

@@ -21,7 +21,7 @@
   <!-- Shared capture code; the source's own tables, indexes and views are embedded from its Schema/. -->
   <ItemGroup>
     <ProjectReference Include="$(MSBuildThisFileDirectory)../Shared/Capture/Orisumi.Capture.csproj" />
-    <ProjectReference Include="$(MSBuildThisFileDirectory)../Shared/Platform/Orisumi.Platform.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../Shared/Core/Orisumi.Core.csproj" />
     <PackageReference Include="System.CommandLine" Version="3.0.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <EmbeddedResource Include="Schema/*/*.sql"

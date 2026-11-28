@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Desktop;
 

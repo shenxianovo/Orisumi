@@ -8,7 +8,7 @@ using System.Text;
 using ZstdSharp;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Codex;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var root = Directory.CreateTempSubdirectory("orisumi-codex-incremental-").FullName;
 var previousHome = Environment.GetEnvironmentVariable("CODEX_HOME");

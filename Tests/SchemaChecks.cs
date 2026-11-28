@@ -10,7 +10,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Capture.Storage;
 using Orisumi.Cli;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var root = Directory.GetParent(Path.GetDirectoryName(SourceFile())!)!.FullName;
 var temporary = Directory.CreateTempSubdirectory("orisumi-schema-");

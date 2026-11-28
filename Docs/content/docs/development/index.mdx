@@ -22,7 +22,7 @@ dotnet run --project Tools/Dev -- dev setup
 
 ## 命令
 
-宿主在 `Host/`（CLI 和 macOS GUI），采集器在 `Collectors/<来源>`，开发工具在 `Tools/Dev`。共享项目职责、构建目标和 Windows 命令范围见[平台](./release.mdx#平台)。下表列出 macOS 命令。完整选项见 `--help`；省略 `--store` 时用程序所在的[实例](./release.mdx#实例)。
+宿主在 `Host/`：跨平台的 CLI 在 `Host/Cli`，只属于一个平台的程序在 `Host/Platforms/<平台>/`（macOS GUI `MacOS/App`、Windows 托管进程 `Windows/Supervisor`）；采集器在 `Collectors/<来源>`，开发工具在 `Tools/Dev`。共享项目职责、构建目标和 Windows 命令范围见[平台](./release.mdx#平台)。下表列出 macOS 命令。完整选项见 `--help`；省略 `--store` 时用程序所在的[实例](./release.mdx#实例)。
 
 宿主命令，`orisumi` 作用于生产，`orisumi-dev` 作用于开发实例：
 
@@ -92,7 +92,7 @@ orisumi-dev check
 | MacOSCaptureStatus | 按实例列出 plist，解析 `launchctl print` 的状态、退出码和错误 |
 | MacOSInstance | 实例路径、launchd 标签与回滚、命令链接、app bundle、签名和证书 |
 | MacOSObservation | 用替身来源让每个通道走一遍开始、核对、中断、恢复；Swift 的 JSONL、入库、积压、回滚、两侧进程退出 |
-| `swift test`（App.MacOS） | GUI 解码状态和覆盖 JSON、健康与严重程度、时间线上运行和通道的分段、从 app 位置找 CLI 和实例 |
+| `swift test`（`Host/Platforms/MacOS/App`） | GUI 解码状态和覆盖 JSON、健康与严重程度、时间线上运行和通道的分段、从 app 位置找 CLI 和实例 |
 
 新增采集器的要求见[采集开发](../capture/index.mdx)。
 

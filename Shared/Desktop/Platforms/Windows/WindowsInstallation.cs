@@ -1,16 +1,18 @@
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Desktop;
 
 internal sealed class WindowsInstallation(Instance instance) : IDesktopInstallation, ILoginRegistration
 {
+    internal const string SupervisorExecutable = "orisumi-supervisor.exe";
+
     private string Retired => Path.Combine(instance.Store.App, ".retired");
     public string HostExecutable(string directory) => Store.HostExecutableIn(directory);
     public CommandProcess RunHost => RunProcess.RunCommand;
 
     public async Task VerifyHost(string directory, bool requireReleaseCertificate, CancellationToken token)
     {
-        var supervisor = Path.Combine(directory, WindowsSupervisor.Executable);
+        var supervisor = Path.Combine(directory, SupervisorExecutable);
         if (!File.Exists(supervisor)) throw new FileNotFoundException($"缺少托管程序：{supervisor}");
         if ((await ProgramDescription.Read(HostExecutable(directory), [], token)).Name != "host")
             throw new InvalidDataException($"无效的宿主：{directory}");

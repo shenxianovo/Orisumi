@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.WebSockets;
 using Microsoft.Data.Sqlite;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Collectors.Browser;
 

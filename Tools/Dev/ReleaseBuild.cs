@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Dev;
 
@@ -17,7 +17,8 @@ internal static class ReleaseBuild
         {
             var root = component == "host" ? "Host" : Path.GetDirectoryName(project)!;
             var directory = ReleaseManifest.ComponentDirectory(destination, component);
-            var identity = await ComponentIdentity.Read(checkout, root, project, rid, dotnet, token);
+            var roots = component == "host" ? Repository.HostProjects(rid) : [project];
+            var identity = await ComponentIdentity.Read(checkout, root, roots, rid, dotnet, token);
             if (installed?.Platform == rid && installed.Components.GetValueOrDefault(component)?.Identity == identity) continue;
             var informationalVersion = $"{version ?? "dev"}+{identity}";
             await Publish(checkout, directory, component, project, instance, informationalVersion,

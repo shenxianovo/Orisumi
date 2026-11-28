@@ -1,6 +1,6 @@
 using System.CommandLine;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 using static Orisumi.Dev.CheckCommand;
 
 namespace Orisumi.Dev;
@@ -38,6 +38,6 @@ internal static class DevPlatform
         FileCheck("MacOSCaptureStatus"),
         FileCheck("MacOSInstance"),
         FileCheck("MacOSObservation"),
-        ("App.MacOS", [("swift", ["test", "--package-path", MacHostBuilder.AppPackage])]),
+        ("macOS app", [("swift", ["test", "--package-path", MacHostBuilder.AppPackage])]),
     ];
 }

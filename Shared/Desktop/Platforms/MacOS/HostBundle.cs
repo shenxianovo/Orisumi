@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
+using Orisumi.Core;
 
-namespace Orisumi.Platform;
+namespace Orisumi.Desktop;
 
 [SupportedOSPlatform("macos")]
 internal static class HostBundle

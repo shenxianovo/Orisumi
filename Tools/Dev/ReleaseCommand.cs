@@ -1,7 +1,7 @@
 using System.CommandLine;
 using System.ComponentModel;
 using System.Globalization;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Dev;
 

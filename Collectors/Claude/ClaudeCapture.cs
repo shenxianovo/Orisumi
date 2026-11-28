@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 using Orisumi.Capture.Storage;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Collectors.Claude;
 

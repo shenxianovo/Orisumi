@@ -7,11 +7,11 @@
     <Build Project="false" />
   </Project>
   <Project Path="Host/Cli/Orisumi.Cli.csproj" />
-  <Project Path="Host/Supervisor.Windows/Orisumi.Supervisor.Windows.csproj">
+  <Project Path="Host/Platforms/Windows/Supervisor/Orisumi.Supervisor.Windows.csproj">
     <Build Project="false" />
   </Project>
   <Project Path="Shared/Capture/Orisumi.Capture.csproj" />
   <Project Path="Shared/Desktop/Orisumi.Desktop.csproj" />
-  <Project Path="Shared/Platform/Orisumi.Platform.csproj" />
+  <Project Path="Shared/Core/Orisumi.Core.csproj" />
   <Project Path="Tools/Dev/Orisumi.Dev.csproj" />
 </Solution>

@@ -12,7 +12,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Desktop;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 const string RunTables = """
     CREATE TABLE capture_runs (run_id INTEGER PRIMARY KEY, started_at_utc_ms INTEGER, collector_version TEXT,

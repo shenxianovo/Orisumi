@@ -1,5 +1,5 @@
 using System.CommandLine;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Cli.Day;
 

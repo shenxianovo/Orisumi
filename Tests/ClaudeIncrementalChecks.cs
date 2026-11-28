@@ -5,7 +5,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Collectors.Claude;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var originalHome = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
 try

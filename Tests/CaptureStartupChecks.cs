@@ -6,7 +6,7 @@
 
 using Orisumi.Cli;
 using Orisumi.Cli.Capture;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var temp = Directory.CreateTempSubdirectory("orisumi-startup-");
 try

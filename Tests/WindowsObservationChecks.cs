@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
 using Orisumi.Capture.Storage;
 using Orisumi.Collectors.Windows;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var temp = Directory.CreateTempSubdirectory("orisumi-windows-check-");
 try

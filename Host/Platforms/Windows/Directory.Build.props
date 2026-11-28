@@ -1,0 +1,14 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot Condition="'$(_IsPublishing)' == 'true'">true</PublishAot>
+  </PropertyGroup>
+
+  <Target Name="CheckWindowsHostTarget" BeforeTargets="PrepareForBuild" Condition="'$(OrisumiPlatform)' != 'Windows'">
+    <Error Text="The Windows host requires the win-x64 target." />
+  </Target>
+</Project>

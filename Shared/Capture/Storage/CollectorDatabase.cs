@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Orisumi.Capture.Hosting;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Capture.Storage;
 

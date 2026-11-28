@@ -1,16 +1,17 @@
 using System.Text.Json;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Dev;
 
 internal static class ComponentIdentity
 {
-    internal static async Task<string> Read(string checkout, string componentDirectory, string project, string rid, string dotnet,
+    internal static async Task<string> Read(string checkout, string componentDirectory, string[] rootProjects, string rid, string dotnet,
         CancellationToken token)
     {
         var inputs = new HashSet<string>(StringComparer.Ordinal) { Relative(componentDirectory) };
         var projects = new HashSet<string>(StringComparer.Ordinal);
-        await AddProject(Path.GetFullPath(project, checkout));
+        foreach (var project in rootProjects)
+            await AddProject(Path.GetFullPath(project, checkout));
 
         var temporary = Directory.CreateTempSubdirectory("orisumi-index-");
         try
@@ -23,7 +24,6 @@ internal static class ComponentIdentity
                 ":(top,exclude,glob)**/test/**",
                 ":(top,exclude,glob)**/Platforms/" + (Platforms.Name(rid) == "macos" ? "Windows" : "MacOS") + "/**",
             ];
-            pathspecs.Add(Platforms.Name(rid) == "windows" ? ":(top,exclude)Host/App.MacOS" : ":(top,exclude)Host/Supervisor.Windows");
             await Git(index, ["add", "-A", "--", .. pathspecs]);
             return (await Git(index, ["write-tree"])).Trim();
         }

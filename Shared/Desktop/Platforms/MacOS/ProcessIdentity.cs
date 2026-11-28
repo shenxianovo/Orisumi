@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace Orisumi.Platform;
+namespace Orisumi.Core;
 
 [SupportedOSPlatform("macos")]
 internal sealed record ProcessIdentity(int Pid, long Started)

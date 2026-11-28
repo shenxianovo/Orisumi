@@ -1,5 +1,5 @@
 using Microsoft.Data.Sqlite;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 namespace Orisumi.Capture.Storage;
 

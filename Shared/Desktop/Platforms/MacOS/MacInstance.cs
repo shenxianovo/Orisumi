@@ -1,4 +1,4 @@
-namespace Orisumi.Platform;
+namespace Orisumi.Core;
 
 internal static class MacInstance
 {

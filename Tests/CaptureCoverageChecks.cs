@@ -7,7 +7,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var temp = Directory.CreateTempSubdirectory("orisumi-coverage-");
 try

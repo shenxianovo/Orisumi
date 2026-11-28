@@ -42,7 +42,7 @@ description: Windows 的开发方式、已在真机核实的事实，以及托�
 
 ## 托盘
 
-C# NativeAOT 的 WinExe，用 `Shell_NotifyIconW` 和原生菜单：总状态、各采集器状态、启停、打开日志、退出。图标规则和 macOS 菜单栏相同。窗口（今天的时间线）以后再定技术。
+`Host/Platforms/Windows/App`（`orisumi-app.exe`），属于宿主组件。和 macOS GUI 一样只调用同目录的 CLI，不读库、不管采集器进程。不并进托管进程：采集器在 `KILL_ON_JOB_CLOSE` 的 Job Object 里，托盘退出、崩溃或更新都会连带停掉采集。C# NativeAOT 的 WinExe，用 `Shell_NotifyIconW` 和原生菜单：总状态、各采集器状态、启停、打开日志、退出。图标规则和 macOS 菜单栏相同。窗口（今天的时间线）以后再定技术。
 
 ## 阶段
 

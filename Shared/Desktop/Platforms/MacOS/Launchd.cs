@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Xml.Linq;
 
-namespace Orisumi.Platform;
+namespace Orisumi.Core;
 
 [SupportedOSPlatform("macos")]
 internal static class Launchd

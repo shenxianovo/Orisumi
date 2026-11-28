@@ -9,7 +9,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Cli.Day;
-using Orisumi.Platform;
+using Orisumi.Core;
 
 var day = DayRange.Create("2026-11-01", "America/New_York");
 Equal(25 * 3_600_000L, day.To - day.From, "fall-back date is 25 hours");
