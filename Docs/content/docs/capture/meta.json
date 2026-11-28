@@ -3,5 +3,5 @@
   "description": "采集原则、各来源的事实与恢复边界",
   "icon": "Radar",
   "root": true,
-  "pages": ["index", "recovery", "---来源---", "sources/claude", "sources/codex", "sources/browser", "sources/macos", "sources/windows"]
+  "pages": ["index", "recovery", "modeling-review", "---来源---", "sources/claude", "sources/codex", "sources/browser", "sources/macos", "sources/windows"]
 }
