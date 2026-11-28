@@ -88,7 +88,27 @@ try
     Check(JsonlReader.Identify(renamed) == reader.Identity && JsonlReader.Identify(log) != reader.Identity,
         "file identity survives rename and changes on replacement while the old file is open");
     Console.WriteLine("PASS: open file identity");
+
+    // A reader holding the file (as `capture status` holds status.json) must not stop the writer replacing it.
+    var state = Path.Combine(temp.FullName, "status.json");
+    File.WriteAllText(state, "old");
+    using (var held = File.Open(state, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+    {
+        File.WriteAllText(state + ".new", "new");
+        AtomicFile.Replace(state + ".new", state);
+        Check(new StreamReader(held).ReadToEnd() == "old" && File.ReadAllText(state) == "new" && !File.Exists(state + ".new"),
+            "replacing a file that is open keeps the reader on the old content");
+    }
+    Console.WriteLine("PASS: atomic replace while read");
 }
 finally { temp.Delete(recursive: true); }
+
+// File.Move with overwrite fails on Windows while the target is open; shared code replaces through AtomicFile.
+var moves = Directory.EnumerateFiles(".", "*.cs", SearchOption.AllDirectories)
+    .Select(path => path.Replace('\\', '/'))
+    .Where(path => !path.Contains("/bin/") && !path.Contains("/obj/") && !path.StartsWith("./Tests/") && !path.Contains("/Platforms/MacOS/"))
+    .Where(path => File.ReadAllText(path).Contains("overwrite: true"))
+    .ToList();
+Check(moves.Count == 0, $"replace files with AtomicFile.Replace, not File.Move overwrite: {string.Join(", ", moves)}");
 
 static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }

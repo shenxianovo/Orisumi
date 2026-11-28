@@ -73,7 +73,7 @@ internal sealed class JobFiles(Store store)
         try
         {
             File.WriteAllBytes(temporary, bytes);
-            File.Move(temporary, path, overwrite: true);
+            AtomicFile.Replace(temporary, path);
         }
         finally { File.Delete(temporary); }
     }

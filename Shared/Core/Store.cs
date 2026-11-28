@@ -64,7 +64,7 @@ public sealed partial class Store(string root)
         var pointerPath = PointerFile(source);
         Directory.CreateDirectory(Path.GetDirectoryName(pointerPath)!);
         File.WriteAllText(pointerPath + ".tmp", JsonSerializer.Serialize(new Pointer(databaseId, host.HardwareUuid, host.Platform, host.MachineGuid), PointerJson.Default.Pointer));
-        File.Move(pointerPath + ".tmp", pointerPath, overwrite: true);
+        AtomicFile.Replace(pointerPath + ".tmp", pointerPath);
         return (path, databaseId, host.Platform, host.HardwareUuid, host.MachineGuid);
     }
 

@@ -94,7 +94,7 @@ internal static partial class StoreExport
             }
 
             var bytes = new FileInfo(partial).Length;
-            File.Move(partial, final, overwrite: true);
+            AtomicFile.Replace(partial, final);
             return bytes;
         }
         catch

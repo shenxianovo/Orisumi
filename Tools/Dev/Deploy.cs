@@ -46,7 +46,7 @@ internal static class Deploy
                     try
                     {
                         (current with { Source = release.Source }).Write(manifest);
-                        File.Move(manifest, store.Manifest, overwrite: true);
+                        AtomicFile.Replace(manifest, store.Manifest);
                     }
                     finally { File.Delete(manifest); }
                 }

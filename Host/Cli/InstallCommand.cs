@@ -105,7 +105,7 @@ internal static class InstallCommand
                         await jobs.Set(name, program.Job(store), token);
                     }
                 }
-                File.Move(manifest, store.Manifest, overwrite: true);
+                AtomicFile.Replace(manifest, store.Manifest);
             }
             catch
             {
