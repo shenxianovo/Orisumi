@@ -1,10 +1,9 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Orisumi.Platform;
 
 namespace Orisumi.Dev;
 
-internal static partial class ReleaseBuild
+internal static class ReleaseBuild
 {
     // Skips components with an installed identity match and writes a release directory only when there is work.
     internal static async Task<ReleaseManifest> Build(string checkout, string destination, string instance, string? version,
@@ -54,19 +53,7 @@ internal static partial class ReleaseBuild
     {
         var publish = component == "host" ? Path.GetDirectoryName(Store.HostExecutableIn(directory))! : directory;
 
-        using var build = new StringWriter();
-        using var errors = new StringWriter();
-        var code = await RunProcess.Run(dotnet,
-            ["publish", project, "-c", "Release", "-r", rid, "-p:PublishAot=true",
-                $"-p:InformationalVersion={version}", "-p:IncludeSourceRevisionInInformationalVersion=false", "-warnaserror", "-tl:off", "-o", publish],
-            build, token, directory: checkout, errors: errors);
-        var log = build.ToString() + errors;
-        await Console.Out.WriteAsync(log);
-        token.ThrowIfCancellationRequested();
-        if (code != 0) throw new IOException($"{component}: AOT publish exited with code {code}");
-        var warnings = Warning().Matches(log).Count;
-        if (warnings != 0) throw new IOException($"{component}: AOT publish reported {warnings} warnings");
-
+        await PublishAot(checkout, publish, component, project, version, rid, dotnet, token);
         if (component == "host")
         {
             var projectVersion = (await Repository.Query(dotnet, checkout, token,
@@ -81,6 +68,21 @@ internal static partial class ReleaseBuild
                 throw new IOException("browser: Chrome extension build failed");
         }
         await Verify(directory, component, rid, version, host, token);
+    }
+
+    internal static async Task PublishAot(string checkout, string publish, string component, string project,
+        string version, string rid, string dotnet, CancellationToken token)
+    {
+        using var build = new StringWriter();
+        using var errors = new StringWriter();
+        var code = await RunProcess.Run(dotnet,
+            ["publish", project, "-c", "Release", "-r", rid, "-p:PublishAot=true",
+                $"-p:InformationalVersion={version}", "-p:IncludeSourceRevisionInInformationalVersion=false", "-p:TreatWarningsAsErrors=true", "-warnaserror", "-tl:off", "-o", publish],
+            build, token, directory: checkout, errors: errors);
+        var log = build.ToString() + errors;
+        await Console.Out.WriteAsync(log);
+        token.ThrowIfCancellationRequested();
+        if (code != 0) throw new IOException($"{component}: AOT publish exited with code {code}");
     }
 
     private static async Task Verify(string directory, string component, string rid, string version, IHostBuilder host, CancellationToken token)
@@ -102,7 +104,4 @@ internal static partial class ReleaseBuild
 
         Task<string> Git(params string[] arguments) => Repository.Query("git", checkout, token, arguments);
     }
-
-    [GeneratedRegex(@"(?im)\bwarning(?:\s+[^:\s]+)?\s*:|^\s*[1-9]\d* Warning\(s\)")]
-    internal static partial Regex Warning();
 }

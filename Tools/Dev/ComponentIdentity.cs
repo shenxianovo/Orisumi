@@ -23,7 +23,7 @@ internal static class ComponentIdentity
                 ":(top,exclude,glob)**/test/**",
                 ":(top,exclude,glob)**/Platforms/" + (Platforms.Name(rid) == "macos" ? "Windows" : "MacOS") + "/**",
             ];
-            if (Platforms.Name(rid) == "windows") pathspecs.Add(":(top,exclude)Host/App.MacOS");
+            pathspecs.Add(Platforms.Name(rid) == "windows" ? ":(top,exclude)Host/App.MacOS" : ":(top,exclude)Host/Supervisor.Windows");
             await Git(index, ["add", "-A", "--", .. pathspecs]);
             return (await Git(index, ["write-tree"])).Trim();
         }

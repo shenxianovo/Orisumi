@@ -36,13 +36,13 @@ flowchart TD
 
 | | macOS | Windows |
 | --- | --- | --- |
-| 构建目标 | `osx-arm64`，已在开发实例验证 NativeAOT | `win-x64`，已通过托管编译，待真机验证 |
-| 宿主命令 | 查询、采集管理、采集器命令转发、安装与更新 | `day`、`capture coverage`、`export`、`describe` |
-| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 系统采集器、托管和发布均待实现，计划见 [Windows 客户端](./windows.mdx) |
+| 构建目标 | `osx-arm64`，已在开发实例验证 NativeAOT | `win-x64`，已在开发实例验证 NativeAOT |
+| 宿主命令 | 查询、采集管理、采集器命令转发、安装与更新 | 同 macOS；`update` 和生产实例待阶段 4 |
+| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 计划任务加托管进程，见 [Windows 托管](#windows-托管)；系统采集器、托盘和发布见 [Windows 客户端](./windows.mdx) |
 
 根目录的 `Directory.Build.props` 按目标运行时标识（RID）选择源文件。例如 `dotnet build Host/Cli -r win-x64` 编入各项目的 `Platforms/Windows/`，而 `-r osx-arm64` 编入 `Platforms/MacOS/`。省略 `-r` 时取本机 SDK 的 RID。CA1416 按目标平台检查 API，用错平台会构建失败。
 
-主机标识和存储路径在 `Shared/Platform`，打开文件的身份在 `Shared/Capture`。安装、启停和部署通过 `Shared/Desktop` 的 `ICollectorJobs` 查询和修改托管状态，只有 macOS 实现读写 plist、调用 launchd。`Shared/Platform/Platforms.cs` 决定哪些采集器属于构建目标：`macos`、`windows` 只属于同名平台，其余来源两边都编译。查询其他设备的库不受这条规则限制。
+主机标识和存储路径在 `Shared/Platform`，打开文件的身份在 `Shared/Capture`。安装、启停和部署通过 `Shared/Desktop` 的 `ICollectorJobs` 查询和修改托管状态：macOS 实现读写 plist、调用 launchd，Windows 实现见 [Windows 托管](#windows-托管)。`Shared/Platform/Platforms.cs` 决定哪些采集器属于构建目标：`macos`、`windows` 只属于同名平台，其余来源两边都编译。查询其他设备的库不受这条规则限制。
 
 ## 组件与版本
 
@@ -110,6 +110,31 @@ v5/host/Orisumi.app/Contents/MacOS/orisumi --store ~/Library/Application\ Suppor
 
 `capture status [--json]` 显示实例版本（发布版本，或开发的分支、提交和是否干净）和各组件版本，并给每个采集器一个健康状态：`stopped`（装了但没加载）、`attention`（有问题代码：`not_installed`、`not_running`、`run_failed`，或运行中却超过 5 分钟没确认的 `stale`）或 `ok`。读取失败只计数，不影响健康：AX 超时这类短暂失败每小时都有。`--json` 另含最近 5 次运行和最近 10 条读取失败。
 
+## Windows 托管
+
+Windows 没有 launchd。每个实例一个计划任务和一个常驻托管进程 `orisumi-supervisor.exe`（宿主组件的一部分，与 `orisumi.exe` 同目录），由它拉起所有采集器：
+
+```mermaid
+flowchart LR
+  CLI["orisumi capture …"] -- "写 state/jobs/来源.json" --> J[("期望")]
+  CLI -. "托管进程未运行时 Run" .-> TS["计划任务 \\Orisumi\\实例\\Capture<br/>登录触发 · InteractiveToken · LeastPrivilege"]
+  TS --> SUP["orisumi-supervisor（WinExe）"]
+  J --> SUP
+  SUP -- "status.json" --> CLI
+  SUP -- "Job Object · 日志追加 · 退出后 10 秒重启" --> C["browser / claude / codex"]
+```
+
+| 方面 | 做法 |
+| --- | --- |
+| 期望与实际 | CLI 只写 `state/jobs/<来源>.json`（命令、日志路径、采集器版本）；托管进程按文件收敛，文件通知只触发，另每 2 秒核对，结果写进 `state/jobs/status.json`。托管进程持有 `state/locks/supervisor.lock`，CLI 用它判断托管进程是否存活 |
+| 启动 | CLI 只经计划任务启动托管进程，所以从 SSH 部署时它也在桌面会话、不提权。任务失败重启 `PT1M` |
+| 子进程 | 放进 `KILL_ON_JOB_CLOSE` 的 Job Object，托管进程退出时随之结束；内容变化就先停后启；退出后距上次启动不少于 10 秒再启 |
+| 停止 | 后台进程收不到 SIGTERM：每个进程监听 `Local\Orisumi.Stop.<pid>`，托管进程置位后等 30 秒，超时强杀。`Local\` 按会话隔离，只能在同一会话里置位。注销、关机时托管进程停掉所有子进程 |
+| 结束 | 期望全部删除后托管进程退出，CLI 删除任务和空的 `\Orisumi\<实例>` 文件夹 |
+| 任务操作 | 用 Task Scheduler COM，按 HRESULT 判断，不解析 `schtasks` 的输出：它按界面语言输出（桌面会话是中文，SSH 是英文）。任务和文件夹给当前用户完全控制，不提权也能删 |
+
+安装与 macOS 的差别：Windows 没有原子交换目录，运行中的程序所在目录可以改名，程序文件删不掉。换入组件时旧目录移到 `app\.retired\`，下次安装删掉已没有程序在运行的；宿主更新后托管进程继续运行旧程序，直到它下次重启。解包用系统的 `tar.exe`，不校验签名。
+
 ## 签名与权限
 
 - 两个实例的 app 都用钥匙串里名为 `Orisumi Development` 的代码签名证书签名；发布用 Mac mini 上那张（SHA-256 `ABE1CF8B…`，导出 p12 备份，换构建机器时导入同一张），`update` 核对它的 SHA-256。采集器不签名。
@@ -120,7 +145,7 @@ v5/host/Orisumi.app/Contents/MacOS/orisumi --store ~/Library/Application\ Suppor
 
 ## Chrome 扩展
 
-两个实例的扩展各装在自己的 `app/collectors/browser/extension`，同一个 Chrome 里都要加载。Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`；接收端按路径算出 ID 来核对来源。路径固定，所以只在第一次手动加载：在 Chrome 扩展页打开开发者模式，加载这个目录；`orisumi-dev deploy` 第一次装上浏览器采集器时打印路径和预期 ID。之后扩展连上接收端时报告自己的版本，和接收端不同就自己重新加载，见[浏览器](../capture/sources/browser.mdx)。
+两个实例的扩展各装在自己的 `app/collectors/browser/extension`，同一个 Chrome 里都要加载。Chrome 给未打包扩展的 ID，是加载路径 SHA-256 的前 32 位十六进制，`0-f` 依次映射为 `a-p`；接收端按路径算出 ID 来核对来源。Windows 上先把盘符转成大写，再按 UTF-16LE 计算。路径固定，所以只在第一次手动加载，而且必须加载打印出的那条路径：接收端展开了符号链接，Chrome 不展开，从链接路径加载会得到另一个 ID。在 Chrome 扩展页打开开发者模式，加载这个目录；`orisumi-dev deploy` 第一次装上浏览器采集器时打印路径和预期 ID。之后扩展连上接收端时报告自己的版本，和接收端不同就自己重新加载，见[浏览器](../capture/sources/browser.mdx)。
 
 ## GUI
 

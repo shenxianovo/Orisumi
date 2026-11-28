@@ -1,14 +1,15 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Orisumi.Platform;
 
-internal static class ChromeExtension
+internal static partial class ChromeExtension
 {
+    private static partial byte[] PathBytes(string absolutePath);
+
     internal static string Id(string absolutePath) =>
-        string.Concat(SHA256.HashData(Encoding.UTF8.GetBytes(absolutePath)).Take(16)
+        string.Concat(SHA256.HashData(PathBytes(absolutePath)).Take(16)
             .SelectMany(value => new[] { (char)('a' + (value >> 4)), (char)('a' + (value & 15)) }));
 
     internal static string DirectoryFor(Instance instance) =>

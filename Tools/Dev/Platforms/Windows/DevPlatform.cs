@@ -1,11 +1,17 @@
 using System.CommandLine;
+using Orisumi.Desktop;
 using Orisumi.Platform;
 
 namespace Orisumi.Dev;
 
 internal static class DevPlatform
 {
-    internal static void AddCommands(RootCommand root) { }
+    internal static void AddCommands(RootCommand root)
+    {
+        static ICollectorJobs Jobs(Instance instance) => new WindowsCollectorJobs(instance);
+        root.Add(Deploy.Create(Platforms.CurrentRid, Jobs, new WindowsHostBuilder()));
+        root.Add(DevInstance.ResetCommand(Jobs));
+    }
 
     internal static IEnumerable<string> BuildTargets(string checkout) => Repository.ManagedProjects(checkout, Platforms.CurrentRid);
 
@@ -44,5 +50,6 @@ internal static class DevPlatform
         return null;
     }
 
-    internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks() => [];
+    internal static (string Name, (string Executable, string[] Arguments)[] Steps)[] NativeChecks() =>
+        [CheckCommand.FileCheck("WindowsSupervisor")];
 }

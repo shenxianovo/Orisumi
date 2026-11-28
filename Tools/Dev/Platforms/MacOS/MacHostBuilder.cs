@@ -1,9 +1,10 @@
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Orisumi.Platform;
 
 namespace Orisumi.Dev;
 
-internal sealed class MacHostBuilder(HostBundle.Tools tools) : IHostBuilder
+internal sealed partial class MacHostBuilder(HostBundle.Tools tools) : IHostBuilder
 {
     internal const string AppPackage = "Host/App.MacOS";
     internal const string AppIconMaster = AppPackage + "/Icon/AppIcon.png";
@@ -37,7 +38,7 @@ internal sealed class MacHostBuilder(HostBundle.Tools tools) : IHostBuilder
         var log = output.ToString() + errors;
         await Console.Out.WriteAsync(log);
         token.ThrowIfCancellationRequested();
-        if (code != 0 || ReleaseBuild.Warning().IsMatch(log))
+        if (code != 0 || Warning().IsMatch(log))
             throw new IOException($"host: Swift Release build failed (exit {code})");
 
         var bin = (await Repository.Query("swift", checkout, token, [.. arguments, "--show-bin-path"])).Trim();
@@ -122,4 +123,6 @@ internal sealed class MacHostBuilder(HostBundle.Tools tools) : IHostBuilder
             or 0xcafebabe or 0xbebafeca or 0xcafebabf or 0xbfbafeca;
     }
 
+    [GeneratedRegex(@"(?im)\bwarning(?:\s+[^:\s]+)?\s*:|^\s*[1-9]\d* Warning\(s\)")]
+    private static partial Regex Warning();
 }

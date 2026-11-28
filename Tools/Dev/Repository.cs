@@ -5,6 +5,7 @@ namespace Orisumi.Dev;
 internal static class Repository
 {
     internal const string DevProject = "Tools/Dev/Orisumi.Dev.csproj";
+    internal const string SupervisorProject = "Host/Supervisor.Windows/Orisumi.Supervisor.Windows.csproj";
     internal const string CliProject = "Host/Cli/Orisumi.Cli.csproj";
     internal const string CollectorsDirectory = "Collectors";
     internal const string CollectorProjectPrefix = "Orisumi.Collectors.";
@@ -17,7 +18,7 @@ internal static class Repository
             .Where(item => Platforms.Runs(item.Component, rid));
 
     internal static IEnumerable<string> ManagedProjects(string checkout, string rid) =>
-        [DevProject, CliProject, .. CollectorProjects(checkout, rid).Select(item => item.Project)];
+        [DevProject, CliProject, .. Platforms.Name(rid) == "windows" ? new[] { SupervisorProject } : Array.Empty<string>(), .. CollectorProjects(checkout, rid).Select(item => item.Project)];
 
     internal static string? Find(string start)
     {

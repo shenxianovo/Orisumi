@@ -11,6 +11,7 @@ internal interface ILoginRegistration
 
 internal interface IDesktopInstallation
 {
+    void CleanRetired() { }
     string HostExecutable(string directory);
     CommandProcess RunHost { get; }
     Task VerifyHost(string directory, bool requireReleaseCertificate, CancellationToken token);

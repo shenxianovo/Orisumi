@@ -17,7 +17,7 @@ switch (name, args)
             return msbuild.ExitCode;
         }
     case ("publish-fixture", ["publish", var project, "-c", "Release", "-r", var rid, "-p:PublishAot=true",
-        var informational, "-p:IncludeSourceRevisionInInformationalVersion=false", "-warnaserror", "-tl:off", "-o", var target]):
+        var informational, "-p:IncludeSourceRevisionInInformationalVersion=false", "-p:TreatWarningsAsErrors=true", "-warnaserror", "-tl:off", "-o", var target]):
         var component = Path.GetFileNameWithoutExtension(project).Split('.')[^1].ToLowerInvariant();
         if (component == "cli") component = "host";
         File.AppendAllText(Path.Combine(directory, "publishes"), target + "\n");

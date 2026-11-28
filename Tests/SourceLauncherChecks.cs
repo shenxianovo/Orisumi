@@ -1,19 +1,10 @@
 #:project ../Host/Cli/Orisumi.Cli.csproj
+#:include Fixtures/TerminationSignal.cs
 #:property AssemblyName=SourceLauncherChecks
 #:property PublishAot=false
-using System.CommandLine;
 using System.Diagnostics;
-using Orisumi.Cli;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-
-// The installed Windows CLI exposes queries in phase 0. Its test host exercises shared forwarding directly.
-if (args is ["--store", ..])
-{
-    var commands = Commands.Create(null, Console.Out);
-    Environment.ExitCode = await CollectorPrograms.TryForward(commands, args) ?? await commands.Parse(args).InvokeAsync();
-    return;
-}
 
 if (args.Length != 2)
     throw new ArgumentException("Provide the installed orisumi-dev launcher and the host output directory.");
@@ -62,6 +53,14 @@ try
                 await Console.OpenStandardInput().CopyToAsync(Console.OpenStandardOutput());
                 Console.Error.WriteLine("fixture stderr");
                 return 23;
+            case "wait" when OperatingSystem.IsWindows():
+                using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, $@"Local\Orisumi.Stop.{Environment.ProcessId}"))
+                {
+                    Console.WriteLine("READY");
+                    stop.WaitOne();
+                    Console.WriteLine("STOPPED");
+                }
+                return 37;
             case "wait":
                 var stopped = new TaskCompletionSource();
                 using (PosixSignalRegistration.Create(PosixSignal.SIGTERM, signal =>
@@ -192,12 +191,12 @@ try
     Check(collectorBuild.Code == 0, collectorBuild.Output + collectorBuild.Error);
     var relativeOutput = Path.Combine("fixture-output", "custom-config", "custom-framework");
     var hostOutput = Path.Combine(project, relativeOutput);
-    CopyOutput(OperatingSystem.IsWindows() ? AppContext.BaseDirectory : hostBuild, hostOutput);
+    CopyOutput(hostBuild, hostOutput);
     var collectorOutput = await Run("dotnet", collector, ["msbuild", "Orisumi.Collectors.Fixture.csproj",
         "-nologo", "-p:Configuration=Debug", "-getProperty:TargetDir"]);
     Check(collectorOutput.Code == 0, collectorOutput.Error);
     CopyOutput(collectorOutput.Output.Trim(), Path.Combine(collector, relativeOutput));
-    var host = Path.Combine(hostOutput, OperatingSystem.IsWindows() ? "SourceLauncherChecks.exe" : "orisumi");
+    var host = Path.Combine(hostOutput, OperatingSystem.IsWindows() ? "orisumi.exe" : "orisumi");
     var store = Path.Combine(temp.FullName, "custom store ' 引号");
     Directory.CreateDirectory(store);
     File.WriteAllText(Path.Combine(store, "instance.json"), """{"name":"test_launcher"}""");
@@ -230,7 +229,6 @@ try
     }
     Console.WriteLine("PASS: host preserves collector stdin, stdout, stderr and exit code");
 
-    if (!OperatingSystem.IsWindows())
     using (var process = Start(host, nested, ["--store", store, "forwarded", "wait"]))
     {
         var errors = process.StandardError.ReadToEndAsync();
@@ -238,7 +236,7 @@ try
         {
             Check(await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)) == "READY",
                 "collector was not ready");
-            Check(process.Signal(PosixSignal.SIGTERM), "SIGTERM was not delivered");
+            Check(TerminationSignal.Send(process), "stop signal was not delivered");
             var remaining = process.StandardOutput.ReadToEndAsync();
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
             Check(process.ExitCode == 37 && (await remaining).Trim() == "STOPPED", await errors);
@@ -248,8 +246,7 @@ try
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
         }
     }
-    if (!OperatingSystem.IsWindows())
-        Console.WriteLine("PASS: host relays SIGTERM and returns the collector's shutdown status");
+    Console.WriteLine("PASS: host relays termination and returns the collector's shutdown status");
 
 }
 finally

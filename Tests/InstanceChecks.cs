@@ -24,6 +24,7 @@ try
 {
     program = await FixtureProgram.Build(Under("fixture tool"));
     Resolution();
+    TaskDefinition();
     var source = await Identity();
     await Install();
     await RollbackChangedCollectors();
@@ -50,6 +51,26 @@ void Resolution()
     Check(Path.GetFileName(Instance.ProductionRoot()) == "Orisumi" &&
         Path.GetFileName(Instance.DevelopmentRoot()) == "Orisumi-dev", "default instance roots");
     Expect<ArgumentException>(() => Instance.Create(Under("invalid"), "../prod"));
+}
+
+void TaskDefinition()
+{
+    const string root = @"C:\Users\A & B\Orisumi-dev";
+    var command = root + @"\app\host\orisumi-supervisor.exe";
+    var xml = WindowsTaskDefinition.Create("S-1-5-21-100", command, root);
+    var task = System.Xml.Linq.XDocument.Parse(xml.ToString()).Root!;
+    var ns = task.Name.Namespace;
+    string Value(params string[] names) => names.Aggregate(task, (node, name) => node.Element(ns + name)!).Value;
+    Check(ns.NamespaceName == "http://schemas.microsoft.com/windows/2004/02/mit/task" &&
+        Value("Triggers", "LogonTrigger", "UserId") == Value("Principals", "Principal", "UserId") &&
+        Value("Principals", "Principal", "LogonType") == "InteractiveToken" &&
+        Value("Principals", "Principal", "RunLevel") == "LeastPrivilege", "interactive, least-privilege logon for the specified user");
+    Check(Value("Settings", "MultipleInstancesPolicy") == "IgnoreNew" &&
+        Value("Settings", "ExecutionTimeLimit") == "PT0S" && Value("Settings", "DisallowStartIfOnBatteries") == "false" &&
+        Value("Settings", "StopIfGoingOnBatteries") == "false" && Value("Settings", "RestartOnFailure", "Interval") == "PT1M" &&
+        Value("Settings", "RestartOnFailure", "Count") == "999", "scheduler limits and restart policy");
+    Check(Value("Actions", "Exec", "Command") == command && Value("Actions", "Exec", "Arguments") == $"--store \"{root}\"",
+        "task action preserves spaces and XML metacharacters");
 }
 
 async Task<string> Identity()
@@ -101,6 +122,10 @@ async Task<string> Identity()
     Write("Host/App.MacOS/App.swift", "updated mac app");
     Check(await HostId("osx-arm64") != macHost && await HostId("win-x64") == windowsHost,
         "the Swift app contributes only to the macOS host identity");
+    macHost = await HostId("osx-arm64");
+    Write("Host/Supervisor.Windows/Program.cs", "updated Windows supervisor");
+    Check(await HostId("win-x64") != windowsHost && await HostId("osx-arm64") == macHost,
+        "the Windows supervisor contributes only to the Windows host identity");
     var otherRid = Platforms.Current == "macos" ? "win-x64" : "osx-arm64";
     var otherPlatform = Platforms.Current == "macos" ? "Windows" : "MacOS";
     var otherIdentity = await ComponentIdentity.Read(source, "Collectors/Browser", browser, otherRid, RunProcess.Dotnet, default);

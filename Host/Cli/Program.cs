@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.CommandLine;
 using System.ComponentModel;
 using System.Text.Json;
@@ -21,7 +22,7 @@ catch (OperationCanceledException)
 {
     return 130;
 }
-catch (Exception error) when (error is ArgumentException or IOException or UnauthorizedAccessException or
+catch (Exception error) when (error is ArgumentException or IOException or COMException or UnauthorizedAccessException or
     InvalidDataException or JsonException or Win32Exception or SqliteException)
 {
     var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(Console.Error) });

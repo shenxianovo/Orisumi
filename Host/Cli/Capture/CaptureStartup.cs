@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Orisumi.Desktop;
 using Orisumi.Platform;
 
@@ -26,7 +27,7 @@ internal static class CaptureStartup
         catch
         {
             try { await jobs.StopAll(CancellationToken.None); }
-            catch (IOException error) { await output.WriteLineAsync($"Capture cleanup: {error.Message}"); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or COMException) { await output.WriteLineAsync($"Capture cleanup: {error.Message}"); }
             throw;
         }
     }

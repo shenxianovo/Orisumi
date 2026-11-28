@@ -328,6 +328,9 @@ async Task ResidentRunChecks()
             if (run == 1) process.Kill();
             else if (!OperatingSystem.IsWindows()) process.Signal(PosixSignal.SIGTERM);
             await process.WaitForExitAsync(timeout.Token);
+            // Windows signals a killed process before its file objects are cleaned up (seen 1.7 ms later in ETW),
+            // so the next writer starts only once the killed writer's lock can be opened exclusively.
+            if (run == 1) await Released(new Orisumi.Platform.Store(fixture.Store).LockFile("claude.writer"));
             if (run == 2) Check(process.ExitCode == 0, await error);
             Rows(db, "SELECT run_id,evidence,stopped_at_utc_ms IS NOT NULL,confirmed_until_utc_ms IS NOT NULL FROM capture_coverage WHERE scope='project_logs' ORDER BY run_id",
                 run == 1 ? [[1, "unconfirmed", 0, 1]] : [[1, "unconfirmed", 0, 1], [2, "completed", 1, 1]]);
@@ -355,6 +358,23 @@ async Task ResidentRunChecks()
         finally { Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", previous); }
     }
     Console.WriteLine("PASS: a killed run remains unconfirmed and graceful shutdown records completed");
+}
+
+static async Task Released(string path)
+{
+    var deadline = Stopwatch.StartNew();
+    while (true)
+    {
+        try
+        {
+            using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return;
+        }
+        catch (IOException error) when ((error.HResult & 0xffff) == 32 && deadline.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            await Task.Delay(10);
+        }
+    }
 }
 
 static Process Start(string executable, string[] arguments, Fixture? fixture = null)

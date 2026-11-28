@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 
 namespace Orisumi.Desktop;
 
-internal sealed record JobSpec(string[] Command, string WorkingDirectory, string StandardOutput, string StandardError);
+internal sealed record JobSpec(string[] Command, string WorkingDirectory, string StandardOutput, string StandardError, string? Version = null);
 
 internal record SavedJob(string Source, bool Registered, bool Supervised, string State, int? Pid, JsonValue? LastExitCode);
 

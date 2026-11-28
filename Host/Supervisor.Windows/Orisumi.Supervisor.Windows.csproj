@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>orisumi-supervisor</AssemblyName>
+    <IsAotCompatible>true</IsAotCompatible>
+    <PublishAot Condition="'$(_IsPublishing)' == 'true'">true</PublishAot>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Shared/Desktop/Orisumi.Desktop.csproj" />
+  </ItemGroup>
+</Project>

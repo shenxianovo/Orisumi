@@ -1,4 +1,5 @@
 #:project ../Collectors/Browser/Orisumi.Collectors.Browser.csproj
+#:include Fixtures/TerminationSignal.cs
 #:property AssemblyName=BrowserIntegrationChecks
 #:property PublishAot=false
 #:property JsonSerializerIsReflectionEnabledByDefault=true
@@ -509,8 +510,7 @@ static async Task Termination()
     }
     using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(8));
     var elapsed = Stopwatch.StartNew();
-    if (OperatingSystem.IsWindows()) fixture.Cancel();
-    else fixture.Process!.Signal(PosixSignal.SIGTERM);
+    Equal(true, TerminationSignal.Send(fixture.Process!), "signal reached the receiver");
     await Task.WhenAll(first.ExpectClose(shutdown.Token), second.ExpectClose(shutdown.Token));
     if (fixture.Process is { } process)
     {
@@ -554,8 +554,7 @@ sealed class Fixture(bool instancePort = false) : IDisposable
     internal Instance Instance { get; private set; } = null!;
     internal Process? Process { get; private set; }
     internal string Store => directory.FullName;
-    private bool External => instancePort && !OperatingSystem.IsWindows();
-    internal void Cancel() => stop.Cancel();
+
 
     internal Uri Start(TimeSpan? interval = null, TimeSpan? heartbeat = null)
     {
@@ -575,7 +574,7 @@ sealed class Fixture(bool instancePort = false) : IDisposable
         Instance = Instance.Create(Store, name);
         var port = instancePort ? Instance.BrowserPort : FreePort();
         endpoint = new Uri($"ws://127.0.0.1:{port}/");
-        if (External)
+        if (instancePort)
         {
             Process = StartProcess();
             diagnostics = Process.StandardError.ReadToEndAsync();
@@ -604,7 +603,7 @@ sealed class Fixture(bool instancePort = false) : IDisposable
         var address = Start(interval);
         if (server?.IsCompleted == true) await server;
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        if (External)
+        if (instancePort)
             while (true)
             {
                 if (Process!.HasExited) throw new IOException(await diagnostics!);
@@ -652,9 +651,9 @@ sealed class Fixture(bool instancePort = false) : IDisposable
         {
             stop.Cancel();
             server?.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
-            if (!OperatingSystem.IsWindows() && Process is { HasExited: false })
+            if (Process is { HasExited: false })
             {
-                Process.Signal(PosixSignal.SIGTERM);
+                TerminationSignal.Send(Process);
                 if (!Process.WaitForExit(5000)) { Process.Kill(); Process.WaitForExit(); }
             }
             if (diagnostics?.GetAwaiter().GetResult() is { Length: > 0 } error) Console.Error.Write(error);

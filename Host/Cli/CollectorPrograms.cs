@@ -11,7 +11,7 @@ internal sealed record CollectorProgram(string Path, bool Managed, ProgramDescri
     internal string[] Command(string store, string[] arguments) => [Executable, .. Arguments(["--store", store, .. arguments])];
     internal JobSpec Job(Store store) => new(Command(store.Root, Description.Arguments!), store.Root,
         System.IO.Path.Combine(store.Logs, Description.Name + ".out.log"),
-        System.IO.Path.Combine(store.Logs, Description.Name + ".err.log"));
+        System.IO.Path.Combine(store.Logs, Description.Name + ".err.log"), Description.Version);
 }
 
 internal static class CollectorPrograms

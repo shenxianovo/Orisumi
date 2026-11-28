@@ -1,9 +1,9 @@
 ---
 title: Windows 客户端
-description: Windows 上的托管、系统采集器、托盘和发布计划，以及已在真机核实的事实。
+description: Windows 的开发方式、已在真机核实的事实，以及系统采集器、托盘和发布的计划。
 ---
 
-本页是计划。已实现的部分见[平台](./release.mdx#平台)，各阶段完成后把结论移到对应页面并删掉这里的条目。
+已实现的部分见[平台](./release.mdx#平台)和 [Windows 托管](./release.mdx#windows-托管)。本页其余是计划，各阶段完成后把结论移到对应页面。
 
 ## 目标机器
 
@@ -18,37 +18,18 @@ description: Windows 上的托管、系统采集器、托盘和发布计划，�
 | SSH | 落在 session 0，带管理员令牌；用户桌面是 session 1 |
 | 计划任务 | 从 SSH 注册的 `Interactive`、`Limited` 任务跑在 session 1，不提权 |
 | 浏览器端口 | 不提权的进程可以用 `HttpListener` 监听 `http://127.0.0.1:<端口>/`，接收端不用改 |
+| 界面语言 | 桌面会话 zh-CN，SSH 会话 en-US |
+| 路径 | `C:\Users\shenx\AppData` 是指向 `E:\Users\shenx\AppData` 的符号链接 |
 
 ## 开发循环
 
 在 Mac 上改代码，把工作树镜像到 Windows 检出 `E:\Code\Personal\Projects\Orisumi` 再跑 `orisumi-dev check`，不用为同步提交：用临时 index 对工作树 `git add -A`、`write-tree`、`commit-tree`，推到 Windows 检出的 `sync` 分支（`--receive-pack='git receive-pack'`，Windows 登录 shell 找不到 `git-receive-pack`），在那边 `checkout -f --detach sync` 和 `clean -fd`。两边 tree 哈希相同，组件标识也相同。Windows 检出是 `core.autocrlf=true`，代码按 CRLF 工作树也要正确。
 
-## 托管
 
-Windows 没有 launchd。每个实例一个常驻托管进程，管理所有采集器：
-
-```mermaid
-flowchart LR
-  TS["计划任务 \\Orisumi\\实例\\Capture<br/>登录触发 · Interactive · Limited"] --> SUP["托管进程（WinExe）"]
-  CLI["orisumi capture …"] -- "命名管道" --> SUP
-  CLI -. "未运行时启动任务" .-> TS
-  SUP -- "Job Object · 日志重定向 · 退出后 10 秒重启" --> C["orisumi-windows / browser / claude / codex"]
-  TS2["计划任务 \\Orisumi\\实例\\App"] --> GUI["托盘"]
-  GUI -- "capture status --json / start / stop" --> CLI
-```
-
-- 不为每个采集器建计划任务：任务失败重启间隔最短 1 分钟，结束任务是强杀，拿不到采集器的 PID，也不重定向输出。
-- 期望状态写在 `state/jobs/<来源>.json`，`ICollectorJobs.Set` 写入后经命名管道让托管进程应用；`Inspect` 只读文件和管道，不拉起托管进程。
-- 停止：Windows 上后台进程收不到 SIGTERM。每个进程监听命名事件 `Local\Orisumi.Stop.<pid>`，托管进程置位后等待退出，超时再强杀。注销、关机时托管进程和系统采集器处理 `WM_QUERYENDSESSION`，让运行以 `completed` 结束。
-- 从 SSH 部署时，CLI 通过计划任务启动托管进程，进程因此落在桌面会话里。
-- 托盘退出不影响采集。
-
-## 安装与更新
+## 生产实例与发布
 
 | 和 macOS 的差别 | 做法 |
 | --- | --- |
-| 运行中程序所在的目录不能替换 | 先停掉有变化且在运行的采集器，再换目录，然后按新 `describe` 启动；未变化的不停 |
-| 宿主替换自己 | 同卷内允许重命名运行中的 exe：旧文件移到 `app/.retired/`，下次安装时清理 |
 | 命令链接 | 链接后 `AppContext.BaseDirectory` 指向链接所在目录，找不到实例；改为把生产实例的宿主目录加进用户 `PATH` |
 | 签名 | 不做 Authenticode；`update` 只核对 GitHub Release 清单里的 SHA-256 |
 | 发布包 | NativeAOT 不能从 macOS 交叉编译，Windows 包在 Windows PC 上构建 |
@@ -83,17 +64,18 @@ C# NativeAOT 的 WinExe，用 `Shell_NotifyIconW` 和原生菜单：总状态、
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
 | 0（已完成） | Windows 检出、Node 升级、跨平台测试移出 macOS 检查、`orisumi-dev check` 在 Windows 跑通 | 两个平台 `check` 全部通过，NativeAOT 无警告；`HostIdentity` 读出 SMBIOS UUID `6EE135AE-06B7-11EE-8C92-088FC3FA62F2` |
-| 1 | 托管、停止事件、Windows 安装、命令转发、`deploy`；Claude、Codex、浏览器上线 | 从 SSH `deploy` 后采集器在 session 1 运行；强杀后 10 秒内恢复；`capture stop` 写 `completed`；更新一个采集器时其余 PID 不变；Chrome 扩展连上 |
+| 1（已完成） | 托管、停止事件、Windows 安装、命令转发、`deploy`；Claude、Codex、浏览器上线 | 从 SSH `deploy` 后采集器在 session 1 运行；强杀后 10 秒内恢复；中文桌面会话里不提权 `capture stop`/`start` 正常，运行以 `completed` 结束；更新一个采集器时其余 PID 不变 |
 | 2 | `Collectors/Windows`，`day` 读 Windows | 开发实例跑一两天，导出到 Mac 后 `day` 读出两台设备 |
 | 3 | 托盘 | 状态、启停正确；重启 `explorer.exe` 后图标恢复 |
 | 4 | Windows 发布与生产实例 | 发布、安装、`update` 一次 |
 | 5 | 音频和摄像头 | 只增不改地加表 |
 
-## 已知要改的代码
+## 已知要改的代码与待验证
 
 | 位置 | 问题 |
 | --- | --- |
-| `Host/Cli/InstallCommand.cs` | 先换目录再重启采集器 |
-| `Shared/Platform/ChromeExtension.cs` | 按 UTF-8 算扩展 ID；Chromium 在 Windows 上按 UTF-16 算并把盘符转大写，待加载扩展时核对 |
-| `Shared/Platform/Platforms/Windows/RunProcess.cs` | 只监听 SIGTERM，后台进程收不到 |
 | `Host/Cli/Day/` | 只有 macOS 读出；Chrome 按 bundle ID 识别；默认时区 ID 在 Windows 上不是 IANA |
+| Chrome 扩展 | 扩展 ID 的 Windows 算法按 Chromium 源码实现，待在 Chrome 里加载核对 |
+| 托管进程强杀后立即重启 | 被杀进程的锁要在它退出后才释放（ETW 实测晚约 2 ms），新进程可能拿不到写入锁而退出，10 秒后重试成功 |
+| 注销与关机 | 托管进程处理 `WM_QUERYENDSESSION`，未在真机触发验证 |
+| `status.json` 替换 | 别的程序不带共享删除打开它时，托管进程替换失败并退出，采集中断到计划任务 1 分钟后重启；托管进程自己没有日志 |

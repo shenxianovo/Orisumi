@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.ComponentModel;
 using Orisumi.Desktop;
 using Orisumi.Platform;
@@ -24,6 +25,7 @@ internal static class InstallCommand
 
         var release = ReleaseManifest.Read(Path.Combine(source, ReleaseManifest.FileName));
         release.VerifyFor(instance, Platforms.CurrentRid);
+        platform.CleanRetired();
         var installed = ReleaseManifest.ReadInstalled(store);
         var components = new Dictionary<string, ReleaseComponent>(installed?.Components ?? [], StringComparer.Ordinal);
         var schema = new Dictionary<string, SchemaTable[]>(installed?.Schema ?? [], StringComparer.Ordinal);
@@ -111,7 +113,7 @@ internal static class InstallCommand
                 foreach (var (name, restore) in registrations)
                 {
                     try { await restore(CancellationToken.None); }
-                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception)
+                    catch (Exception error) when (error is IOException or COMException or UnauthorizedAccessException or Win32Exception)
                     {
                         output.WriteLine($"无法恢复 {name} 的启动配置：{error.Message}");
                     }
