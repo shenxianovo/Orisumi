@@ -6,12 +6,12 @@ using Orisumi.Core;
 
 namespace Orisumi.Desktop;
 
-internal sealed class WindowsCollectorJobs(Instance instance, ICaptureTask task) : ICollectorJobs
+internal sealed class WindowsCollectorJobs(Instance instance, IWindowsScheduledTask task) : ICollectorJobs
 {
     private readonly JobFiles files = new(instance.Store);
     private readonly SemaphoreSlim edits = new(1);
 
-    internal WindowsCollectorJobs(Instance instance) : this(instance, new CaptureTask(instance)) { }
+    internal WindowsCollectorJobs(Instance instance) : this(instance, WindowsScheduledTask.Capture(instance)) { }
 
     private sealed record Snapshot(string Name, byte[]? Desired, JobStatus? Status, string? TaskXml, bool HostAlive)
         : SavedJob(Name, Desired is not null, Status is not null, Status?.State ?? "not_loaded",
@@ -23,7 +23,7 @@ internal sealed class WindowsCollectorJobs(Instance instance, ICaptureTask task)
         var names = files.Names().Union(installed.Where(name => name != "host" && Platforms.Runs(name, Platforms.CurrentRid))).Union(sources);
         var alive = files.Alive();
         var status = alive ? files.Status() : [];
-        var xml = task.Query(token);
+        var xml = task.Query(token)?.Xml;
         return Task.FromResult<IReadOnlyDictionary<string, SavedJob>>(names.ToDictionary(name => name, SavedJob (name) =>
             new Snapshot(name, JobFiles.Read(files.Desired(name)), status.GetValueOrDefault(name), xml, alive)));
     }

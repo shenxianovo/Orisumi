@@ -10,6 +10,7 @@
 using System.CommandLine;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Xml.Linq;
 using Microsoft.Data.Sqlite;
 using Orisumi.Cli;
 using Orisumi.Cli.Capture;
@@ -25,6 +26,7 @@ try
     program = await FixtureProgram.Build(Under("fixture tool"));
     Resolution();
     TaskDefinition();
+    await AppLogin();
     var source = await Identity();
     await Install();
     await RollbackChangedCollectors();
@@ -56,21 +58,44 @@ void Resolution()
 void TaskDefinition()
 {
     const string root = @"C:\Users\A & B\Orisumi-dev";
-    var command = root + @"\app\host\orisumi-supervisor.exe";
-    var xml = WindowsTaskDefinition.Create("S-1-5-21-100", command, root);
-    var task = System.Xml.Linq.XDocument.Parse(xml.ToString()).Root!;
-    var ns = task.Name.Namespace;
-    string Value(params string[] names) => names.Aggregate(task, (node, name) => node.Element(ns + name)!).Value;
-    Check(ns.NamespaceName == "http://schemas.microsoft.com/windows/2004/02/mit/task" &&
-        Value("Triggers", "LogonTrigger", "UserId") == Value("Principals", "Principal", "UserId") &&
-        Value("Principals", "Principal", "LogonType") == "InteractiveToken" &&
-        Value("Principals", "Principal", "RunLevel") == "LeastPrivilege", "interactive, least-privilege logon for the specified user");
-    Check(Value("Settings", "MultipleInstancesPolicy") == "IgnoreNew" &&
-        Value("Settings", "ExecutionTimeLimit") == "PT0S" && Value("Settings", "DisallowStartIfOnBatteries") == "false" &&
-        Value("Settings", "StopIfGoingOnBatteries") == "false" && Value("Settings", "RestartOnFailure", "Interval") == "PT1M" &&
-        Value("Settings", "RestartOnFailure", "Count") == "999", "scheduler limits and restart policy");
-    Check(Value("Actions", "Exec", "Command") == command && Value("Actions", "Exec", "Arguments") == $"--store \"{root}\"",
-        "task action preserves spaces and XML metacharacters");
+    const string user = "S-1-5-21-100";
+    var supervisor = root + @"\app\host\orisumi-supervisor.exe";
+    var app = root + @"\app\host\orisumi-app.exe";
+    Verify(WindowsTaskDefinition.Capture(user, supervisor, root), supervisor, capture: true);
+    Verify(WindowsTaskDefinition.App(user, app), app, capture: false);
+
+    void Verify(XDocument xml, string command, bool capture)
+    {
+        var task = XDocument.Parse(xml.ToString()).Root!;
+        var ns = task.Name.Namespace;
+        string? Value(params string[] names) => names.Aggregate((XElement?)task, (node, name) => node?.Element(ns + name))?.Value;
+        Check(ns.NamespaceName == "http://schemas.microsoft.com/windows/2004/02/mit/task" &&
+            Value("Triggers", "LogonTrigger", "UserId") == user && Value("Principals", "Principal", "UserId") == user &&
+            Value("Principals", "Principal", "LogonType") == "InteractiveToken" &&
+            Value("Principals", "Principal", "RunLevel") == "LeastPrivilege", "interactive, least-privilege logon for the specified user");
+        Check(Value("Settings", "MultipleInstancesPolicy") == "IgnoreNew" && Value("Settings", "ExecutionTimeLimit") == "PT0S" &&
+            Value("Settings", "DisallowStartIfOnBatteries") == "false" && Value("Settings", "StopIfGoingOnBatteries") == "false",
+            "unlimited runtime on AC and battery");
+        Check(capture ? Value("Settings", "RestartOnFailure", "Interval") == "PT1M" && Value("Settings", "RestartOnFailure", "Count") == "999"
+            : Value("Settings", "RestartOnFailure") is null, "only capture restarts on failure");
+        Check(Value("Actions", "Exec", "Command") == command && Value("Actions", "Exec", "Arguments") == (capture ? $"--store \"{root}\"" : null),
+            "task action preserves paths and passes --store only to capture");
+    }
+}
+
+async Task AppLogin()
+{
+    foreach (var previous in new ScheduledTaskState?[] { null, new("old", false), new("old", true) })
+    {
+        var task = new FixtureAppTask(previous);
+        var login = new WindowsLoginRegistration(task, default);
+        await login.Apply(default);
+        Check(task.State == new ScheduledTaskState("new", true) && task.Starts == (previous?.Active == true ? 0 : 1),
+            "login registers the new task and starts only an idle app");
+        await login.Restore(default);
+        Check(task.State == previous && task.Stops == (previous?.Active == true ? 0 : 1),
+            "rollback restores the previous definition and running state");
+    }
 }
 
 async Task<string> Identity()
@@ -96,6 +121,10 @@ async Task<string> Identity()
         <ItemGroup><ProjectReference Include="../../../../Shared/SupervisorDependency/Dependency.csproj" /></ItemGroup></Project>
         """));
     Write("Shared/SupervisorDependency/Dependency.csproj", project);
+    Write(Repository.AppProject, project.Replace("</Project>", """
+        <ItemGroup><ProjectReference Include="../../../../Shared/AppDependency/Dependency.csproj" /></ItemGroup></Project>
+        """));
+    Write("Shared/AppDependency/Dependency.csproj", project);
     Write("Shared/Desktop/Installation.cs", "initial installation");
     Write("Collectors/Browser/Platforms/MacOS/Browser.cs", "Mac browser");
     Write("Collectors/Browser/Platforms/Windows/Browser.cs", "Windows browser");
@@ -134,6 +163,14 @@ async Task<string> Identity()
     Write("Shared/SupervisorDependency/Dependency.cs", "updated dependency");
     Check(await HostId("win-x64") != windowsHost && await HostId("osx-arm64") == macHost,
         "a reference unique to the supervisor contributes only to the Windows host identity");
+    windowsHost = await HostId("win-x64");
+    Write("Host/Platforms/Windows/App/Icon/AppIcon.png", "updated tray icon");
+    Check(await HostId("win-x64") != windowsHost && await HostId("osx-arm64") == macHost,
+        "the tray app contributes only to the Windows host identity");
+    windowsHost = await HostId("win-x64");
+    Write("Shared/AppDependency/Dependency.cs", "updated app dependency");
+    Check(await HostId("win-x64") != windowsHost && await HostId("osx-arm64") == macHost,
+        "a reference unique to the tray app contributes only to the Windows host identity");
     var otherRid = Platforms.Current == "macos" ? "win-x64" : "osx-arm64";
     var otherPlatform = Platforms.Current == "macos" ? "Windows" : "MacOS";
     var otherIdentity = await Id(otherRid);
@@ -745,6 +782,19 @@ sealed class FixtureHost(CommandProcess run) : IHostBuilder
     public CommandProcess Run => run;
     public Task Complete(string checkout, string directory, string instance, string projectVersion, string version,
         CancellationToken token) => Task.CompletedTask;
+}
+
+sealed class FixtureAppTask(ScheduledTaskState? previous) : IWindowsScheduledTask
+{
+    public string Name => "App";
+    public ScheduledTaskState? State { get; private set; } = previous;
+    public int Starts { get; private set; }
+    public int Stops { get; private set; }
+    public ScheduledTaskState? Query(CancellationToken token) => State;
+    public void Register(string? xml, CancellationToken token) => State = new(xml ?? "new", State?.Active == true);
+    public void Start(CancellationToken token) { Starts++; State = State! with { Active = true }; }
+    public void End(CancellationToken token) { Stops++; State = State! with { Active = false }; }
+    public void Delete(CancellationToken token) => State = null;
 }
 
 sealed class FixtureInstallation : IDesktopInstallation, ILoginRegistration

@@ -38,7 +38,7 @@ flowchart TD
 | --- | --- | --- |
 | 构建目标 | `osx-arm64`，已在开发实例验证 NativeAOT | `win-x64`，已在开发实例验证 NativeAOT |
 | 宿主命令 | 查询、采集管理、采集器命令转发、安装与更新 | 同 macOS；`update` 和生产实例待阶段 4 |
-| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 系统采集器、计划任务加托管进程，见 [Windows 托管](#windows-托管)；托盘和发布见 [Windows 客户端](./windows.mdx) |
+| 桌面集成 | 系统采集器、launchd 托管、菜单栏和签名发布 | 系统采集器、计划任务加托管进程（见 [Windows 托管](#windows-托管)）、托盘（见 [GUI](#gui)）；发布见 [Windows 客户端](./windows.mdx) |
 
 根目录的 `Directory.Build.props` 按目标运行时标识（RID）选择源文件。例如 `dotnet build Host/Cli -r win-x64` 编入各项目的 `Platforms/Windows/`，而 `-r osx-arm64` 编入 `Platforms/MacOS/`。省略 `-r` 时取本机 SDK 的 RID。CA1416 按目标平台检查 API，用错平台会构建失败。只属于一个平台的整个程序也按这条规则放：`Host/Platforms/<平台>/`。
 
@@ -151,12 +151,20 @@ flowchart LR
 
 菜单栏图标是吉祥物：彩色表示都在采集，带黄点表示有来源需要注意，变灰表示已停止或读不到状态；开发 app 旁边多一个 DEV 标签。窗口里有今天各来源在本机的运行时段（其他设备的副本不画）、来源汇总，以及每个来源的通道状态、最近运行和读取失败。GUI 不含采集逻辑、不读库：状态来自 `capture status --json`，时段和通道来自 `capture coverage`，启停调用 `capture start` / `capture stop`。它从自己所在的 app 找到旁边的 `orisumi` 和所属实例。退出 GUI 不影响采集。
 
+Windows 上是托盘程序 `orisumi-app.exe`（`Host/Platforms/Windows/App`），规则同上，暂时没有窗口：
+
+- 图标同菜单栏；非生产实例在左上角加靛蓝的 D，变灰时也看得清。悬停显示实例、总状态，以及放得下的需要注意的来源。
+- 左右键都弹出菜单：实例、总状态、每个来源一行、启动或重启、停止（先确认）、打开日志目录、退出。启停进行中，总状态显示正在启动或停止。
+- 状态每 30 秒、打开菜单时和系统唤醒后读一次，启停完成后重读。从 `<存储>\app\host\` 找 CLI 和实例，从检出运行时用 `--cli`、`--store` 指定。
+- 安装时注册计划任务 `\Orisumi\<实例>\App`（登录触发、`InteractiveToken`、不提权、不失败重启），任务没在运行就启动一次，从 SSH 安装也出现在桌面会话里。宿主更新后，托盘读到的宿主版本和自己不同，就启动新装的程序再退出。
+- 不并进托管进程：采集器在 `KILL_ON_JOB_CLOSE` 的 Job Object 里，托盘退出、崩溃或更新都会连带停掉采集。
+
 改界面时可以不部署：
 
 ```sh
 swift run --package-path Host/Platforms/MacOS/App OrisumiApp --cli "$HOME/Library/Application Support/Orisumi-dev/app/host/Orisumi.app/Contents/MacOS/orisumi" --store "$HOME/Library/Application Support/Orisumi-dev"
 ```
 
-`--cli`、`--store` 指定要读的宿主和实例；Windows 的 GUI 以后读同一份 JSON。
+`--cli`、`--store` 指定要读的宿主和实例。
 
 用 `ORISUMI_SNAPSHOTS=<目录> swift test --package-path Host/Platforms/MacOS/App --filter SnapshotTests` 把窗口（浅色、深色）、菜单栏图标和开发 app 图标渲染成 PNG 来看；不设这个变量时这组测试跳过。窗口会在屏幕上短暂出现，测试截的是它自己的窗口，不需要屏幕录制权限。再设 `ORISUMI_SNAPSHOT_DATA=<目录>` 会多渲染一组真实数据，目录里放 `capture status --json` 和 `capture coverage …` 的输出，分别存成 `status.json`、`coverage.json`。图标原图在仓库根目录 `Assets/`；构建从 `Host/Platforms/MacOS/App/Icon/AppIcon.png` 生成 app 图标和菜单栏用的 `Mascot.png`，开发 app 的图标由 `OrisumiApp --badge-icon` 加上角标。

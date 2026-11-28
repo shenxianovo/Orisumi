@@ -112,17 +112,17 @@ async Task CheckCaptureTask()
 {
     const int fileMissing = unchecked((int)0x80070002), pathMissing = unchecked((int)0x80070003);
     const int denied = unchecked((int)0x80070005), failed = unchecked((int)0x80004005);
-    Check(CaptureTask.Found(0) && !CaptureTask.Found(fileMissing) && !CaptureTask.Found(pathMissing), "scheduler lookup HRESULTs");
+    Check(WindowsScheduledTask.Found(0) && !WindowsScheduledTask.Found(fileMissing) && !WindowsScheduledTask.Found(pathMissing), "scheduler lookup HRESULTs");
     foreach (var hr in new[] { denied, failed })
     {
-        try { CaptureTask.Found(hr); }
+        try { WindowsScheduledTask.Found(hr); }
         catch (Exception error) when (error.HResult == hr) { continue; }
         throw new Exception($"Expected scheduler failure 0x{hr:X8}");
     }
 
     // Exercise the actual native GetFolder call without altering Task Scheduler.
     var probe = Instance.Create(Path.Combine(temp.FullName, "probe"), "test_" + Guid.NewGuid().ToString("N"));
-    Check(new CaptureTask(probe).Query(default) is null, "read-only COM lookup of an absent instance");
+    Check(WindowsScheduledTask.Capture(probe).Query(default) is null, "read-only COM lookup of an absent instance");
 
     var task = new FixtureCaptureTask(() => { host?.Dispose(); host = Start(); });
     var jobs = new WindowsCollectorJobs(instance, task);
@@ -192,14 +192,14 @@ long Count(string where)
 static string Log(string path) => JobFiles.Read(path) is { } bytes ? System.Text.Encoding.UTF8.GetString(bytes) : "";
 static void Check(bool value, string message) { if (!value) throw new Exception(message); }
 
-sealed class FixtureCaptureTask(Action start) : ICaptureTask
+sealed class FixtureCaptureTask(Action start) : IWindowsScheduledTask
 {
     public string Name => "fixture";
     public bool FailCreate { get; set; }
     public List<string> Edits { get; } = [];
     private string? xml;
 
-    public string? Query(CancellationToken token) => xml;
+    public ScheduledTaskState? Query(CancellationToken token) => xml is null ? null : new(xml, false);
     public void Register(string? definition, CancellationToken token)
     {
         Edits.Add("Register");

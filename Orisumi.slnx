@@ -7,6 +7,9 @@
     <Build Project="false" />
   </Project>
   <Project Path="Host/Cli/Orisumi.Cli.csproj" />
+  <Project Path="Host/Platforms/Windows/App/Orisumi.App.Windows.csproj">
+    <Build Project="false" />
+  </Project>
   <Project Path="Host/Platforms/Windows/Supervisor/Orisumi.Supervisor.Windows.csproj">
     <Build Project="false" />
   </Project>

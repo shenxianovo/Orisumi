@@ -4,7 +4,7 @@ using System.Runtime.InteropServices.Marshalling;
 namespace Orisumi.Desktop;
 
 // taskschd.h declares dual interfaces. The four IDispatch slots precede the typed
-// methods. Keep SDK order, including the members between calls used by CaptureTask.
+// methods. Keep SDK order, including the members between calls used by WindowsScheduledTask.
 [GeneratedComInterface(Options = ComInterfaceOptions.ComObjectWrapper)]
 [Guid("00020400-0000-0000-C000-000000000046")]
 internal partial interface ISchedulerDispatch

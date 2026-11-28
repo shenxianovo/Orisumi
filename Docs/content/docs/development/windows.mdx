@@ -1,9 +1,9 @@
 ---
 title: Windows 客户端
-description: Windows 的开发方式、已在真机核实的事实，以及托盘、发布和音视频的计划。
+description: Windows 的开发方式、已在真机核实的事实，以及发布和音视频的计划。
 ---
 
-已实现的部分见[平台](./release.mdx#平台)、[Windows 托管](./release.mdx#windows-托管)和 [Windows 来源](../capture/sources/windows.mdx)。本页其余是计划，各阶段完成后把结论移到对应页面。
+已实现的部分见[平台](./release.mdx#平台)、[Windows 托管](./release.mdx#windows-托管)、[托盘](./release.mdx#gui)和 [Windows 来源](../capture/sources/windows.mdx)。本页其余是计划，各阶段完成后把结论移到对应页面。
 
 ## 目标机器
 
@@ -40,9 +40,9 @@ description: Windows 的开发方式、已在真机核实的事实，以及托�
 
 在 `Collectors/Windows` 里只增不改地加表：音频用 WASAPI 会话（`IAudioSessionManager2`，按进程，渲染端是出声、采集端是麦克风），摄像头读 `CapabilityAccessManager\ConsentStore\webcam` 的使用时间（能知道是哪个应用在用）。都是读现值。
 
-## 托盘
+## 窗口
 
-`Host/Platforms/Windows/App`（`orisumi-app.exe`），属于宿主组件。和 macOS GUI 一样只调用同目录的 CLI，不读库、不管采集器进程。不并进托管进程：采集器在 `KILL_ON_JOB_CLOSE` 的 Job Object 里，托盘退出、崩溃或更新都会连带停掉采集。C# NativeAOT 的 WinExe，用 `Shell_NotifyIconW` 和原生菜单：总状态、各采集器状态、启停、打开日志、退出。图标规则和 macOS 菜单栏相同。窗口（今天的时间线）以后再定技术。
+托盘之外的窗口（今天的时间线）以后再定技术。托盘见 [GUI](./release.mdx#gui)。
 
 ## 阶段
 
@@ -51,7 +51,7 @@ description: Windows 的开发方式、已在真机核实的事实，以及托�
 | 0（已完成） | Windows 检出、Node 升级、跨平台测试移出 macOS 检查、`orisumi-dev check` 在 Windows 跑通 | 两个平台 `check` 全部通过，NativeAOT 无警告；`HostIdentity` 读出 SMBIOS UUID `6EE135AE-06B7-11EE-8C92-088FC3FA62F2` |
 | 1（已完成） | 托管、停止事件、Windows 安装、命令转发、`deploy`；Claude、Codex、浏览器上线 | 从 SSH `deploy` 后采集器在 session 1 运行；强杀后 10 秒内恢复；中文桌面会话里不提权 `capture stop`/`start` 正常，运行以 `completed` 结束；更新一个采集器时其余 PID 不变 |
 | 2（已完成） | `Collectors/Windows`，`day` 读 Windows | 开发实例真实运行，`day` 读出 Windows 设备；导出到 Mac 合读两台设备待做 |
-| 3 | 托盘 | 状态、启停正确；重启 `explorer.exe` 后图标恢复 |
+| 3（待人工确认） | 托盘 | 已验证：从 SSH 部署后托盘出现在桌面会话；只改宿主的部署后 25 秒内换成新程序且只有一个；重复启动不多开。待在场确认：图标和菜单的样子、从菜单启停、重启 `explorer.exe` 后图标恢复 |
 | 4 | Windows 发布与生产实例 | 发布、安装、`update` 一次 |
 | 5 | 音频和摄像头 | 只增不改地加表 |
 
@@ -63,4 +63,4 @@ description: Windows 的开发方式、已在真机核实的事实，以及托�
 | 注销与关机 | 托管进程处理 `WM_QUERYENDSESSION`，未在真机触发验证 |
 | 前台窗口刚销毁 | 读前台时窗口已没了（`win32=1400`，句柄无效）记成读取失败；应和 macOS 读不到已消失的对象一样，按消失记下，不算失败 |
 | 要人在场的系统采集验证 | 锁屏和解锁、显示器熄灭和点亮、睡眠和唤醒、提权窗口在前台时标题和输入是否读得到、商店应用的进程和 AUMID |
-| `status.json` 替换 | 别的程序不带共享删除打开它时，托管进程替换失败并退出，采集中断到计划任务 1 分钟后重启；托管进程自己没有日志 |
+| 托管进程日志 | 托管进程自己没有日志，出错退出时只能从计划任务的历史和采集器日志推断 |

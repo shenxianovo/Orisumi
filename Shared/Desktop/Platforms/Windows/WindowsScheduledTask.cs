@@ -4,22 +4,19 @@ using Orisumi.Core;
 
 namespace Orisumi.Desktop;
 
-internal interface ICaptureTask
+internal sealed partial class WindowsScheduledTask(Instance instance, string taskName, Func<string, string> definition)
+    : IWindowsScheduledTask
 {
-    string Name { get; }
-    string? Query(CancellationToken token);
-    void Register(string? xml, CancellationToken token);
-    void Start(CancellationToken token);
-    void End(CancellationToken token);
-    void Delete(CancellationToken token);
-}
+    internal static WindowsScheduledTask Capture(Instance instance) => new(instance, "Capture", sid =>
+        WindowsTaskDefinition.Capture(sid, Path.Combine(instance.Store.Host, WindowsInstallation.SupervisorExecutable),
+            instance.Store.Root).ToString());
 
-internal sealed partial class CaptureTask(Instance instance) : ICaptureTask
-{
-    private const string TaskName = "Capture";
+    internal static WindowsScheduledTask App(Instance instance) => new(instance, "App", sid =>
+        WindowsTaskDefinition.App(sid, Path.Combine(instance.Store.Host, WindowsInstallation.AppExecutable)).ToString());
+
     private const string Parent = @"\Orisumi";
     private string Folder => Parent + @"\" + instance.Name;
-    public string Name => Folder + @"\" + TaskName;
+    public string Name => Folder + @"\" + taskName;
     private const int CreateOrUpdate = 6, InteractiveToken = 3, IncludeHidden = 1;
     private const int AlreadyExists = unchecked((int)0x800700b7);
 
@@ -30,12 +27,14 @@ internal sealed partial class CaptureTask(Instance instance) : ICaptureTask
         return true;
     }
 
-    public string? Query(CancellationToken token)
+    public ScheduledTaskState? Query(CancellationToken token)
     {
         using var session = new SchedulerSession(token);
-        if (!Found(session.Service.GetFolder(Folder, out var folder)) || !Found(folder!.GetTask(TaskName, out var task)))
+        if (!Found(session.Service.GetFolder(Folder, out var folder)) || !Found(folder!.GetTask(taskName, out var task)))
             return null;
-        return task!.GetXml();
+        task!.GetState(out var state);
+        const int queued = 2, running = 4;
+        return new(task.GetXml(), state is queued or running);
     }
 
     public void Register(string? xml, CancellationToken token)
@@ -56,9 +55,7 @@ internal sealed partial class CaptureTask(Instance instance) : ICaptureTask
                     parent = CreateFolder(RequireFolder(service, @"\"), "Orisumi", default);
                 folder = CreateFolder(parent!, instance.Name, security);
             }
-            xml ??= WindowsTaskDefinition.Create(sid, Path.Combine(instance.Store.Host, WindowsInstallation.SupervisorExecutable),
-                instance.Store.Root).ToString();
-            folder!.RegisterTask(TaskName, xml, CreateOrUpdate, default, default, InteractiveToken, security);
+            folder!.RegisterTask(taskName, xml ?? definition(sid), CreateOrUpdate, default, default, InteractiveToken, security);
         }
         finally { Marshal.FreeBSTR(descriptor); }
     }
@@ -80,14 +77,14 @@ internal sealed partial class CaptureTask(Instance instance) : ICaptureTask
     {
         using var session = new SchedulerSession(token);
         if (!Found(session.Service.GetFolder(Folder, out var folder))) return;
-        Found(folder!.DeleteTask(TaskName, 0));
+        Found(folder!.DeleteTask(taskName, 0));
         if (folder.GetTasks(IncludeHidden).GetCount() == 0 && folder.GetFolders(0).GetCount() == 0)
             RequireFolder(session.Service, Parent).DeleteFolder(instance.Name, 0);
     }
 
     private IRegisteredTask RequireTask(ITaskService service)
     {
-        Marshal.ThrowExceptionForHR(RequireFolder(service, Folder).GetTask(TaskName, out var task), -1);
+        Marshal.ThrowExceptionForHR(RequireFolder(service, Folder).GetTask(taskName, out var task), -1);
         return task!;
     }
 
